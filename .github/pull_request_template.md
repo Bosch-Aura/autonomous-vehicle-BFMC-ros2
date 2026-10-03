@@ -1,3 +1,7 @@
+## Ticket de JIRA
+
+https://bosch-aura.atlassian.net/browse/A2-XX
+
 ## Qué cambia y por qué
 
 <!-- Describí qué hace este PR y la motivación detrás del cambio. -->
