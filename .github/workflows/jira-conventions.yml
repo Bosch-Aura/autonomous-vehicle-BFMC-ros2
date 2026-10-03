@@ -29,21 +29,6 @@ jobs:
           fi
           echo "✅ Nombre de rama OK: $branch"
 
-      - name: Check PR title
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        run: |
-          pattern='^A[0-9]+-[0-9]+'
-          if ! echo "$PR_TITLE" | grep -qE "$pattern"; then
-            echo "❌ El título del PR no empieza con el ticket de Jira."
-            echo ""
-            echo "   Título actual: $PR_TITLE"
-            echo "   Formato:       A<n>-<número> Descripción"
-            echo "   Ejemplo:       A2-12 Implementar seguimiento de carril"
-            exit 1
-          fi
-          echo "✅ Título del PR OK: $PR_TITLE"
-
       - name: Check commit messages
         run: |
           base="${{ github.event.pull_request.base.sha }}"
