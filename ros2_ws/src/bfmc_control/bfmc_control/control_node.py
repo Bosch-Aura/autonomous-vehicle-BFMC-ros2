@@ -1,14 +1,13 @@
 """Nodo ROS2 de bfmc_control: conecta el estado del carril con la lógica del PID."""
 from ackermann_msgs.msg import AckermannDriveStamped
+from bfmc_control.control_logic import (
+    ControlConfig, ControlLogic, LaneInput,
+)
 from bfmc_interfaces.msg import LaneState
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy
-
-from bfmc_control.control_logic import (
-    ControlConfig, ControlLogic, LaneInput,
-)
 
 PARAMETROS_DE_LA_LOGICA = (
     'kp', 'ki', 'kd', 'heading_weight_m_per_rad', 'deadband_m', 'integral_limit_rad',

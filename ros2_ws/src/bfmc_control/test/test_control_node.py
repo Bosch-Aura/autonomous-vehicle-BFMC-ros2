@@ -8,13 +8,12 @@ from pathlib import Path
 import time
 
 from ackermann_msgs.msg import AckermannDriveStamped
+from bfmc_control.control_node import ControlNode
 from bfmc_interfaces.msg import LaneState
 import pytest
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 import yaml
-
-from bfmc_control.control_node import ControlNode
 
 PARAMS = Path(__file__).resolve().parents[1] / 'config' / 'params.yaml'
 TIMEOUT_S = 5.0
