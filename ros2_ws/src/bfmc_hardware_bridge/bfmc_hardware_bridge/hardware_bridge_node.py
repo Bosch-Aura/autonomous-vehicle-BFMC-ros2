@@ -1,15 +1,14 @@
 """Nodo ROS2 de bfmc_hardware_bridge: único dueño del puerto serial."""
 from ackermann_msgs.msg import AckermannDriveStamped
+from bfmc_hardware_bridge.hardware_bridge_logic import BridgeConfig, BridgeLogic
+from bfmc_hardware_bridge.line_buffer import LineBuffer
+from bfmc_hardware_bridge.serial_port import PySerialPort
 from bfmc_interfaces.msg import HardwareStatus, SafetyStatus
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Range
-
-from bfmc_hardware_bridge.hardware_bridge_logic import BridgeConfig, BridgeLogic
-from bfmc_hardware_bridge.line_buffer import LineBuffer
-from bfmc_hardware_bridge.serial_port import PySerialPort
 
 PARAMETROS_DECIMALES = (
     'send_rate_hz', 'status_rate_hz', 'reconnect_period_s', 'link_timeout_s',

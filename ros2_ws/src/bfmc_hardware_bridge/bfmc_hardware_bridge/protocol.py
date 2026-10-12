@@ -1,6 +1,6 @@
-"""Protocolo serial Jetson <-> ESP32 (ADR-0001). Sin ROS y sin puerto serial.
+r"""Protocolo serial Jetson <-> ESP32 (ADR-0001). Sin ROS y sin puerto serial.
 
-Formato: un objeto JSON por línea, terminada en '\\n'.
+Formato: un objeto JSON por línea, terminada en '\n'.
 
     Jetson -> ESP32   {"t":"drive","seq":12,"v":250,"s":-30}   v en mm/s, s en décimas de grado
                       {"t":"brake","seq":13}

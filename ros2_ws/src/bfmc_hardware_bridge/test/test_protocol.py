@@ -1,11 +1,10 @@
 """Tests del protocolo serial Jetson <-> ESP32 (ADR-0001), sin ROS ni puerto."""
 import json
 
-import pytest
-
 from bfmc_hardware_bridge.protocol import (
     encode_brake, encode_drive, parse_line, SEQ_MAX, StatusMessage, UltraMessage,
 )
+import pytest
 
 
 # --- lo que se envía al ESP32 -------------------------------------------------------

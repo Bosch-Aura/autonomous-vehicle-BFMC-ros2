@@ -1,7 +1,6 @@
 """Tests del armado de líneas a partir de los bytes del puerto serial."""
-import pytest
-
 from bfmc_hardware_bridge.line_buffer import LineBuffer
+import pytest
 
 
 def test_una_linea_completa_se_entrega_sin_el_terminador():
