@@ -34,7 +34,9 @@ def ros():
     argumentos = ['--ros-args', '--params-file', str(PARAMS)]
     for ajuste in ACORTAR:
         argumentos += ['-p', ajuste]
-    rclpy.init(args=argumentos)
+    # Cada paquete usa su propio dominio de ROS: colcon corre los tests de varios paquetes a la
+    # vez y, en el mismo dominio, se cruzarían los mensajes de topics con el mismo nombre.
+    rclpy.init(args=argumentos, domain_id=14)
     yield
     # Se liberan los objetos de rclpy antes de cerrarlo: si el recolector los
     # liberara después, el intérprete podría terminar con un fallo de segmentación.
