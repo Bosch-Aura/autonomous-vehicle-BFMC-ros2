@@ -17,5 +17,9 @@ colcon build --symlink-install
 # de esta y harían fallar `colcon test-result` por tests que ya no existen.
 colcon test-result --delete-yes > /dev/null || true
 
+# Cargar el workspace instalado: los tests de un paquete importan a los paquetes de los
+# que depende (por ejemplo, bfmc_interfaces) y `colcon test` no los agrega al PYTHONPATH.
+source install/setup.bash
+
 colcon test
 colcon test-result --verbose
