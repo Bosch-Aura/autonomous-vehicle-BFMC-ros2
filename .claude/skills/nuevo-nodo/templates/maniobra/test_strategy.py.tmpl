@@ -1,0 +1,35 @@
+"""Tests de la maniobra @NOMBRE@: el tiempo se simula, no se espera."""
+import pytest
+
+from @PAQUETE@.strategies.@NOMBRE@ import @CLASE@Strategy
+
+
+@pytest.fixture
+def strategy():
+    strategy = @CLASE@Strategy(hold_s=3.0)
+    strategy.start(now=100.0)
+    return strategy
+
+
+def test_antes_del_tiempo_configurado_la_maniobra_sigue_en_curso(strategy):
+    assert strategy.tick(now=102.9).finished is False
+
+
+def test_al_cumplirse_el_tiempo_configurado_la_maniobra_termina(strategy):
+    assert strategy.tick(now=103.0).finished is True
+
+
+def test_durante_la_maniobra_el_auto_permanece_detenido(strategy):
+    output = strategy.tick(now=101.0).output
+    assert output.speed == 0.0
+    assert output.steering == 0.0
+
+
+def test_llamar_a_tick_sin_start_es_un_error():
+    with pytest.raises(RuntimeError):
+        @CLASE@Strategy(hold_s=3.0).tick(now=0.0)
+
+
+def test_un_tiempo_de_espera_no_positivo_se_rechaza():
+    with pytest.raises(ValueError):
+        @CLASE@Strategy(hold_s=0.0)

@@ -1,0 +1,60 @@
+"""Nodo ROS2 de @PAQUETE@: conecta mensajes con la lógica pura."""
+import rclpy
+from rclpy.node import Node
+from rclpy.parameter import Parameter
+from rclpy.qos import QoSProfile, ReliabilityPolicy
+from std_msgs.msg import Float64
+
+from @PAQUETE@.@NOMBRE@_logic import @CLASE@Config, @CLASE@Logic
+
+
+class @CLASE@Node(Node):
+    """Lee `input_topic`, aplica la lógica y publica en `output_topic`.
+
+    Todos los parámetros se declaran sin valor por defecto: los valores viven en
+    config/params.yaml y, si falta alguno, el nodo falla al arrancar con un
+    mensaje claro en lugar de usar un número escondido en el código.
+    """
+
+    def __init__(self):
+        super().__init__('@NOMBRE@')
+
+        self.declare_parameter('input_topic', Parameter.Type.STRING)
+        self.declare_parameter('output_topic', Parameter.Type.STRING)
+        self.declare_parameter('min_value', Parameter.Type.DOUBLE)
+        self.declare_parameter('max_value', Parameter.Type.DOUBLE)
+
+        self._logic = @CLASE@Logic(@CLASE@Config(
+            min_value=self.get_parameter('min_value').value,
+            max_value=self.get_parameter('max_value').value,
+        ))
+
+        qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
+        self._publisher = self.create_publisher(
+            Float64, self.get_parameter('output_topic').value, qos)
+        self._subscription = self.create_subscription(
+            Float64, self.get_parameter('input_topic').value, self._on_input, qos)
+
+        self.get_logger().info('@NOMBRE@ iniciado')
+
+    def _on_input(self, msg: Float64):
+        now = self.get_clock().now().nanoseconds / 1e9
+        out = Float64()
+        out.data = self._logic.update(msg.data, now)
+        self._publisher.publish(out)
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = @CLASE@Node()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
+
+
+if __name__ == '__main__':
+    main()

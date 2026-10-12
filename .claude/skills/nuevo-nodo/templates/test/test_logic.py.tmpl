@@ -1,0 +1,32 @@
+"""Tests de la lógica pura de @PAQUETE@: corren sin ROS y sin esperar tiempo real."""
+import pytest
+
+from @PAQUETE@.@NOMBRE@_logic import @CLASE@Config, @CLASE@Logic
+
+
+@pytest.fixture
+def logic():
+    return @CLASE@Logic(@CLASE@Config(min_value=0.0, max_value=1.0))
+
+
+def test_un_valor_dentro_del_rango_pasa_sin_cambios(logic):
+    assert logic.update(0.5, now=0.0) == 0.5
+
+
+def test_un_valor_sobre_el_maximo_se_limita_al_maximo(logic):
+    assert logic.update(7.0, now=0.0) == 1.0
+
+
+def test_un_valor_bajo_el_minimo_se_limita_al_minimo(logic):
+    assert logic.update(-3.0, now=0.0) == 0.0
+
+
+def test_se_registra_el_instante_recibido_sin_leer_el_reloj(logic):
+    assert logic.last_update is None
+    logic.update(0.5, now=123.0)
+    assert logic.last_update == 123.0
+
+
+def test_un_rango_invertido_se_rechaza_al_configurar():
+    with pytest.raises(ValueError):
+        @CLASE@Config(min_value=2.0, max_value=1.0)
