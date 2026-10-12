@@ -4,6 +4,10 @@ import time
 
 from ackermann_msgs.msg import AckermannDriveStamped
 from bfmc_interfaces.action import ManeuverExecute
+from bfmc_maneuvers.strategies.base import DriveOutput
+from bfmc_maneuvers.strategies.factory import build_strategy, ManeuverParams
+from bfmc_maneuvers.strategies.intersection import IntersectionParams, TurnPlan
+from bfmc_maneuvers.strategies.stop import StopParams
 import rclpy
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -11,11 +15,6 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy
-
-from bfmc_maneuvers.strategies.base import DriveOutput
-from bfmc_maneuvers.strategies.factory import build_strategy, ManeuverParams
-from bfmc_maneuvers.strategies.intersection import IntersectionParams, TurnPlan
-from bfmc_maneuvers.strategies.stop import StopParams
 
 PARAMETROS_TEXTO = ('action_name', 'cmd_topic', 'frame_id')
 PARAMETROS_DECIMALES = (

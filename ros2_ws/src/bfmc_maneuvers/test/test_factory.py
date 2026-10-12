@@ -1,11 +1,10 @@
 """Tests de la fábrica de estrategias."""
-import pytest
-
 from bfmc_maneuvers.strategies.factory import build_strategy, ManeuverParams
 from bfmc_maneuvers.strategies.intersection import (
     IntersectionParams, IntersectionStrategy, TurnPlan,
 )
 from bfmc_maneuvers.strategies.stop import StopParams, StopStrategy
+import pytest
 
 PARAMS = ManeuverParams(
     stop=StopParams(hold_s=3.0, exit_s=1.5, exit_speed_mps=0.25),

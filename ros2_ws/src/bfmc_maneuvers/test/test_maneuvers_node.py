@@ -11,13 +11,12 @@ import time
 from ackermann_msgs.msg import AckermannDriveStamped
 from action_msgs.msg import GoalStatus
 from bfmc_interfaces.action import ManeuverExecute
+from bfmc_maneuvers.maneuvers_node import ManeuversNode
 import pytest
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import QoSProfile, ReliabilityPolicy
-
-from bfmc_maneuvers.maneuvers_node import ManeuversNode
 
 PARAMS = Path(__file__).resolve().parents[1] / 'config' / 'params.yaml'
 TIMEOUT_S = 10.0
@@ -45,6 +44,7 @@ def ros():
 
 
 class Entorno:
+
     def __init__(self, nodo, auxiliar, executor):
         self.nodo = nodo
         self.executor = executor

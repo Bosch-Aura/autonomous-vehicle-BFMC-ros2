@@ -1,9 +1,8 @@
 """Tests de la secuencia de tramos: sin ROS y con el tiempo simulado."""
 import math
 
-import pytest
-
 from bfmc_maneuvers.strategies.legs import Leg, LegSequence, LegStrategy
+import pytest
 
 A = Leg(duration_s=1.0, speed_mps=0.5, steering_rad=0.0)
 B = Leg(duration_s=2.0, speed_mps=0.25, steering_rad=0.5)
@@ -45,14 +44,14 @@ def test_una_secuencia_vacia_termina_de_inmediato():
 # --- validación de los tramos -----------------------------------------------------------
 
 @pytest.mark.parametrize('cambio', [
-    dict(duration_s=-1.0),
-    dict(speed_mps=-0.1),
-    dict(duration_s=math.nan),
-    dict(speed_mps=math.inf),
-    dict(steering_rad=math.nan),
+    {'duration_s': -1.0},
+    {'speed_mps': -0.1},
+    {'duration_s': math.nan},
+    {'speed_mps': math.inf},
+    {'steering_rad': math.nan},
 ])
 def test_un_tramo_invalido_se_rechaza(cambio):
-    base = dict(duration_s=1.0, speed_mps=0.5, steering_rad=0.0)
+    base = {'duration_s': 1.0, 'speed_mps': 0.5, 'steering_rad': 0.0}
     with pytest.raises(ValueError):
         Leg(**{**base, **cambio})
 

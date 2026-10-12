@@ -1,7 +1,6 @@
 """Tests de la maniobra stop, con el tiempo simulado."""
-import pytest
-
 from bfmc_maneuvers.strategies.stop import StopParams, StopStrategy
+import pytest
 
 PARAMS = StopParams(hold_s=3.0, exit_s=1.5, exit_speed_mps=0.25)
 
