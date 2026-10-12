@@ -38,7 +38,9 @@ class DetectorFalso:
 
 @pytest.fixture(scope='module')
 def ros():
-    rclpy.init(args=['--ros-args', '--params-file', str(PARAMS)])
+    # Cada paquete usa su propio dominio de ROS: colcon corre los tests de varios paquetes a la
+    # vez y, en el mismo dominio, se cruzarían los mensajes de topics con el mismo nombre.
+    rclpy.init(args=['--ros-args', '--params-file', str(PARAMS)], domain_id=17)
     yield
     # Se liberan los objetos de rclpy antes de cerrarlo, para evitar un fallo de segmentación.
     gc.collect()
