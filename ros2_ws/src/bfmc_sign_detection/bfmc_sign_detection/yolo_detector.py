@@ -7,9 +7,8 @@ En la Jetson se instalan con `pip install ultralytics` (PyTorch lo trae JetPack)
 import os
 from typing import Sequence
 
-import numpy as np
-
 from bfmc_sign_detection.sign_detection_logic import RawDetection
+import numpy as np
 
 AYUDA_DE_INSTALACION = (
     'Instalá Ultralytics con "pip install ultralytics" (en la Jetson, PyTorch lo trae JetPack).')

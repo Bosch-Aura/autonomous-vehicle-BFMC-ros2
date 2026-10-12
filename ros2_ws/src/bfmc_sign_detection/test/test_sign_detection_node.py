@@ -10,15 +10,14 @@ from pathlib import Path
 import time
 
 from bfmc_interfaces.msg import SignDetectionArray
+from bfmc_sign_detection.sign_detection_logic import RawDetection
+from bfmc_sign_detection.sign_detection_node import SignDetectionNode
 import numpy as np
 import pytest
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image
-
-from bfmc_sign_detection.sign_detection_logic import RawDetection
-from bfmc_sign_detection.sign_detection_node import SignDetectionNode
 
 PARAMS = Path(__file__).resolve().parents[1] / 'config' / 'params.yaml'
 TIMEOUT_S = 5.0
@@ -29,6 +28,7 @@ RELIABLE = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
 
 
 class DetectorFalso:
+
     def __init__(self, detecciones):
         self.detecciones = detecciones
 
@@ -48,6 +48,7 @@ def ros():
 
 
 class Entorno:
+
     def __init__(self, detecciones):
         self.fabrica_llamadas = []
 
@@ -107,8 +108,11 @@ class Entorno:
                 self.executor.spin_once(timeout_sec=0.02)
 
     def _girar(self, vueltas=10):
-        """Atiende varios callbacks: cada spin_once atiende uno solo, y con dos mensajes de
-        entrada pendientes el del suscriptor de resultados quedaría sin turno."""
+        """Atiende varios callbacks seguidos.
+
+        Cada spin_once atiende uno solo, y con dos mensajes de entrada pendientes el del
+        suscriptor de resultados quedaría sin turno.
+        """
         for _ in range(vueltas):
             self.executor.spin_once(timeout_sec=0.02)
             if self.salidas:

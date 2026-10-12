@@ -1,10 +1,9 @@
 """Tests de la conversión de mensajes de imagen de color y de profundidad."""
 import math
 
+from bfmc_sign_detection.image_utils import imagen_a_bgr, profundidad_a_metros
 import numpy as np
 import pytest
-
-from bfmc_sign_detection.image_utils import imagen_a_bgr, profundidad_a_metros
 
 
 def color(alto, ancho):

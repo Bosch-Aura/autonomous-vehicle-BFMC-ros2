@@ -4,12 +4,11 @@ import io
 import json
 from pathlib import Path
 
-import pytest
-
 from bfmc_sign_detection import model_download
 from bfmc_sign_detection.model_download import (
     cargar_release, descargar_modelo, ModelDownloadError, ModelRelease, sha256_de,
 )
+import pytest
 
 CONTENIDO = b'contenido del modelo ' * 1000
 SHA = hashlib.sha256(CONTENIDO).hexdigest()
@@ -19,6 +18,7 @@ API_ASSET = 'https://api.github.com/repos/org/repo/releases/assets/7'
 
 
 class Respuesta:
+
     def __init__(self, datos):
         self._flujo = io.BytesIO(datos)
 
@@ -143,9 +143,9 @@ def test_una_falla_de_red_a_mitad_de_la_descarga_no_deja_archivos(tmp_path):
 # --- descripción del release ------------------------------------------------
 
 def test_un_release_con_datos_invalidos_se_rechaza():
-    for cambio in (dict(repository='sin_barra'), dict(tag=''), dict(asset=''),
-                   dict(sha256='abc'), dict(sha256='G' * 64), dict(sha256=SHA.upper())):
-        datos = dict(repository='org/repo', tag='v1', asset='best.pt', sha256=SHA)
+    for cambio in ({'repository': 'sin_barra'}, {'tag': ''}, {'asset': ''},
+                   {'sha256': 'abc'}, {'sha256': 'G' * 64}, {'sha256': SHA.upper()}):
+        datos = {'repository': 'org/repo', 'tag': 'v1', 'asset': 'best.pt', 'sha256': SHA}
         with pytest.raises(ValueError):
             ModelRelease(**{**datos, **cambio})
 
