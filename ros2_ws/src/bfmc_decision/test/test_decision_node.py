@@ -32,7 +32,9 @@ MANIOBRA = (0.5, -0.25)
 
 @pytest.fixture(scope='module')
 def ros():
-    rclpy.init(args=['--ros-args', '--params-file', str(PARAMS)])
+    # Cada paquete usa su propio dominio de ROS: colcon corre los tests de varios paquetes a la
+    # vez y, en el mismo dominio, se cruzarían los mensajes de topics con el mismo nombre.
+    rclpy.init(args=['--ros-args', '--params-file', str(PARAMS)], domain_id=15)
     yield
     # Se liberan los objetos de rclpy antes de cerrarlo: si el recolector los
     # liberara después, el intérprete podría terminar con un fallo de segmentación.
@@ -47,6 +49,7 @@ class Entorno:
         self.nodo = nodo
         self.executor = executor
         self._servidor = None
+        self._cerrado = False
         self.comandos = []
         self.estados = []
         self.metas = []
@@ -75,7 +78,7 @@ class Entorno:
         """Falso bfmc_maneuvers: publica el comando de maniobra durante 0.4 s y termina."""
         self.metas.append((goal_handle.request.maneuver, goal_handle.request.direction))
         fin = time.monotonic() + 0.4
-        while time.monotonic() < fin:
+        while time.monotonic() < fin and not self._cerrado:
             self.pub_maneuver_cmd.publish(_comando(*MANIOBRA))
             time.sleep(0.05)
         goal_handle.succeed()
@@ -113,6 +116,7 @@ class Entorno:
             self.pub_signs.publish(senales)
 
     def destruir(self):
+        self._cerrado = True
         if self._servidor is not None:
             self._servidor.destroy()
 
