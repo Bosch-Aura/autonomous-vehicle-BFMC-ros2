@@ -1,12 +1,11 @@
 """Nodo ROS2 de bfmc_safety: conecta el ultrasónico con la lógica de seguridad."""
 from bfmc_interfaces.msg import SafetyStatus
+from bfmc_safety.safety_logic import Reading, SafetyConfig, SafetyLogic
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Range
-
-from bfmc_safety.safety_logic import Reading, SafetyConfig, SafetyLogic
 
 
 class SafetyNode(Node):

@@ -1,19 +1,18 @@
 """Tests de la lógica de seguridad: sin ROS y con el tiempo simulado."""
 import math
 
-import pytest
-
 from bfmc_safety.safety_logic import (
     Reading, Reason, SafetyConfig, SafetyLogic,
 )
+import pytest
 
 MIN_M = 0.02
 MAX_M = 4.0
 
 
 def logica(**cambios):
-    base = dict(stop_distance_m=0.25, resume_distance_m=0.5, stale_timeout_s=0.5,
-                emergency_on_invalid=True)
+    base = {'stop_distance_m': 0.25, 'resume_distance_m': 0.5, 'stale_timeout_s': 0.5,
+            'emergency_on_invalid': True}
     return SafetyLogic(SafetyConfig(**{**base, **cambios}))
 
 
@@ -152,13 +151,13 @@ def test_los_motivos_tienen_los_valores_del_mensaje():
 # --- validación de la configuración ------------------------------------------------------------
 
 @pytest.mark.parametrize('cambio', [
-    dict(stop_distance_m=0.0),
-    dict(stop_distance_m=-0.1),
-    dict(resume_distance_m=0.25),
-    dict(resume_distance_m=0.1),
-    dict(stale_timeout_s=0.0),
+    {'stop_distance_m': 0.0},
+    {'stop_distance_m': -0.1},
+    {'resume_distance_m': 0.25},
+    {'resume_distance_m': 0.1},
+    {'stale_timeout_s': 0.0},
 ])
 def test_una_configuracion_invalida_se_rechaza(cambio):
     with pytest.raises(ValueError):
-        SafetyConfig(**{**dict(stop_distance_m=0.25, resume_distance_m=0.5,
-                               stale_timeout_s=0.5, emergency_on_invalid=True), **cambio})
+        SafetyConfig(**{**{'stop_distance_m': 0.25, 'resume_distance_m': 0.5,
+                           'stale_timeout_s': 0.5, 'emergency_on_invalid': True}, **cambio})
