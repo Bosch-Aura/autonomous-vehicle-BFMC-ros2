@@ -1,0 +1,37 @@
+name: ROS2 Tests
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup ROS2 Humble
+        uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: humble
+
+      - name: Install dependencies
+        run: |
+          source /opt/ros/humble/setup.bash
+          rosdep update
+          cd ros2_ws
+          rosdep install --from-paths src --ignore-src -r -y
+
+      - name: Build
+        run: |
+          source /opt/ros/humble/setup.bash
+          cd ros2_ws
+          colcon build --symlink-install
+
+      - name: Test
+        run: |
+          source /opt/ros/humble/setup.bash
+          cd ros2_ws
+          colcon test
+          colcon test-result --verbose

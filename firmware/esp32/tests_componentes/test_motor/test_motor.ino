@@ -3,10 +3,10 @@
   Objetivo: confirmar sentido de giro y control de velocidad
   ANTES de integrarlo a la logica de control del vehiculo.
  
-  Conexion tipica (un motor, canal A del L298N):
-    IN1 -> pin digital (ej. GPIO 26)
-    IN2 -> pin digital (ej. GPIO 27)
-    ENA -> pin PWM     (ej. GPIO 14)
+  Conexion (un motor, canal A del L298N):
+    IN1 -> pin digital (GPIO 14)
+    IN2 -> pin digital (GPIO 12)
+    ENA -> pin PWM     (GPIO 13)
     Motor -> salidas OUT1/OUT2 del L298N
     Alimentacion de motores -> fuente separada de la logica (NO el 5V del ESP32)
 */
@@ -15,7 +15,6 @@ const int PIN_IN1 = 14;
 const int PIN_IN2 = 12;
 const int PIN_ENA = 13;
  
-const int PWM_CHANNEL = 0;
 const int PWM_FREQ = 5000;
 const int PWM_RES_BITS = 8; // 0-255
  
@@ -24,8 +23,7 @@ void setup() {
   pinMode(PIN_IN1, OUTPUT);
   pinMode(PIN_IN2, OUTPUT);
  
-  ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RES_BITS);
-  ledcAttachPin(PIN_ENA, PWM_CHANNEL);
+  ledcAttach(PIN_ENA, PWM_FREQ, PWM_RES_BITS);
  
   Serial.println("Test motor iniciado.");
 }
@@ -33,19 +31,19 @@ void setup() {
 void avanzar(int velocidad) { // velocidad: 0-255
   digitalWrite(PIN_IN1, HIGH);
   digitalWrite(PIN_IN2, LOW);
-  ledcWrite(PWM_CHANNEL, velocidad);
+  ledcWrite(PIN_ENA, velocidad);
 }
  
 void retroceder(int velocidad) {
   digitalWrite(PIN_IN1, LOW);
   digitalWrite(PIN_IN2, HIGH);
-  ledcWrite(PWM_CHANNEL, velocidad);
+  ledcWrite(PIN_ENA, velocidad);
 }
  
 void frenar() {
   digitalWrite(PIN_IN1, LOW);
   digitalWrite(PIN_IN2, LOW);
-  ledcWrite(PWM_CHANNEL, 0);
+  ledcWrite(PIN_ENA, 0);
 }
  
 void loop() {

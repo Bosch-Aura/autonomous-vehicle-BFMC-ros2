@@ -1,0 +1,53 @@
+name: Jira Conventions
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check branch name
+        run: |
+          branch="${{ github.head_ref }}"
+          pattern='^(feature|fix|chore|docs|test|refactor)/A[0-9]+-[0-9]+-[a-z0-9-]+$'
+          if ! echo "$branch" | grep -qE "$pattern"; then
+            echo "❌ El nombre de la rama no sigue el formato correcto."
+            echo ""
+            echo "   Rama actual:  $branch"
+            echo "   Formato:      tipo/A<n>-<número>-descripcion"
+            echo "   Ejemplo:      feature/A2-12-seguir-carril"
+            echo ""
+            echo "   Tipos válidos: feature, fix, chore, docs, test, refactor"
+            exit 1
+          fi
+          echo "✅ Nombre de rama OK: $branch"
+
+      - name: Check commit messages
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          pattern='A[0-9]+-[0-9]+'
+
+          failed=false
+          while IFS= read -r msg; do
+            if ! echo "$msg" | grep -qE "$pattern"; then
+              echo "❌ Commit sin ticket de Jira: \"$msg\""
+              failed=true
+            fi
+          done < <(git log --no-merges --format="%s" "$base..$head")
+
+          if [ "$failed" = "true" ]; then
+            echo ""
+            echo "   Cada commit debe incluir el ticket en el mensaje."
+            echo "   Formato:  A<n>-<número>: descripción"
+            echo "   Ejemplo:  A2-12: agregar nodo de seguimiento de carril"
+            exit 1
+          fi
+          echo "✅ Todos los commits incluyen el ticket de Jira"
