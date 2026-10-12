@@ -1,0 +1,30 @@
+# Entorno de desarrollo y verificación con Docker (ROS2 Humble).
+#   docker compose run --rm test   compila y testea el workspace, como el CI
+#   docker compose run --rm dev    abre una consola dentro del contenedor
+x-ros: &ros
+  build: ./docker
+  image: bfmc-ros2:humble
+  working_dir: /workspace
+  volumes:
+    - .:/workspace
+    # La salida de colcon vive en volúmenes de Docker: evita ensuciar el repo
+    # y es mucho más rápida que un bind mount en Windows y macOS.
+    - ros2_build:/workspace/ros2_ws/build
+    - ros2_install:/workspace/ros2_ws/install
+    - ros2_log:/workspace/ros2_ws/log
+
+services:
+  test:
+    <<: *ros
+    command: bash docker/test.sh
+
+  dev:
+    <<: *ros
+    command: bash
+    stdin_open: true
+    tty: true
+
+volumes:
+  ros2_build:
+  ros2_install:
+  ros2_log:

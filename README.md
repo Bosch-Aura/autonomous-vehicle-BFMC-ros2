@@ -31,6 +31,26 @@ rosdep install --from-paths src --ignore-src -r -y
 
 ## Cómo correr los tests
 
+### Con Docker (cualquier sistema operativo)
+
+Requiere [Docker](https://docs.docker.com/get-docker/) con `docker compose`. Instala dependencias, compila y testea con los mismos pasos que el CI:
+
+```bash
+docker compose run --rm test
+```
+
+Para abrir una consola dentro del contenedor (ROS2 Humble ya cargado) y trabajar a mano:
+
+```bash
+docker compose run --rm dev
+```
+
+La primera vez descarga la imagen de ROS2 y tarda unos minutos. La salida de `colcon` queda en volúmenes de Docker, no en tu carpeta. Para empezar de cero: `docker compose down -v`.
+
+El contenedor no accede al puerto serial ni a la cámara: sirve para compilar y testear, no para probar en el auto.
+
+### En una máquina con ROS2 Humble (Ubuntu 22.04)
+
 ```bash
 cd ros2_ws
 source /opt/ros/humble/setup.bash
