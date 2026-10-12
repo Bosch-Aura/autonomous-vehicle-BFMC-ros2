@@ -9,14 +9,13 @@ from pathlib import Path
 import time
 
 from bfmc_interfaces.msg import SafetyStatus
+from bfmc_safety.safety_logic import Reason
+from bfmc_safety.safety_node import SafetyNode
 import pytest
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Range
-
-from bfmc_safety.safety_logic import Reason
-from bfmc_safety.safety_node import SafetyNode
 
 PARAMS = Path(__file__).resolve().parents[1] / 'config' / 'params.yaml'
 TIMEOUT_S = 5.0
