@@ -1,0 +1,65 @@
+"""Tests del nodo @NOMBRE@: verifican la conexión entre mensajes y lógica.
+
+Usan los parámetros reales de config/params.yaml, así el test falla si el YAML
+y el código se desincronizan. Esperan mensajes reales, por eso tienen un tope de
+tiempo; la lógica de fondo se prueba aparte, sin ROS, en test_@NOMBRE@_logic.py.
+"""
+from pathlib import Path
+import time
+
+import pytest
+import rclpy
+from rclpy.executors import SingleThreadedExecutor
+from std_msgs.msg import Float64
+
+from @PAQUETE@.@NOMBRE@_node import @CLASE@Node
+
+PARAMS = Path(__file__).resolve().parents[1] / 'config' / 'params.yaml'
+TIMEOUT_S = 5.0
+
+
+@pytest.fixture(scope='module')
+def ros():
+    rclpy.init(args=['--ros-args', '--params-file', str(PARAMS)])
+    yield
+    rclpy.shutdown()
+
+
+@pytest.fixture
+def nodes(ros):
+    node = @CLASE@Node()
+    helper = rclpy.create_node('helper_@NOMBRE@')
+    executor = SingleThreadedExecutor()
+    executor.add_node(node)
+    executor.add_node(helper)
+    yield node, helper, executor
+    executor.shutdown()
+    node.destroy_node()
+    helper.destroy_node()
+
+
+def _publicar_y_esperar_salida(nodes, valor):
+    node, helper, executor = nodes
+    recibidos = []
+    helper.create_subscription(
+        Float64, node.get_parameter('output_topic').value,
+        lambda msg: recibidos.append(msg.data), 10)
+    publisher = helper.create_publisher(
+        Float64, node.get_parameter('input_topic').value, 10)
+
+    limite = time.monotonic() + TIMEOUT_S
+    while not recibidos and time.monotonic() < limite:
+        publisher.publish(Float64(data=valor))
+        executor.spin_once(timeout_sec=0.1)
+    return recibidos[0] if recibidos else None
+
+
+def test_el_nodo_se_crea_con_el_nombre_del_entry_point(nodes):
+    node, _, _ = nodes
+    assert node.get_name() == '@NOMBRE@'
+
+
+def test_un_valor_sobre_el_maximo_sale_limitado_al_maximo(nodes):
+    node, _, _ = nodes
+    maximo = node.get_parameter('max_value').value
+    assert _publicar_y_esperar_salida(nodes, maximo + 10.0) == maximo

@@ -1,0 +1,50 @@
+"""Lógica pura de @PAQUETE@: sin ROS ni hardware, para testearla de forma aislada.
+
+@DESCRIPCION@
+
+El esqueleto trae un ejemplo mínimo (limita un valor a un rango) que muestra el
+patrón: configuración inmutable, estado privado y tiempo recibido como argumento.
+Reemplazalo por la lógica real del nodo manteniendo esa forma.
+"""
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class @CLASE@Config:
+    """Parámetros de la lógica. Sus valores vienen de config/params.yaml."""
+
+    min_value: float
+    max_value: float
+
+    def __post_init__(self):
+        if self.min_value > self.max_value:
+            raise ValueError(
+                'min_value (%s) no puede ser mayor que max_value (%s)'
+                % (self.min_value, self.max_value))
+
+
+class @CLASE@Logic:
+    """Limita cada valor recibido al rango configurado."""
+
+    def __init__(self, config: @CLASE@Config):
+        self._config = config
+        self._last_update = None
+
+    @property
+    def last_update(self):
+        """Instante, en segundos, de la última actualización (None si no hubo)."""
+        return self._last_update
+
+    def update(self, value: float, now: float) -> float:
+        """Procesa un valor de entrada.
+
+        Args:
+            value: valor recibido.
+            now: instante actual en segundos. Lo provee quien llama, así el tiempo
+                se puede simular en los tests sin esperar de verdad.
+
+        Returns:
+            El valor limitado a [min_value, max_value].
+        """
+        self._last_update = now
+        return max(self._config.min_value, min(self._config.max_value, value))

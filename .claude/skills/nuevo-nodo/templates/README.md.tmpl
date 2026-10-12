@@ -1,0 +1,56 @@
+# @PAQUETE@
+
+@DESCRIPCION@
+
+## Responsabilidad
+
+Una frase: qué hace este nodo y qué NO hace.
+
+## Topics
+
+| Dirección | Parámetro | Valor por defecto | Tipo | Descripción |
+|---|---|---|---|---|
+| Se suscribe | `input_topic` | `entrada` | `std_msgs/Float64` | Valor a procesar. |
+| Publica | `output_topic` | `salida` | `std_msgs/Float64` | Valor limitado al rango. |
+
+## Parámetros
+
+Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores por defecto en el código: si falta uno, falla al arrancar.
+
+| Parámetro | Tipo | Unidad | Descripción |
+|---|---|---|---|
+| `input_topic` | string | — | Topic del que lee. |
+| `output_topic` | string | — | Topic en el que publica. |
+| `min_value` | double | — | Límite inferior de la salida. |
+| `max_value` | double | — | Límite superior de la salida. |
+
+## Cómo probarlo
+
+Con Docker, desde la raíz del repositorio:
+
+```bash
+docker compose run --rm test
+```
+
+Para correr solo este paquete dentro del contenedor (`docker compose run --rm dev`):
+
+```bash
+cd ros2_ws
+colcon build --symlink-install --packages-select @PAQUETE@
+colcon test --packages-select @PAQUETE@ --event-handlers console_direct+
+```
+
+Para lanzar el nodo con sus parámetros:
+
+```bash
+source install/setup.bash
+ros2 launch @PAQUETE@ @NOMBRE@.launch.py
+```
+
+## Estructura
+
+- `@PAQUETE@/@NOMBRE@_logic.py`: lógica pura, sin ROS. El tiempo entra como argumento.
+- `@PAQUETE@/@NOMBRE@_node.py`: conecta mensajes con la lógica.
+- `config/params.yaml`: parámetros.
+- `launch/@NOMBRE@.launch.py`: arranca el nodo con sus parámetros.
+- `test/`: tests de la lógica, del nodo y de estilo.

@@ -1,0 +1,27 @@
+"""Maniobra @NOMBRE@.
+
+El esqueleto trae un ejemplo mínimo (mantener el auto detenido un tiempo y
+terminar) que muestra el patrón. Reemplazá `tick` por la secuencia real de la
+maniobra, manteniendo que el tiempo llega siempre como argumento.
+"""
+from .base import DriveOutput, ManeuverStrategy, StrategyStep
+
+
+class @CLASE@Strategy(ManeuverStrategy):
+    """Mantiene el auto detenido durante `hold_s` segundos y termina."""
+
+    def __init__(self, hold_s: float):
+        if hold_s <= 0.0:
+            raise ValueError('hold_s debe ser positivo, recibido: %s' % hold_s)
+        self._hold_s = hold_s
+        self._started_at = None
+
+    def start(self, now: float) -> None:
+        self._started_at = now
+
+    def tick(self, now: float) -> StrategyStep:
+        if self._started_at is None:
+            raise RuntimeError('tick() se llamó antes de start()')
+        finished = (now - self._started_at) >= self._hold_s
+        return StrategyStep(
+            output=DriveOutput(speed=0.0, steering=0.0), finished=finished)
