@@ -1,9 +1,8 @@
 """Tests de la maniobra de intersección, con el tiempo simulado."""
-import pytest
-
 from bfmc_maneuvers.strategies.intersection import (
     IntersectionParams, IntersectionStrategy, TurnPlan,
 )
+import pytest
 
 PARAMS = IntersectionParams(
     speed_mps=0.25, straight_s=3.0,
