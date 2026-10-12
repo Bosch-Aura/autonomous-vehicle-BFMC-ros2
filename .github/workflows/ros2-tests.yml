@@ -35,3 +35,12 @@ jobs:
           cd ros2_ws
           colcon test
           colcon test-result --verbose
+
+  firmware-host:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tests del firmware del ESP32 en la computadora
+        run: bash firmware/esp32/tests_host/run_tests.sh
