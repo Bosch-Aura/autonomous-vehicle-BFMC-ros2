@@ -15,8 +15,11 @@ def linea(imagen, desde, hasta, grosor=6, color=BLANCO):
 
 
 def carril_cenital(ancho, alto, x_izquierda, x_derecha, desvio_arriba=0, grosor=8):
-    """Vista cenital con dos líneas. `desvio_arriba` corre el extremo superior de ambas en
-    píxeles hacia la derecha: un valor positivo es un carril que sigue hacia la derecha."""
+    """Dibuja una vista cenital con dos líneas.
+
+    `desvio_arriba` corre el extremo superior de ambas en píxeles hacia la derecha: un
+    valor positivo es un carril que sigue hacia la derecha.
+    """
     imagen = lienzo(ancho, alto)
     for x in (x_izquierda, x_derecha):
         if x is not None:

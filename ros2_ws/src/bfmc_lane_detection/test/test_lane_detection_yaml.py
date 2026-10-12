@@ -10,11 +10,10 @@ se sabe con imágenes de la pista.
 """
 from pathlib import Path
 
+from bfmc_lane_detection.lane_detection_logic import LaneConfig, LaneDetector
 import pytest
 from synthetic_lanes import a_vista_de_camara, carril_cenital, lienzo, linea
 import yaml
-
-from bfmc_lane_detection.lane_detection_logic import LaneConfig, LaneDetector
 
 PARAMS = Path(__file__).resolve().parents[1] / 'config' / 'params.yaml'
 CAMARA_ANCHO = 640
@@ -30,7 +29,7 @@ def parametros():
 
 @pytest.fixture(scope='module')
 def detector(parametros):
-    claves = [k for k in LaneConfig.__dataclass_fields__]
+    claves = list(LaneConfig.__dataclass_fields__)
     return LaneDetector(LaneConfig(**{k: parametros[k] for k in claves}))
 
 

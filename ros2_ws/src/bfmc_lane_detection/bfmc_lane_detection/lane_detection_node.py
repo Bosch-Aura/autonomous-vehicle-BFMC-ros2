@@ -1,13 +1,12 @@
 """Nodo ROS2 de bfmc_lane_detection: convierte las imágenes de la cámara en LaneState."""
 from bfmc_interfaces.msg import LaneState
+from bfmc_lane_detection.image_utils import imagen_a_bgr
+from bfmc_lane_detection.lane_detection_logic import LaneConfig, LaneDetector
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image
-
-from bfmc_lane_detection.image_utils import imagen_a_bgr
-from bfmc_lane_detection.lane_detection_logic import LaneConfig, LaneDetector
 
 PARAMETROS_TEXTO = ('image_topic', 'lane_topic')
 PARAMETROS_ENTEROS = (
