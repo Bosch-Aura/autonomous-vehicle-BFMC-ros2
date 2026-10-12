@@ -1,12 +1,11 @@
 """Tests de la lógica de señales con un detector falso: no necesitan el modelo ni YOLO."""
 import math
 
-import numpy as np
-import pytest
-
 from bfmc_sign_detection.sign_detection_logic import (
     parse_class_map, RawDetection, SignConfig, SignProcessor,
 )
+import numpy as np
+import pytest
 
 ANCHO = 200
 ALTO = 100
@@ -14,6 +13,7 @@ MAPA = {'stop': 'stop', 'onewayroad': 'one_way', 'priority': 'priority'}
 
 
 class DetectorFalso:
+
     def __init__(self, detecciones):
         self.detecciones = detecciones
 
@@ -22,8 +22,8 @@ class DetectorFalso:
 
 
 def configuracion(**cambios):
-    base = dict(class_map=MAPA, min_confidence=0.5, depth_window_fraction=0.5,
-                min_depth_m=0.2, max_depth_m=6.0, min_depth_pixels=10)
+    base = {'class_map': MAPA, 'min_confidence': 0.5, 'depth_window_fraction': 0.5,
+            'min_depth_m': 0.2, 'max_depth_m': 6.0, 'min_depth_pixels': 10}
     return SignConfig(**{**base, **cambios})
 
 
@@ -144,8 +144,11 @@ def test_una_ventana_mas_grande_incluye_el_borde_de_la_caja():
 
 
 def test_una_profundidad_de_otra_resolucion_escala_las_cajas():
-    """La profundidad tiene la mitad de resolución. Solo el lugar donde cae el centro de
-    la caja (100, 50) escalado a (50, 25) vale 3 m; el resto vale 1 m."""
+    """Las cajas se escalan cuando la profundidad tiene otra resolución.
+
+    La profundidad tiene la mitad de resolución. Solo el lugar donde cae el centro de
+    la caja (100, 50) escalado a (50, 25) vale 3 m; el resto vale 1 m.
+    """
     mapa = profundidad(1.0, alto=ALTO // 2, ancho=ANCHO // 2)
     mapa[20:30, 45:55] = 3.0
     senal, = procesar([stop()], mapa)
@@ -183,13 +186,13 @@ def test_una_entrada_invalida_del_mapa_se_rechaza(entradas):
 # --- validación de la configuración -----------------------------------------
 
 @pytest.mark.parametrize('cambio', [
-    dict(class_map={}),
-    dict(min_confidence=1.5),
-    dict(depth_window_fraction=0.0),
-    dict(depth_window_fraction=1.5),
-    dict(min_depth_m=6.0),
-    dict(min_depth_m=-1.0),
-    dict(min_depth_pixels=0),
+    {'class_map': {}},
+    {'min_confidence': 1.5},
+    {'depth_window_fraction': 0.0},
+    {'depth_window_fraction': 1.5},
+    {'min_depth_m': 6.0},
+    {'min_depth_m': -1.0},
+    {'min_depth_pixels': 0},
 ])
 def test_una_configuracion_invalida_se_rechaza(cambio):
     with pytest.raises(ValueError):

@@ -1,16 +1,15 @@
 """Nodo ROS2 de bfmc_sign_detection: detecta señales y estima su distancia."""
 from bfmc_interfaces.msg import SignDetection, SignDetectionArray
-import rclpy
-from rclpy.node import Node
-from rclpy.parameter import Parameter
-from rclpy.qos import QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import Image
-
 from bfmc_sign_detection.image_utils import imagen_a_bgr, profundidad_a_metros
 from bfmc_sign_detection.sign_detection_logic import (
     parse_class_map, SignConfig, SignProcessor,
 )
 from bfmc_sign_detection.yolo_detector import crear_detector_yolo
+import rclpy
+from rclpy.node import Node
+from rclpy.parameter import Parameter
+from rclpy.qos import QoSProfile, ReliabilityPolicy
+from sensor_msgs.msg import Image
 
 PARAMETROS_TEXTO = ('color_topic', 'depth_topic', 'signs_topic', 'model_path', 'device')
 PARAMETROS_DECIMALES = (

@@ -6,11 +6,10 @@ verificar al ejecutar `descargar_modelo`, que rechaza un archivo con otro checks
 """
 from pathlib import Path
 
-import pytest
-import yaml
-
 from bfmc_sign_detection.model_download import cargar_release
 from bfmc_sign_detection.sign_detection_logic import parse_class_map
+import pytest
+import yaml
 
 CONFIG = Path(__file__).resolve().parents[1] / 'config'
 

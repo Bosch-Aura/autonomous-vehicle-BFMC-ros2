@@ -7,10 +7,9 @@ señales solo se comprueba en la Jetson, con el modelo descargado.
 import sys
 import types
 
+from bfmc_sign_detection.yolo_detector import crear_detector_yolo, YoloDetector
 import numpy as np
 import pytest
-
-from bfmc_sign_detection.yolo_detector import crear_detector_yolo, YoloDetector
 
 
 class Lista:
@@ -24,22 +23,25 @@ class Lista:
 
 
 class ResultadoFalso:
+
     names = {0: 'stop', 1: 'priority'}
 
     class boxes:
+
         xyxy = Lista([[10.5, 20.0, 60.0, 80.0], [100.0, 30.0, 140.0, 90.0]])
         conf = Lista([0.91, 0.55])
         cls = Lista([0.0, 1.0])
 
 
 class YoloFalso:
+
     llamadas = []
 
     def __init__(self, ruta):
         self.ruta = ruta
 
     def predict(self, imagen, conf, device, verbose):
-        YoloFalso.llamadas.append(dict(conf=conf, device=device, verbose=verbose))
+        YoloFalso.llamadas.append({'conf': conf, 'device': device, 'verbose': verbose})
         return [ResultadoFalso()]
 
 
@@ -69,7 +71,7 @@ def test_las_detecciones_del_modelo_se_traducen_al_formato_de_la_logica(
 
 def test_el_umbral_y_el_dispositivo_se_pasan_al_modelo(ultralytics_falso, modelo):
     YoloDetector(modelo, 'cuda', 0.3).detect(np.zeros((10, 10, 3), np.uint8))
-    assert YoloFalso.llamadas == [dict(conf=0.3, device='cuda', verbose=False)]
+    assert YoloFalso.llamadas == [{'conf': 0.3, 'device': 'cuda', 'verbose': False}]
 
 
 def test_un_dispositivo_vacio_deja_que_ultralytics_elija(ultralytics_falso, modelo):
