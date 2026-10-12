@@ -1,0 +1,16 @@
+# Pedido de bfmc_decision a bfmc_maneuvers para ejecutar una maniobra puntual.
+
+# Meta
+# Nombre de la maniobra: "stop" o "intersection".
+string maneuver
+# Solo para "intersection": "left", "right" o "straight". Vacío en otro caso.
+string direction
+---
+# Resultado
+bool success
+# Explica el resultado, por ejemplo por qué se rechazó o se canceló.
+string message
+---
+# Realimentación
+# Segundos transcurridos desde que empezó la maniobra.
+float32 elapsed_s
