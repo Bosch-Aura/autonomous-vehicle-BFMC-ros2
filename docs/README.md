@@ -2,6 +2,12 @@
 
 Documentación del proyecto AURA — Bosch Future Mobility Challenge.
 
+## Índice
+
+- [`ARQUITECTURA.md`](ARQUITECTURA.md): arquitectura del sistema, paquetes, topics y reglas de diseño.
+- [`adr/`](adr/): decisiones de arquitectura numeradas.
+  - [ADR-0001](adr/0001-hardware-de-control-y-protocolo-serial.md): hardware de control y protocolo serial Jetson ↔ ESP32.
+
 ## Qué va acá
 
 - Arquitectura del sistema (diagrama de nodos ROS2, flujo de datos)
