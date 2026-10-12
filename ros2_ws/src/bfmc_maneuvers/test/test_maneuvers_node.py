@@ -4,6 +4,7 @@ Usan los parámetros reales de config/params.yaml, con los tiempos acortados par
 que el test no dure segundos. Las secuencias de cada maniobra se prueban aparte,
 sin ROS, en test_stop_strategy.py y test_intersection_strategy.py.
 """
+import gc
 from pathlib import Path
 import time
 
@@ -35,6 +36,9 @@ def ros():
         argumentos += ['-p', ajuste]
     rclpy.init(args=argumentos)
     yield
+    # Se liberan los objetos de rclpy antes de cerrarlo: si el recolector los
+    # liberara después, el intérprete podría terminar con un fallo de segmentación.
+    gc.collect()
     rclpy.shutdown()
 
 
@@ -74,8 +78,10 @@ def entorno(ros):
     executor = MultiThreadedExecutor(num_threads=4)
     executor.add_node(nodo)
     executor.add_node(auxiliar)
-    yield Entorno(nodo, auxiliar, executor)
+    contexto = Entorno(nodo, auxiliar, executor)
+    yield contexto
     executor.shutdown()
+    contexto.cliente.destroy()
     nodo.destroy_node()
     auxiliar.destroy_node()
 

@@ -146,6 +146,12 @@ class ManeuversNode(Node):
             with self._lock:
                 self._active = False
 
+    def destroy_node(self):
+        # El servidor de la acción se destruye de forma explícita: si se dejara para el
+        # recolector de basura, podría liberarse después de cerrar rclpy y fallar.
+        self._server.destroy()
+        super().destroy_node()
+
     def _publicar(self, salida: DriveOutput):
         comando = AckermannDriveStamped()
         comando.header.stamp = self.get_clock().now().to_msg()
