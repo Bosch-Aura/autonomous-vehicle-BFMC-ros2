@@ -63,8 +63,10 @@ def parametros_del_yaml():
 @pytest.fixture(scope='module')
 def ros():
     # Se acorta la espera de reconexión para no hacer lento el test de caída del puerto.
+    # Cada paquete usa su propio dominio de ROS: colcon corre los tests de varios paquetes a la
+    # vez y, en el mismo dominio, se cruzarían los mensajes de topics con el mismo nombre.
     rclpy.init(args=['--ros-args', '--params-file', str(PARAMS),
-                     '-p', 'reconnect_period_s:=0.1'])
+                     '-p', 'reconnect_period_s:=0.1'], domain_id=13)
     yield
     rclpy.shutdown()
 
