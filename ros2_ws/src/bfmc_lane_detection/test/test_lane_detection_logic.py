@@ -8,11 +8,10 @@ Escala: 100 px = 0,4 m en ambos ejes, es decir 0,004 m por píxel.
 """
 import math
 
+from bfmc_lane_detection.lane_detection_logic import LaneConfig, LaneDetector
 import numpy as np
 import pytest
 from synthetic_lanes import carril_cenital, lienzo, linea
-
-from bfmc_lane_detection.lane_detection_logic import LaneConfig, LaneDetector
 
 ANCHO = 200
 ALTO = 200
@@ -20,15 +19,15 @@ M_POR_PX = 0.004
 
 
 def configuracion(**cambios):
-    base = dict(
-        white_hsv_min=(0, 0, 200), white_hsv_max=(179, 60, 255), morph_kernel_px=1,
-        roi_top_fraction=0.0, warp_src=(0, 0, 1, 0, 1, 1, 0, 1),
-        warp_width=ANCHO, warp_height=ALTO, lane_width_m=0.4, lane_width_px=100.0,
-        forward_range_m=0.8, n_windows=8, window_margin_px=20, min_pixels=30,
-        reference_row_fraction=0.0, full_confidence_pixels=1000,
-        intersection_band_top_fraction=0.5, intersection_row_fraction=0.6,
-        intersection_min_rows=5,
-    )
+    base = {
+        'white_hsv_min': (0, 0, 200), 'white_hsv_max': (179, 60, 255), 'morph_kernel_px': 1,
+        'roi_top_fraction': 0.0, 'warp_src': (0, 0, 1, 0, 1, 1, 0, 1),
+        'warp_width': ANCHO, 'warp_height': ALTO, 'lane_width_m': 0.4, 'lane_width_px': 100.0,
+        'forward_range_m': 0.8, 'n_windows': 8, 'window_margin_px': 20, 'min_pixels': 30,
+        'reference_row_fraction': 0.0, 'full_confidence_pixels': 1000,
+        'intersection_band_top_fraction': 0.5, 'intersection_row_fraction': 0.6,
+        'intersection_min_rows': 5,
+    }
     return LaneConfig(**{**base, **cambios})
 
 
@@ -144,8 +143,11 @@ def test_las_lineas_poco_brillantes_se_ignoran():
 
 
 def test_la_region_de_interes_descarta_la_parte_alta_de_la_imagen():
-    """Con las líneas a lo largo de toda la imagen, descartar el 90 % de arriba deja muy
-    pocos píxeles y la línea ya no alcanza el mínimo; sin descartar nada sí se detecta."""
+    """La región de interés descarta la parte alta de la imagen.
+
+    Con las líneas a lo largo de toda la imagen, descartar el 90 % de arriba deja muy
+    pocos píxeles y la línea ya no alcanza el mínimo; sin descartar nada sí se detecta.
+    """
     imagen = carril_cenital(ANCHO, ALTO, 50, 150)
     assert detectar(imagen, roi_top_fraction=0.0, min_pixels=90).detected is True
     assert detectar(imagen, roi_top_fraction=0.9, min_pixels=90).detected is False
@@ -196,21 +198,21 @@ def test_la_matriz_de_perspectiva_se_calcula_una_sola_vez_por_tamano():
 
 
 @pytest.mark.parametrize('cambio', [
-    dict(white_hsv_min=(0, 0)),
-    dict(white_hsv_min=(0, 0, 250), white_hsv_max=(179, 60, 200)),
-    dict(morph_kernel_px=0),
-    dict(roi_top_fraction=1.0),
-    dict(warp_src=(0, 0, 1, 0)),
-    dict(warp_src=(0, 0, 1, 0, 1, 1, 0, 2)),
-    dict(warp_width=1),
-    dict(lane_width_m=0.0),
-    dict(forward_range_m=-1.0),
-    dict(n_windows=0),
-    dict(min_pixels=0),
-    dict(reference_row_fraction=1.0),
-    dict(full_confidence_pixels=0),
-    dict(intersection_row_fraction=0.0),
-    dict(intersection_min_rows=0),
+    {'white_hsv_min': (0, 0)},
+    {'white_hsv_min': (0, 0, 250), 'white_hsv_max': (179, 60, 200)},
+    {'morph_kernel_px': 0},
+    {'roi_top_fraction': 1.0},
+    {'warp_src': (0, 0, 1, 0)},
+    {'warp_src': (0, 0, 1, 0, 1, 1, 0, 2)},
+    {'warp_width': 1},
+    {'lane_width_m': 0.0},
+    {'forward_range_m': -1.0},
+    {'n_windows': 0},
+    {'min_pixels': 0},
+    {'reference_row_fraction': 1.0},
+    {'full_confidence_pixels': 0},
+    {'intersection_row_fraction': 0.0},
+    {'intersection_min_rows': 0},
 ])
 def test_una_configuracion_invalida_se_rechaza(cambio):
     with pytest.raises(ValueError):

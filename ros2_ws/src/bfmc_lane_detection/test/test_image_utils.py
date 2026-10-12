@@ -1,8 +1,7 @@
 """Tests de la conversión de mensajes de imagen a arreglos BGR."""
+from bfmc_lane_detection.image_utils import imagen_a_bgr
 import numpy as np
 import pytest
-
-from bfmc_lane_detection.image_utils import imagen_a_bgr
 
 
 def pixeles(alto, ancho):

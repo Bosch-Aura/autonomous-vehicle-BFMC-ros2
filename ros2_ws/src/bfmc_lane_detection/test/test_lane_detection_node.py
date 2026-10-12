@@ -9,6 +9,8 @@ from pathlib import Path
 import time
 
 from bfmc_interfaces.msg import LaneState
+from bfmc_lane_detection.lane_detection_logic import LaneConfig, LaneDetector
+from bfmc_lane_detection.lane_detection_node import LaneDetectionNode
 import pytest
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
@@ -16,9 +18,6 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image
 from synthetic_lanes import a_vista_de_camara, carril_cenital, lienzo
 import yaml
-
-from bfmc_lane_detection.lane_detection_logic import LaneConfig, LaneDetector
-from bfmc_lane_detection.lane_detection_node import LaneDetectionNode
 
 PARAMS = Path(__file__).resolve().parents[1] / 'config' / 'params.yaml'
 TIMEOUT_S = 5.0
