@@ -39,6 +39,16 @@ colcon test
 colcon test-result --verbose
 ```
 
+## Cómo subir firmware al ESP32
+
+```bash
+cd firmware/esp32
+./flash.sh               # sube main/main.ino
+./flash.sh test_motor    # sube un sketch de prueba
+```
+
+Más detalles en [`firmware/esp32/README.md`](firmware/esp32/README.md).
+
 ## Flujo de trabajo
 
 1. Crear rama desde `main` con el formato `tipo/A<n>-<número>-descripcion`
