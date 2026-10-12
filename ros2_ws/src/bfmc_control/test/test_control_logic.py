@@ -1,17 +1,16 @@
 """Tests de la lógica del control: sin ROS y con el tiempo simulado."""
-import pytest
-
 from bfmc_control.control_logic import (
     ControlConfig, ControlLogic, LaneInput,
 )
+import pytest
 
 # Configuración neutra: cada test cambia solo lo que quiere probar.
-BASE = dict(
-    kp=1.0, ki=0.0, kd=0.0, heading_weight_m_per_rad=0.0, deadband_m=0.0,
-    integral_limit_rad=1.0, max_steer_rad=0.5, max_steer_rate_rad_s=1000.0,
-    filter_alpha=1.0, min_confidence=0.5, cruise_speed_mps=1.0,
-    lost_speed_factor=0.5, slowdown_gain=0.0, max_dt_s=1.0,
-)
+BASE = {
+    'kp': 1.0, 'ki': 0.0, 'kd': 0.0, 'heading_weight_m_per_rad': 0.0, 'deadband_m': 0.0,
+    'integral_limit_rad': 1.0, 'max_steer_rad': 0.5, 'max_steer_rate_rad_s': 1000.0,
+    'filter_alpha': 1.0, 'min_confidence': 0.5, 'cruise_speed_mps': 1.0,
+    'lost_speed_factor': 0.5, 'slowdown_gain': 0.0, 'max_dt_s': 1.0,
+}
 
 
 def logica(**cambios):
@@ -157,18 +156,18 @@ def test_al_girar_al_maximo_la_velocidad_baja_segun_la_ganancia():
 # --- validación de la configuración ---------------------------------------------------
 
 @pytest.mark.parametrize('cambio', [
-    dict(kp=-1.0),
-    dict(ki=-0.1),
-    dict(kd=-0.1),
-    dict(max_steer_rad=0.0),
-    dict(max_steer_rate_rad_s=0.0),
-    dict(filter_alpha=0.0),
-    dict(filter_alpha=1.5),
-    dict(min_confidence=1.5),
-    dict(lost_speed_factor=1.5),
-    dict(slowdown_gain=1.0),
-    dict(max_dt_s=0.0),
-    dict(cruise_speed_mps=-1.0),
+    {'kp': -1.0},
+    {'ki': -0.1},
+    {'kd': -0.1},
+    {'max_steer_rad': 0.0},
+    {'max_steer_rate_rad_s': 0.0},
+    {'filter_alpha': 0.0},
+    {'filter_alpha': 1.5},
+    {'min_confidence': 1.5},
+    {'lost_speed_factor': 1.5},
+    {'slowdown_gain': 1.0},
+    {'max_dt_s': 0.0},
+    {'cruise_speed_mps': -1.0},
 ])
 def test_una_configuracion_invalida_se_rechaza(cambio):
     with pytest.raises(ValueError):
