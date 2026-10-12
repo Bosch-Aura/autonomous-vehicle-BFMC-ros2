@@ -33,5 +33,12 @@ jobs:
         run: |
           source /opt/ros/humble/setup.bash
           cd ros2_ws
+          echo "=== ENTORNO"; env | sort | grep -E 'PYTHON|AMENT|COLCON|CMAKE_PREFIX|LD_LIBRARY|^USER|^HOME'; id
+          echo "=== INSTALL de bfmc_interfaces"; find install/bfmc_interfaces -maxdepth 6 -name '*.dsv' -o -maxdepth 6 -type d -name 'bfmc_interfaces' | head -30
+          echo "=== hooks"; for f in install/bfmc_interfaces/share/bfmc_interfaces/hook/*.dsv; do echo "--- $f"; cat "$f"; done
+          echo "=== colcon test de interfaces con salida completa"
+          colcon test --packages-select bfmc_interfaces --event-handlers console_direct+ --ctest-args -V || true
+          echo "=== colcon test de control con salida completa"
+          colcon test --packages-select bfmc_control --event-handlers console_direct+ || true
           colcon test
           colcon test-result --verbose
