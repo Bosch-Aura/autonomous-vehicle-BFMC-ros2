@@ -1,9 +1,8 @@
 """Tests de la conversión de unidades SI al formato del ESP32 (ADR-0001)."""
 import math
 
-import pytest
-
 from bfmc_hardware_bridge.units import to_esp32_units
+import pytest
 
 MAX_V = 0.5
 MAX_S = math.radians(25.0)

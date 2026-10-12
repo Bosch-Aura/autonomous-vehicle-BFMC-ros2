@@ -3,9 +3,8 @@
 loop:// devuelve por lectura lo que se escribió: sirve para comprobar que la
 clase usa bien pyserial. Que el ESP32 real responda solo se prueba con el auto.
 """
-import pytest
-
 from bfmc_hardware_bridge.serial_port import PySerialPort
+import pytest
 
 
 @pytest.fixture

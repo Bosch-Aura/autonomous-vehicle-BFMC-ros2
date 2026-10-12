@@ -10,6 +10,7 @@ from pathlib import Path
 import time
 
 from ackermann_msgs.msg import AckermannDriveStamped
+from bfmc_hardware_bridge.hardware_bridge_node import HardwareBridgeNode
 from bfmc_interfaces.msg import HardwareStatus, SafetyStatus
 import pytest
 import rclpy
@@ -17,8 +18,6 @@ from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Range
 import yaml
-
-from bfmc_hardware_bridge.hardware_bridge_node import HardwareBridgeNode
 
 PARAMS = Path(__file__).resolve().parents[1] / 'config' / 'params.yaml'
 TIMEOUT_S = 5.0
@@ -72,6 +71,7 @@ def ros():
 
 
 class Entorno:
+
     def __init__(self, nodo, auxiliar, executor, puerto):
         self.nodo = nodo
         self.auxiliar = auxiliar

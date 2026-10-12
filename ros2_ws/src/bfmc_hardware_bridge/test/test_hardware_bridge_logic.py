@@ -5,16 +5,15 @@ Sin ROS, sin puerto serial y con el tiempo simulado.
 import json
 import math
 
-import pytest
-
 from bfmc_hardware_bridge.hardware_bridge_logic import BridgeConfig, BridgeLogic
 from bfmc_hardware_bridge.protocol import SEQ_MAX
+import pytest
 
 
 def logica(**cambios):
-    base = dict(link_timeout_s=0.5, cmd_timeout_s=0.25, max_speed_mps=0.5,
-                max_steer_rad=math.radians(25.0), ultrasonic_min_range_m=0.02,
-                ultrasonic_max_range_m=4.0)
+    base = {'link_timeout_s': 0.5, 'cmd_timeout_s': 0.25, 'max_speed_mps': 0.5,
+            'max_steer_rad': math.radians(25.0), 'ultrasonic_min_range_m': 0.02,
+            'ultrasonic_max_range_m': 4.0}
     return BridgeLogic(BridgeConfig(**{**base, **cambios}))
 
 
@@ -145,12 +144,12 @@ def test_una_linea_invalida_no_cuenta_como_senal_de_vida():
 # --- validación de la configuración ------------------------------------------------------------
 
 @pytest.mark.parametrize('cambio', [
-    dict(link_timeout_s=0.0),
-    dict(cmd_timeout_s=0.0),
-    dict(max_speed_mps=0.0),
-    dict(max_steer_rad=0.0),
-    dict(ultrasonic_min_range_m=-0.1),
-    dict(ultrasonic_min_range_m=4.0),
+    {'link_timeout_s': 0.0},
+    {'cmd_timeout_s': 0.0},
+    {'max_speed_mps': 0.0},
+    {'max_steer_rad': 0.0},
+    {'ultrasonic_min_range_m': -0.1},
+    {'ultrasonic_min_range_m': 4.0},
 ])
 def test_una_configuracion_invalida_se_rechaza(cambio):
     with pytest.raises(ValueError):
