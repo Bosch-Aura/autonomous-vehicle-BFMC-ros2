@@ -61,7 +61,7 @@ colcon test-result --verbose
 Cada PR hacia `main` corre dos checks:
 
 - **ROS2 Tests**: compila el workspace y corre los tests con `colcon`. Falla si algún test está roto.
-- **Jira Conventions**: verifica que la rama, el título del PR y todos los commits incluyan el ticket de Jira. Falla con un mensaje que explica el formato correcto.
+- **Jira Conventions**: verifica que la rama y todos los commits (salvo los de merge) incluyan el ticket de Jira. Falla con un mensaje que explica el formato correcto.
 
 ## Versión de ROS2
 

@@ -41,7 +41,7 @@ jobs:
               echo "❌ Commit sin ticket de Jira: \"$msg\""
               failed=true
             fi
-          done < <(git log --format="%s" "$base..$head")
+          done < <(git log --no-merges --format="%s" "$base..$head")
 
           if [ "$failed" = "true" ]; then
             echo ""

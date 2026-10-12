@@ -44,10 +44,10 @@ colcon test-result --verbose
 1. Crear rama desde `main` con el formato `tipo/A<n>-<número>-descripcion`
    - Ejemplo: `feature/A2-12-seguir-carril`
 2. Hacer commits con el ticket en cada mensaje: `A2-12: descripción`
-3. Abrir PR con título que empiece con `A<n>-<número>`
+3. Abrir PR hacia `main` completando el template (incluye el link al ticket de Jira)
 4. El PR dispara dos checks automáticos en GitHub Actions:
    - **ROS2 Tests**: compila y corre los tests
-   - **Jira Conventions**: verifica la rama, el título y los commits
+   - **Jira Conventions**: verifica la rama y los commits (los commits de merge se ignoran)
 5. Esperar al menos una aprobación de una Code Owner
 6. Mergear a `main`
 
