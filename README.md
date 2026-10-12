@@ -20,7 +20,7 @@ autonomous-vehicle-BFMC-ros2/
 ## Cómo clonar y configurar
 
 ```bash
-git clone https://github.com/tu-org/autonomous-vehicle-BFMC-ros2.git
+git clone https://github.com/Bosch-Aura/autonomous-vehicle-BFMC-ros2.git
 cd autonomous-vehicle-BFMC-ros2
 
 # Instalar dependencias ROS2

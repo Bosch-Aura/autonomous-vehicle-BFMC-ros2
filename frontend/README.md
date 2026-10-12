@@ -12,5 +12,5 @@ El stack tecnológico se define en un ticket aparte. La comunicación con ROS2 s
 
 ## Pendiente
 
-- Definir framework (ticket A2-XXX)
+- Definir framework (falta crear el ticket en Jira)
 - Definir protocolo de mensajes con ROS2
