@@ -64,9 +64,9 @@ Los nombres van sin el prefijo `bfmc_`: el paquete real de `camera` es `bfmc_cam
 | Paquete | Responsabilidad | Se suscribe a | Publica |
 |---|---|---|---|
 | `bfmc_interfaces` | Mensajes y acciones propios del proyecto. | — | — |
-| `bfmc_camera` | Entrega color y profundidad de la RealSense. | — | `/camera/color/image_raw`, `/camera/depth/image_rect_raw` |
+| `bfmc_camera` | Entrega color y profundidad (alineada al color) de la RealSense, con el driver oficial. | — | `/camera/color/image_raw`, `/camera/aligned_depth_to_color/image_raw` |
 | `bfmc_lane_detection` | Imagen → estado del carril. No calcula comandos. | `/camera/color/image_raw` | `/perception/lane` |
-| `bfmc_sign_detection` | Detecta señales con YOLO y estima su distancia. No ejecuta maniobras. | `/camera/color/image_raw`, `/camera/depth/image_rect_raw` | `/perception/signs` |
+| `bfmc_sign_detection` | Detecta señales con YOLO y estima su distancia. No ejecuta maniobras. | `/camera/color/image_raw`, `/camera/aligned_depth_to_color/image_raw` | `/perception/signs` |
 | `bfmc_control` | Estado del carril → ángulo de dirección (PID con filtro). | `/perception/lane` | `/control/lane_cmd` |
 | `bfmc_maneuvers` | Ejecuta una maniobra puntual (stop, intersección) cuando se la piden. Patrón Strategy: una clase por maniobra. | — | `/maneuver/cmd`, action `ManeuverExecute` |
 | `bfmc_safety` | Decide si el obstáculo exige parada. No frena por sí mismo. | `/hardware/ultrasonic` | `/safety/status` |
@@ -81,7 +81,7 @@ El dashboard vive en `frontend/`. Se conecta por `rosbridge_websocket`, solo lee
 | Interfaz | Tipo | Quién publica |
 |---|---|---|
 | `/camera/color/image_raw` | `sensor_msgs/Image` | camera |
-| `/camera/depth/image_rect_raw` | `sensor_msgs/Image` | camera |
+| `/camera/aligned_depth_to_color/image_raw` | `sensor_msgs/Image` | camera |
 | `/perception/lane` | `bfmc_interfaces/LaneState` | lane_detection |
 | `/perception/signs` | `bfmc_interfaces/SignDetectionArray` | sign_detection |
 | `/control/lane_cmd` | `ackermann_msgs/AckermannDriveStamped` | control |

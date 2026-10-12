@@ -1,0 +1,21 @@
+# Parámetros del driver realsense2_camera para el sistema AURA.
+# Los nombres son los del driver (versión 4.x de realsense-ros). La clave de
+# primer nivel es el nombre del nodo.
+camera:
+  ros__parameters:
+    camera_name: camera          # prefijo de los topics y de los frames
+    initial_reset: false         # true reinicia la cámara al arrancar (útil si se cuelga)
+
+    enable_color: true
+    rgb_camera.color_profile: 640x480x30    # [asumido] ancho x alto x cuadros por segundo
+
+    enable_depth: true
+    depth_module.depth_profile: 640x480x30  # [asumido] ancho x alto x cuadros por segundo
+
+    # La distancia a una señal se mide en el píxel de la imagen de color, así que
+    # hace falta la profundidad alineada al color. Se publica en
+    # /camera/aligned_depth_to_color/image_raw.
+    align_depth.enable: true
+
+    enable_sync: true            # sincroniza los cuadros de color y profundidad
+    publish_tf: false            # el sistema no usa las transformaciones de la cámara
