@@ -50,6 +50,14 @@ Ejemplo: `A2-12: agregar nodo de seguimiento de carril`
 
 ## Cómo compilar y testear
 
+Con Docker (funciona en cualquier sistema operativo y reproduce el CI):
+
+```bash
+docker compose run --rm test
+```
+
+Directamente en una máquina con ROS2 Humble:
+
 ```bash
 cd ros2_ws
 source /opt/ros/humble/setup.bash

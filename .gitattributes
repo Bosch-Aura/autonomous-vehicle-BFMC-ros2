@@ -1,0 +1,4 @@
+# Los scripts se ejecutan dentro de contenedores y en la Jetson (Linux):
+# deben mantener finales de línea LF aunque se clonen en Windows.
+*.sh text eol=lf
+docker/Dockerfile text eol=lf
