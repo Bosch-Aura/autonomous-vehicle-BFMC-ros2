@@ -49,12 +49,14 @@ STOPPED = Drive(0.0, 0.0)
 
 @dataclass(frozen=True)
 class LaneObservation:
+
     detected: bool
     intersection_detected: bool
 
 
 @dataclass(frozen=True)
 class SignObservation:
+
     label: str
     confidence: float
     distance_m: float
@@ -62,12 +64,14 @@ class SignObservation:
 
 @dataclass(frozen=True)
 class SafetyObservation:
+
     emergency: bool
     reason_text: str
 
 
 @dataclass(frozen=True)
 class HardwareObservation:
+
     link_up: bool
     watchdog_tripped: bool
 
@@ -134,6 +138,7 @@ class DecisionConfig:
 
 
 class _Maneuver(enum.Enum):
+
     NONE = 0
     PENDING = 1   # pedida, todavía sin respuesta del servidor
     ACTIVE = 2    # aceptada, en ejecución

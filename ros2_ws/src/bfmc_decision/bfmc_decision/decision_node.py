@@ -1,5 +1,9 @@
 """Nodo ROS2 de bfmc_decision: único nodo que decide y único publicador de /cmd/drive."""
 from ackermann_msgs.msg import AckermannDriveStamped
+from bfmc_decision.decision_logic import (
+    DecisionConfig, DecisionLogic, Drive, HardwareObservation, LaneObservation,
+    SafetyObservation, SignObservation,
+)
 from bfmc_interfaces.action import ManeuverExecute
 from bfmc_interfaces.msg import (
     HardwareStatus, LaneState, SafetyStatus, SignDetectionArray, VehicleState,
@@ -9,11 +13,6 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy
-
-from bfmc_decision.decision_logic import (
-    DecisionConfig, DecisionLogic, Drive, HardwareObservation, LaneObservation,
-    SafetyObservation, SignObservation,
-)
 
 PARAMETROS_TEXTO = (
     'lane_topic', 'signs_topic', 'safety_topic', 'hardware_topic', 'lane_cmd_topic',

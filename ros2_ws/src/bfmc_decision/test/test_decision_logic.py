@@ -4,26 +4,25 @@ Los instantes son múltiplos de 0.25 para que se representen exactos.
 """
 import math
 
-import pytest
-
 from bfmc_decision.decision_logic import (
     DecisionConfig, DecisionLogic, Drive, HardwareObservation, LaneObservation,
     SafetyObservation, SignObservation, Source, State, STOPPED,
 )
+import pytest
 
 CARRIL = Drive(0.25, 0.125)
 MANIOBRA = Drive(0.5, -0.25)
 
 
 def logica(**cambios):
-    base = dict(
-        safety_timeout_s=0.5, hardware_timeout_s=1.5, lane_cmd_timeout_s=0.5,
-        maneuver_cmd_timeout_s=0.5, signs_timeout_s=0.5, lane_lost_timeout_s=2.0,
-        maneuver_request_timeout_s=1.0, maneuver_timeout_s=15.0, maneuver_cooldown_s=5.0,
-        min_sign_confidence=0.6, stop_distance_m=1.0, intersection_distance_m=1.5,
-        stop_labels=('stop',), intersection_labels=('priority', 'roundabout'),
-        intersection_direction='left', intersection_min_frames=3,
-    )
+    base = {
+        'safety_timeout_s': 0.5, 'hardware_timeout_s': 1.5, 'lane_cmd_timeout_s': 0.5,
+        'maneuver_cmd_timeout_s': 0.5, 'signs_timeout_s': 0.5, 'lane_lost_timeout_s': 2.0,
+        'maneuver_request_timeout_s': 1.0, 'maneuver_timeout_s': 15.0, 'maneuver_cooldown_s': 5.0,
+        'min_sign_confidence': 0.6, 'stop_distance_m': 1.0, 'intersection_distance_m': 1.5,
+        'stop_labels': ('stop',), 'intersection_labels': ('priority', 'roundabout'),
+        'intersection_direction': 'left', 'intersection_min_frames': 3,
+    }
     return DecisionLogic(DecisionConfig(**{**base, **cambios}))
 
 
@@ -439,17 +438,17 @@ def test_el_comando_siempre_sale_de_una_sola_fuente_coherente_con_el_estado():
 # --- validación de la configuración -----------------------------------------
 
 @pytest.mark.parametrize('cambio', [
-    dict(safety_timeout_s=0.0),
-    dict(hardware_timeout_s=-1.0),
-    dict(lane_cmd_timeout_s=0.0),
-    dict(signs_timeout_s=0.0),
-    dict(maneuver_timeout_s=0.0),
-    dict(maneuver_cooldown_s=-1.0),
-    dict(min_sign_confidence=1.5),
-    dict(stop_distance_m=0.0),
-    dict(intersection_distance_m=-1.0),
-    dict(intersection_direction='atras'),
-    dict(intersection_min_frames=0),
+    {'safety_timeout_s': 0.0},
+    {'hardware_timeout_s': -1.0},
+    {'lane_cmd_timeout_s': 0.0},
+    {'signs_timeout_s': 0.0},
+    {'maneuver_timeout_s': 0.0},
+    {'maneuver_cooldown_s': -1.0},
+    {'min_sign_confidence': 1.5},
+    {'stop_distance_m': 0.0},
+    {'intersection_distance_m': -1.0},
+    {'intersection_direction': 'atras'},
+    {'intersection_min_frames': 0},
 ])
 def test_una_configuracion_invalida_se_rechaza(cambio):
     with pytest.raises(ValueError):
