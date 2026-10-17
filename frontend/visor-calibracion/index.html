@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visor de calibración</title>
+<style>
+  :root {
+    --fondo: #f4f5f7; --panel: #ffffff; --texto: #1d2230; --suave: #5b6478;
+    --borde: #d5d9e2; --acento: #0b6bcb; --ok: #1a7f3c; --mal: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fondo: #14171f; --panel: #1c212c; --texto: #e6e9f0; --suave: #9aa3b5;
+      --borde: #2f3645; --acento: #5aa9ff; --ok: #4cc27a; --mal: #ff6b62;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--fondo); color: var(--texto);
+         font: 14px/1.45 system-ui, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: end;
+           padding: 12px 16px; background: var(--panel); border-bottom: 1px solid var(--borde); }
+  header label { display: flex; flex-direction: column; font-size: 12px; color: var(--suave); }
+  input { padding: 6px 8px; border: 1px solid var(--borde); border-radius: 6px;
+          background: var(--fondo); color: var(--texto); font: inherit; }
+  input.corto { width: 80px; }
+  input.largo { width: 230px; }
+  button { padding: 7px 12px; border: 1px solid var(--borde); border-radius: 6px;
+           background: var(--acento); color: #fff; font: inherit; cursor: pointer; }
+  button.sec { background: transparent; color: var(--texto); }
+  main { display: grid; grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+         gap: 16px; padding: 16px; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+  .tarjeta { background: var(--panel); border: 1px solid var(--borde); border-radius: 8px;
+             padding: 12px; margin-bottom: 16px; }
+  h2 { margin: 0 0 8px; font-size: 15px; }
+  .marco { position: relative; width: 100%; aspect-ratio: 4 / 3; background: #222;
+           border-radius: 6px; overflow: hidden; }
+  .marco img, .marco canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .marco img { object-fit: fill; }
+  .marco canvas { touch-action: none; cursor: crosshair; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 4px 0; border-bottom: 1px solid var(--borde); }
+  td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  .ok { color: var(--ok); } .mal { color: var(--mal); } .suave { color: var(--suave); }
+  .barra { height: 6px; background: var(--borde); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+  .barra > div { height: 100%; width: 0; background: var(--acento); }
+  textarea { width: 100%; height: 3.4em; resize: none; font: 12px ui-monospace, monospace;
+             padding: 6px; border: 1px solid var(--borde); border-radius: 6px;
+             background: var(--fondo); color: var(--texto); }
+  .fila { display: flex; gap: 8px; margin-top: 8px; }
+  small { color: var(--suave); }
+</style>
+</head>
+<body>
+<header>
+  <label>IP de la Jetson <input id="host" class="largo" placeholder="192.168.x.x" autocomplete="off"></label>
+  <label>Puerto del video <input id="puerto-video" class="corto" value="8080" inputmode="numeric"></label>
+  <label>Puerto de rosbridge <input id="puerto-rosbridge" class="corto" value="9090" inputmode="numeric"></label>
+  <label>Topic de la imagen <input id="topic-imagen" class="largo" value="/camera/color/image_raw"></label>
+  <label>Topic del carril <input id="topic-carril" class="largo" value="/perception/lane"></label>
+  <button id="conectar">Conectar</button>
+  <button id="desconectar" class="sec">Desconectar</button>
+</header>
+
+<main>
+  <section>
+    <div class="tarjeta">
+      <h2>Imagen de la cámara <small id="estado-video">sin conexión</small></h2>
+      <div class="marco">
+        <img id="video" alt="">
+        <canvas id="capa"></canvas>
+      </div>
+      <small>Arrastrá los cuatro puntos hasta que el trapecio calce con el carril, como lo ve el auto.</small>
+    </div>
+  </section>
+
+  <aside>
+    <div class="tarjeta">
+      <h2>Carril <small id="estado-datos">sin conexión</small></h2>
+      <table>
+        <tr><td>Carril detectado</td><td id="d-detected">--</td></tr>
+        <tr><td>Desvío lateral [m] <small>(+ izquierda)</small></td><td id="d-lateral">--</td></tr>
+        <tr><td>Error de rumbo [rad] <small>(+ izquierda)</small></td><td id="d-rumbo">--</td></tr>
+        <tr><td>Confianza</td><td id="d-confianza">--<div class="barra"><div id="barra-confianza"></div></div></td></tr>
+        <tr><td>Intersección</td><td id="d-interseccion">--</td></tr>
+        <tr><td>Último dato</td><td id="d-edad">--</td></tr>
+      </table>
+    </div>
+
+    <div class="tarjeta">
+      <h2>warp_src</h2>
+      <small>Orden: arriba-izquierda, arriba-derecha, abajo-derecha, abajo-izquierda. Fracción del ancho y del alto.</small>
+      <textarea id="salida" readonly></textarea>
+      <div class="fila">
+        <button id="copiar">Copiar</button>
+        <button id="restablecer" class="sec">Valores del params.yaml</button>
+      </div>
+      <small id="aviso-copia"></small>
+    </div>
+  </aside>
+</main>
+
+<script>
+'use strict';
+
+// Solo lectura: esta página se suscribe a un topic y pide una imagen. Nunca publica ni llama servicios.
+
+// Los mismos valores que bfmc_lane_detection/config/params.yaml:
+// arriba-izquierda, arriba-derecha, abajo-derecha, abajo-izquierda (x, y de cada uno).
+const WARP_INICIAL = [0.30, 0.55, 0.70, 0.55, 1.00, 0.95, 0.00, 0.95];
+const RADIO_PUNTO = 9;
+const VENCIMIENTO_DATO_MS = 1000;
+const REINTENTO_MS = 3000;
+const HOST_VALIDO = /^[A-Za-z0-9.\-]+$/;
+
+const $ = (id) => document.getElementById(id);
+const capa = $('capa');
+const ctx = capa.getContext('2d');
+
+let puntos = [];
+let arrastrando = -1;
+let socket = null;
+let quiereConexion = false;
+let temporizadorReintento = null;
+let ultimoDatoMs = 0;
+
+function restablecer() {
+  puntos = [];
+  for (let i = 0; i < WARP_INICIAL.length; i += 2) {
+    puntos.push({ x: WARP_INICIAL[i], y: WARP_INICIAL[i + 1] });
+  }
+  dibujar();
+}
+
+function textoWarp() {
+  const valores = puntos.flatMap((p) => [p.x.toFixed(2), p.y.toFixed(2)]);
+  return 'warp_src: [' + valores.join(', ') + ']';
+}
+
+function ajustarCanvas() {
+  capa.width = capa.clientWidth;
+  capa.height = capa.clientHeight;
+  dibujar();
+}
+
+function dibujar() {
+  const w = capa.width;
+  const h = capa.height;
+  ctx.clearRect(0, 0, w, h);
+  if (puntos.length === 4) {
+    ctx.beginPath();
+    puntos.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x * w, p.y * h) : ctx.lineTo(p.x * w, p.y * h)));
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(11, 107, 203, 0.18)';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#ffd400';
+    ctx.stroke();
+    puntos.forEach((p, i) => {
+      ctx.beginPath();
+      ctx.arc(p.x * w, p.y * h, RADIO_PUNTO, 0, 2 * Math.PI);
+      ctx.fillStyle = i === arrastrando ? '#ff6b62' : '#ffd400';
+      ctx.fill();
+      ctx.strokeStyle = '#000';
+      ctx.stroke();
+      ctx.fillStyle = '#fff';
+      ctx.font = '12px system-ui, sans-serif';
+      ctx.fillText(String(i + 1), p.x * w + 12, p.y * h - 10);
+    });
+  }
+  $('salida').value = textoWarp();
+}
+
+function posicionRelativa(evento) {
+  const caja = capa.getBoundingClientRect();
+  return {
+    x: Math.min(1, Math.max(0, (evento.clientX - caja.left) / caja.width)),
+    y: Math.min(1, Math.max(0, (evento.clientY - caja.top) / caja.height)),
+  };
+}
+
+function puntoCercano(pos) {
+  const w = capa.width;
+  const h = capa.height;
+  let mejor = -1;
+  let mejorDist = RADIO_PUNTO * 2;
+  puntos.forEach((p, i) => {
+    const d = Math.hypot((p.x - pos.x) * w, (p.y - pos.y) * h);
+    if (d < mejorDist) { mejor = i; mejorDist = d; }
+  });
+  return mejor;
+}
+
+capa.addEventListener('pointerdown', (e) => {
+  arrastrando = puntoCercano(posicionRelativa(e));
+  if (arrastrando >= 0) { capa.setPointerCapture(e.pointerId); dibujar(); }
+});
+capa.addEventListener('pointermove', (e) => {
+  if (arrastrando < 0) return;
+  puntos[arrastrando] = posicionRelativa(e);
+  dibujar();
+});
+capa.addEventListener('pointerup', () => { arrastrando = -1; dibujar(); });
+capa.addEventListener('pointercancel', () => { arrastrando = -1; dibujar(); });
+window.addEventListener('resize', ajustarCanvas);
+
+function fijarEstado(id, texto, clase) {
+  const el = $(id);
+  el.textContent = texto;
+  el.className = clase || 'suave';
+}
+
+function mostrarDato(msg) {
+  ultimoDatoMs = Date.now();
+  const si = (v) => (v ? 'sí' : 'no');
+  $('d-detected').textContent = si(msg.detected);
+  $('d-detected').className = msg.detected ? 'ok' : 'mal';
+  $('d-lateral').textContent = Number(msg.lateral_error_m).toFixed(3);
+  $('d-rumbo').textContent = Number(msg.heading_error_rad).toFixed(3);
+  const confianza = Math.min(1, Math.max(0, Number(msg.confidence)));
+  $('d-confianza').firstChild.textContent = confianza.toFixed(2);
+  $('barra-confianza').style.width = (confianza * 100) + '%';
+  $('d-interseccion').textContent = si(msg.intersection_detected);
+}
+
+function actualizarEdad() {
+  if (ultimoDatoMs === 0) { $('d-edad').textContent = '--'; return; }
+  const edad = Date.now() - ultimoDatoMs;
+  $('d-edad').textContent = edad + ' ms';
+  $('d-edad').className = edad > VENCIMIENTO_DATO_MS ? 'mal' : 'ok';
+}
+setInterval(actualizarEdad, 250);
+
+function leerConfiguracion() {
+  const host = $('host').value.trim();
+  if (!HOST_VALIDO.test(host)) { fijarEstado('estado-datos', 'IP o nombre inválido', 'mal'); return null; }
+  const puertoVideo = parseInt($('puerto-video').value, 10);
+  const puertoRosbridge = parseInt($('puerto-rosbridge').value, 10);
+  if (!(puertoVideo > 0 && puertoVideo < 65536 && puertoRosbridge > 0 && puertoRosbridge < 65536)) {
+    fijarEstado('estado-datos', 'puerto inválido', 'mal'); return null;
+  }
+  return {
+    host, puertoVideo, puertoRosbridge,
+    topicImagen: $('topic-imagen').value.trim(),
+    topicCarril: $('topic-carril').value.trim(),
+  };
+}
+
+function conectar() {
+  const cfg = leerConfiguracion();
+  if (!cfg) return;
+  try { localStorage.setItem('visor-host', cfg.host); } catch (e) { /* sin almacenamiento: no pasa nada */ }
+  quiereConexion = true;
+  clearTimeout(temporizadorReintento);
+  if (socket) { socket.onclose = null; socket.close(); }
+
+  const video = $('video');
+  video.onload = () => fijarEstado('estado-video', 'recibiendo', 'ok');
+  video.onerror = () => fijarEstado('estado-video', 'sin imagen', 'mal');
+  video.src = 'http://' + cfg.host + ':' + cfg.puertoVideo + '/stream?type=mjpeg&topic=' +
+    encodeURIComponent(cfg.topicImagen);
+  fijarEstado('estado-video', 'conectando…', 'suave');
+
+  fijarEstado('estado-datos', 'conectando…', 'suave');
+  socket = new WebSocket('ws://' + cfg.host + ':' + cfg.puertoRosbridge);
+  socket.onopen = () => {
+    fijarEstado('estado-datos', 'conectado', 'ok');
+    // Solo se suscribe. A lo sumo 10 mensajes por segundo y sin cola, para ver siempre el último dato.
+    socket.send(JSON.stringify({
+      op: 'subscribe', topic: cfg.topicCarril, type: 'bfmc_interfaces/msg/LaneState',
+      throttle_rate: 100, queue_length: 1,
+    }));
+  };
+  socket.onmessage = (evento) => {
+    let msg;
+    try { msg = JSON.parse(evento.data); } catch (e) { return; }
+    if (msg.op === 'publish' && msg.topic === cfg.topicCarril && msg.msg) mostrarDato(msg.msg);
+    if (msg.op === 'status' && msg.level === 'error') fijarEstado('estado-datos', 'error: ' + msg.msg, 'mal');
+  };
+  socket.onclose = () => {
+    fijarEstado('estado-datos', quiereConexion ? 'desconectado, reintentando…' : 'desconectado', 'mal');
+    if (quiereConexion) temporizadorReintento = setTimeout(conectar, REINTENTO_MS);
+  };
+  socket.onerror = () => { /* onclose se encarga del estado */ };
+}
+
+function desconectar() {
+  quiereConexion = false;
+  clearTimeout(temporizadorReintento);
+  if (socket) { socket.close(); socket = null; }
+  $('video').removeAttribute('src');
+  fijarEstado('estado-video', 'sin conexión', 'suave');
+  fijarEstado('estado-datos', 'desconectado', 'suave');
+}
+
+function copiar() {
+  const texto = textoWarp();
+  const listo = () => { $('aviso-copia').textContent = 'copiado'; };
+  const respaldo = () => {
+    $('salida').select();
+    $('aviso-copia').textContent = document.execCommand('copy') ? 'copiado' : 'seleccioná el texto y copialo';
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(texto).then(listo, respaldo);
+  } else {
+    respaldo();
+  }
+}
+
+$('conectar').addEventListener('click', conectar);
+$('desconectar').addEventListener('click', desconectar);
+$('copiar').addEventListener('click', copiar);
+$('restablecer').addEventListener('click', restablecer);
+
+try { $('host').value = localStorage.getItem('visor-host') || ''; } catch (e) { /* sin almacenamiento */ }
+restablecer();
+ajustarCanvas();
+</script>
+</body>
+</html>
