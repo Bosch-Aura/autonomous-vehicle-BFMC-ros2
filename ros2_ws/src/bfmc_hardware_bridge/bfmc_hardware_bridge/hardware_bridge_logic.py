@@ -56,7 +56,7 @@ class HardwareState:
 
     @property
     def fault(self) -> bool:
-        """True si el ESP32 está en FAULT: frenó y no acepta tracción hasta rearmarlo."""
+        """Indica si el ESP32 está en FAULT: frenó y no acepta tracción hasta rearmarlo."""
         return self.esp32_state == 'FAULT'
 
 
