@@ -5,9 +5,9 @@
 
 ## Contexto
 
-La versión anterior del proyecto (AURA-2026) tenía hardware y documentación contradictorios: el código hablaba con una Nucleo (STM32) usando el protocolo `#steer:..;;`, el ultrasónico llegaba de un ESP32 por otro puerto, y los docs describían un ESP32 a 921600 baud con comandos `CONTROL:SET_*`. Varios hilos escribían al serial al mismo tiempo.
+La versión anterior del proyecto (AURA-2026) tenía hardware y documentación contradictorios: el código usaba el protocolo `#steer:..;;`, el ultrasónico llegaba por otro puerto, y los docs describían un ESP32 a 921600 baud con comandos `CONTROL:SET_*`. Varios hilos escribían al serial al mismo tiempo.
 
-El equipo confirmó que el auto usa **un solo ESP32** y que la Nucleo ya no se usa. El firmware que había entonces en este repo era un placeholder, así que el protocolo se define desde cero. Hoy el firmware del ESP32 vive en el repo [`Bosch-Aura/embedded`](https://github.com/Bosch-Aura/embedded).
+El equipo confirmó que el auto usa **un solo ESP32**. El firmware que había entonces en este repo era un placeholder, así que el protocolo se define desde cero. Hoy el firmware del ESP32 vive en el repo [`Bosch-Aura/embedded`](https://github.com/Bosch-Aura/embedded).
 
 ## Decisión
 
@@ -64,6 +64,6 @@ En ROS todo es SI (m/s, rad). **Solo el bridge convierte** al formato del ESP32 
 
 ## Alternativas descartadas
 
-- **Heredar el protocolo `#key:valor;;` de la Nucleo.** Estaba atado a otro microcontrolador y a unidades mezcladas (0–255, mm/s, servo 50–160).
+- **Heredar el protocolo `#key:valor;;` de AURA-2026.** Usaba unidades mezcladas (0–255, mm/s, servo 50–160).
 - **Protocolo binario con CRC.** Más eficiente, pero más difícil de depurar. Se reconsidera si el enlace se satura.
 - **micro-ROS en el ESP32.** Evita el bridge, pero añade una curva de aprendizaje alta y una dependencia grande sobre un firmware que todavía no existe.

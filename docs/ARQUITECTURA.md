@@ -9,7 +9,7 @@ El sistema es un vehículo autónomo a escala 1:10 con dos equipos:
 - **Jetson Orin Nano** (Ubuntu 22.04, ROS2 Humble): percepción, decisión y control.
 - **ESP32** (único microcontrolador): motores vía puente H, dirección por servo y sensor ultrasónico.
 
-Se comunican por **un único enlace serial**. El protocolo está en [ADR-0001](adr/0001-hardware-de-control-y-protocolo-serial.md). La Nucleo (STM32) del proyecto anterior ya no se usa.
+Se comunican por **un único enlace serial**. El protocolo está en [ADR-0001](adr/0001-hardware-de-control-y-protocolo-serial.md).
 
 El sistema funciona sin internet. Ninguna parte de la conducción depende de un servicio externo.
 
