@@ -7,7 +7,7 @@
 
 La versión anterior del proyecto (AURA-2026) tenía hardware y documentación contradictorios: el código hablaba con una Nucleo (STM32) usando el protocolo `#steer:..;;`, el ultrasónico llegaba de un ESP32 por otro puerto, y los docs describían un ESP32 a 921600 baud con comandos `CONTROL:SET_*`. Varios hilos escribían al serial al mismo tiempo.
 
-El equipo confirmó que el auto usa **un solo ESP32** y que la Nucleo ya no se usa. El firmware actual (`firmware/esp32/main/main.ino`) es un placeholder, así que el protocolo se define desde cero.
+El equipo confirmó que el auto usa **un solo ESP32** y que la Nucleo ya no se usa. El firmware que había entonces en este repo era un placeholder, así que el protocolo se define desde cero. Hoy el firmware del ESP32 vive en el repo [`Bosch-Aura/embedded`](https://github.com/Bosch-Aura/embedded).
 
 ## Decisión
 

@@ -11,7 +11,6 @@ Sistema de navegación autónoma para un vehículo a escala 1:10. La Jetson Orin
 ```
 autonomous-vehicle-BFMC-ros2/
 ├── ros2_ws/src/          # Paquetes ROS2
-├── firmware/esp32/       # Firmware del ESP32
 ├── frontend/             # Dashboard de monitoreo (stack por definir)
 ├── docs/                 # Documentación
 └── .github/              # CI y configuración de GitHub
@@ -59,15 +58,9 @@ colcon test
 colcon test-result --verbose
 ```
 
-## Cómo subir firmware al ESP32
+## Firmware del ESP32
 
-```bash
-cd firmware/esp32
-./flash.sh               # sube main/main.ino
-./flash.sh test_motor    # sube un sketch de prueba
-```
-
-Más detalles en [`firmware/esp32/README.md`](firmware/esp32/README.md).
+El firmware del ESP32 no está en este repo: vive en [`Bosch-Aura/embedded`](https://github.com/Bosch-Aura/embedded) (PlatformIO). Para compilarlo y flashearlo, seguir las instrucciones de ese repo (`./flashear.sh`).
 
 ## Flujo de trabajo
 
