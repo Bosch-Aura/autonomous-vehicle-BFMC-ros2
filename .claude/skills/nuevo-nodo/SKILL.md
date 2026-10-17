@@ -98,7 +98,14 @@ Una maniobra es una clase que implementa `ManeuverStrategy` (patrón Strategy) d
 ## Estándares
 
 - **ROS2:** nombres de paquete `bfmc_<funcionalidad>`, archivos y topics en `snake_case`, `get_logger()` en lugar de `print`, QoS explícito, `destroy_node` y `try_shutdown` al cerrar, parámetros declarados.
-- **Python:** PEP 8. El test de estilo (`ament_flake8`) forma parte de cada paquete y corre en el CI.
+- **Python:** PEP 8. El test de estilo (`ament_flake8`) forma parte de cada paquete y corre en el CI, con complementos que `flake8` solo no trae. Las reglas que más se rompen:
+  - **Orden de imports** (estilo Google): dos grupos, la biblioteca estándar y el resto. Los imports del **propio paquete van ordenados dentro del grupo de terceros**, no en un bloque aparte al final. Se ordena por nombre de módulo en minúscula, sin distinguir `import x` de `from x import`.
+  - **`{}` en lugar de `dict(...)`**: `{'a': 1}` y no `dict(a=1)`.
+  - **Docstrings:** una primera línea que termina en punto, una línea en blanco y el resto; si es de varias líneas, las comillas de cierre van solas.
+  - **Una línea en blanco después de `class X:`** cuando la clase no empieza con un docstring.
+  - Comillas simples y líneas de hasta 99 caracteres.
+
+  La imagen de Docker trae los mismos complementos que el CI, así que `docker compose run --rm test` detecta estos errores antes de subir.
 - **SOLID:** una responsabilidad por nodo y por clase; dependencias inyectadas (configuración y tiempo entran por argumento); la lógica no conoce a ROS.
 
 ## Si la persona discrepa
