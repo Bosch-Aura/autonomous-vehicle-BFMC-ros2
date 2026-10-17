@@ -1,11 +1,10 @@
 """Nodo ROS2 de @PAQUETE@: conecta mensajes con la lógica pura."""
+from @PAQUETE@.@NOMBRE@_logic import @CLASE@Config, @CLASE@Logic
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Float64
-
-from @PAQUETE@.@NOMBRE@_logic import @CLASE@Config, @CLASE@Logic
 
 
 class @CLASE@Node(Node):
