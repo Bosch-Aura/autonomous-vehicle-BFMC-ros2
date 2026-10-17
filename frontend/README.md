@@ -10,6 +10,10 @@ El stack tecnológico se define en un ticket aparte. La comunicación con ROS2 s
 - Controles manuales de emergencia
 - Visualización de sensores y cámara
 
+## Qué hay hoy
+
+- [`visor-calibracion/`](visor-calibracion/README.md): una página provisoria de solo lectura para calibrar `bfmc_lane_detection` (imagen de la cámara y datos del carril). No es el dashboard.
+
 ## Pendiente
 
 - Definir framework (falta crear el ticket en Jira)
