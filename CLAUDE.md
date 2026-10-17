@@ -31,7 +31,7 @@ Reglas que respeta todo nodo:
 
 - Un nodo, una responsabilidad. Los paquetes se comunican solo por mensajes y nunca importan código de otro paquete.
 - Percepción y seguridad publican hechos; solo `bfmc_decision` decide y es el único que publica `/cmd/drive`.
-- Solo `bfmc_hardware_bridge` toca el puerto serial. El protocolo con el ESP32 está en `docs/adr/0001-hardware-de-control-y-protocolo-serial.md`.
+- Solo `bfmc_hardware_bridge` toca el puerto serial. El protocolo con el ESP32 es el del firmware de `Bosch-Aura/embedded` y está en `docs/adr/0002-protocolo-serial-del-firmware-embedded.md`.
 - Unidades SI dentro de ROS (m/s, rad, m). La conversión al formato del ESP32 ocurre únicamente en el bridge.
 - Nada hardcodeado: umbrales, ganancias, tiempos y nombres de topics van en `config/params.yaml`.
 - La lógica es pura y recibe el tiempo como argumento: sin `time.sleep` ni lectura del reloj dentro de la lógica.

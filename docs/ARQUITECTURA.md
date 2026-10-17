@@ -9,7 +9,7 @@ El sistema es un vehículo autónomo a escala 1:10 con dos equipos:
 - **Jetson Orin Nano** (Ubuntu 22.04, ROS2 Humble): percepción, decisión y control.
 - **ESP32** (único microcontrolador): motores vía puente H, dirección por servo y sensor ultrasónico.
 
-Se comunican por **un único enlace serial**. El protocolo está en [ADR-0001](adr/0001-hardware-de-control-y-protocolo-serial.md).
+Se comunican por **un único enlace serial**. El hardware está en el [ADR-0001](adr/0001-hardware-de-control-y-protocolo-serial.md) y el protocolo, que es el del firmware de `Bosch-Aura/embedded`, en el [ADR-0002](adr/0002-protocolo-serial-del-firmware-embedded.md).
 
 El sistema funciona sin internet. Ninguna parte de la conducción depende de un servicio externo.
 
@@ -51,7 +51,7 @@ flowchart TB
   DEC --> BR
   BR --> SAFE
   SAFE -.->|emergencia| BR
-  BR <-->|"UART · JSON por línea"| ESP(["ESP32"])
+  BR <-->|"USB serie · CANAL:COMANDO:VALOR"| ESP(["ESP32"])
   ESP --> ACT(["Motores · Servo"])
   US(["Ultrasónico"]) --> ESP
   DEC --> DASH(["Dashboard (rosbridge)"])
@@ -69,9 +69,9 @@ Los nombres van sin el prefijo `bfmc_`: el paquete real de `camera` es `bfmc_cam
 | `bfmc_sign_detection` | Detecta señales con YOLO y estima su distancia. No ejecuta maniobras. | `/camera/color/image_raw`, `/camera/depth/image_rect_raw` | `/perception/signs` |
 | `bfmc_control` | Estado del carril → ángulo de dirección (PID con filtro). | `/perception/lane` | `/control/lane_cmd` |
 | `bfmc_maneuvers` | Ejecuta una maniobra puntual (stop, intersección) cuando se la piden. Patrón Strategy: una clase por maniobra. | — | `/maneuver/cmd`, action `ManeuverExecute` |
-| `bfmc_safety` | Decide si el obstáculo exige parada. No frena por sí mismo. | `/hardware/ultrasonic` | `/safety/status` |
+| `bfmc_safety` | Decide si el obstáculo exige parada. No frena por sí mismo. | `/hardware/ultrasonic` (hoy nadie lo publica, ver ADR-0002) | `/safety/status` |
 | `bfmc_decision` | Único nodo que decide. Arbitra por prioridad y publica el comando final. | `/perception/lane`, `/perception/signs`, `/safety/status`, `/control/lane_cmd`, `/maneuver/cmd`, `/hardware/status` | `/cmd/drive`, `/vehicle/state` |
-| `bfmc_hardware_bridge` | Único dueño del puerto serial. Traduce unidades, envía comandos y publica lo que reporta el ESP32. | `/cmd/drive`, `/safety/status` | `/hardware/ultrasonic`, `/hardware/status` |
+| `bfmc_hardware_bridge` | Único dueño del puerto serial. Traduce unidades, envía comandos y publica lo que reporta el ESP32. | `/cmd/drive`, `/safety/status` | `/hardware/status`, servicio `/hardware/arm` |
 | `bfmc_bringup` | Launch files y parámetros de todo el sistema. | — | — |
 
 El dashboard vive en `frontend/`. Se conecta por `rosbridge_websocket`, solo lee `/vehicle/state` y no arranca ni controla nodos.
@@ -88,8 +88,9 @@ El dashboard vive en `frontend/`. Se conecta por `rosbridge_websocket`, solo lee
 | `/maneuver/cmd` | `ackermann_msgs/AckermannDriveStamped` | maneuvers (solo mientras hay una maniobra activa) |
 | `ManeuverExecute` | Action de `bfmc_interfaces` | server: maneuvers; cliente: decision |
 | `/safety/status` | `bfmc_interfaces/SafetyStatus` | safety |
-| `/hardware/ultrasonic` | `sensor_msgs/Range` | hardware_bridge |
+| `/hardware/ultrasonic` | `sensor_msgs/Range` | nadie por ahora: el firmware no informa distancias (ADR-0002) |
 | `/hardware/status` | `bfmc_interfaces/HardwareStatus` | hardware_bridge |
+| `/hardware/arm` | Servicio `std_srvs/Trigger` | server: hardware_bridge. Rearma el ESP32 después de un FAULT |
 | `/cmd/drive` | `ackermann_msgs/AckermannDriveStamped` | decision (único) |
 | `/vehicle/state` | `bfmc_interfaces/VehicleState` | decision |
 
@@ -111,7 +112,8 @@ Las dos detecciones de intersección (por señal y por geometría del carril) en
 
 ## 7. Seguridad
 
-- **Watchdog en el ESP32:** si pasan 300 ms sin un mensaje válido de la Jetson, corta los motores y centra la dirección. Funciona aunque se caiga todo el software de la Jetson.
+- **Watchdog en el ESP32:** en modo AUTO, si pasan 300 ms sin un comando válido de la Jetson, frena, centra la dirección y queda en FAULT hasta que lo rearmen. Funciona aunque se caiga todo el software de la Jetson.
+- **Frenado por obstáculo en el ESP32:** el firmware frena y entra en FAULT por su cuenta si el ultrasónico detecta algo cerca.
 - **Defensa en profundidad:** `bfmc_hardware_bridge` también escucha `/safety/status` y frena si indica emergencia, sin pasar por `bfmc_decision`.
 - La seguridad no depende del dashboard ni de ningún cliente de red.
 

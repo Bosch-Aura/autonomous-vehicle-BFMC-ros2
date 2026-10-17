@@ -1,88 +1,87 @@
-r"""Protocolo serial Jetson <-> ESP32 (ADR-0001). Sin ROS y sin puerto serial.
+r"""Protocolo serial Jetson <-> ESP32 (ADR-0002). Sin ROS y sin puerto serial.
 
-Formato: un objeto JSON por línea, terminada en '\n'.
+Es el protocolo del firmware de Bosch-Aura/embedded (docs/BRAIN_TEAM_PROTOCOL.md):
+una línea de texto ASCII por mensaje, terminada en '\n'.
 
-    Jetson -> ESP32   {"t":"drive","seq":12,"v":250,"s":-30}   v en mm/s, s en décimas de grado
-                      {"t":"brake","seq":13}
-    ESP32 -> Jetson   {"t":"ultra","id":"front","dist_cm":87,"valid":true}
-                      {"t":"status","fw":"0.1.0","wd":false,"last_seq":12}
+    Jetson -> ESP32   CANAL:COMANDO:VALOR
+                      C:SET_SPEED:<0-255>   duty de tracción, siempre >= 0
+                      C:SET_STEER:<50-160>  servo: 50 izquierda, 105 centro, 160 derecha
+                      C:SET_DIR:<0|1>       sentido: 1 adelante, 0 atrás
+                      E:BRAKE_NOW:0         freno de emergencia (5 s de bloqueo)
+                      M:SYS_ARM:0 / M:SYS_DISARM:0 / M:SYS_MODE:<0|1>
+
+    ESP32 -> Jetson   EVENT:<NOMBRE>[:<arg>...]
+                      EVENT:STATE_CHANGED:RUNNING, EVENT:CMD_RECEIVED:SET_SPEED:150, ...
+
+Cualquier otra línea del ESP32 (por ejemplo "[MotorTask] ...") es depuración
+para humanos y no forma parte del protocolo.
 """
 from dataclasses import dataclass
-import json
+from typing import Optional, Tuple
 
-# El firmware lee la secuencia con hasta 9 dígitos.
-SEQ_MAX = 999_999_999
-
-
-@dataclass(frozen=True)
-class UltraMessage:
-    """Lectura del ultrasónico delantero."""
-
-    dist_cm: int
-    valid: bool
+PREFIJO_EVENTO = 'EVENT:'
 
 
 @dataclass(frozen=True)
-class StatusMessage:
-    """Estado que reporta el ESP32."""
+class Event:
+    """Un evento del ESP32.
 
-    firmware: str
-    watchdog_tripped: bool
-    last_seq: int
+    `EVENT:CMD_RECEIVED:SET_SPEED:150` -> name `CMD_RECEIVED`, args `('SET_SPEED', '150')`.
+    """
 
-
-def encode_drive(seq: int, v_mm_s: int, s_decimas: int) -> bytes:
-    """Arma la línea de un comando de conducción."""
-    _validar_seq(seq)
-    return ('{"t":"drive","seq":%d,"v":%d,"s":%d}\n' % (seq, v_mm_s, s_decimas)).encode('ascii')
+    name: str
+    args: Tuple[str, ...]
 
 
-def encode_brake(seq: int) -> bytes:
-    """Arma la línea de un comando de freno."""
-    _validar_seq(seq)
-    return ('{"t":"brake","seq":%d}\n' % seq).encode('ascii')
+def _comando(canal: str, comando: str, valor: int) -> bytes:
+    return ('%s:%s:%d\n' % (canal, comando, valor)).encode('ascii')
 
 
-def _validar_seq(seq):
-    if not 0 <= seq <= SEQ_MAX:
-        raise ValueError('seq fuera de rango (0..%d): %s' % (SEQ_MAX, seq))
+def encode_speed(duty: int) -> bytes:
+    """Duty de tracción. El sentido va aparte, con encode_direction()."""
+    return _comando('C', 'SET_SPEED', duty)
 
 
-def _es_entero(valor):
-    return isinstance(valor, int) and not isinstance(valor, bool)
+def encode_steer(servo: int) -> bytes:
+    """Posición del servo de dirección."""
+    return _comando('C', 'SET_STEER', servo)
 
 
-def parse_line(linea: str):
+def encode_direction(forward: bool) -> bytes:
+    """Sentido de marcha. El firmware lo recuerda hasta que se cambia."""
+    return _comando('C', 'SET_DIR', 1 if forward else 0)
+
+
+def encode_brake_now() -> bytes:
+    """Freno de emergencia. El firmware ignora la tracción durante 5 s después."""
+    return _comando('E', 'BRAKE_NOW', 0)
+
+
+def encode_arm() -> bytes:
+    """Arma el sistema. También es la forma de salir de FAULT."""
+    return _comando('M', 'SYS_ARM', 0)
+
+
+def encode_disarm() -> bytes:
+    """Desarma el sistema: frena y centra la dirección."""
+    return _comando('M', 'SYS_DISARM', 0)
+
+
+def encode_mode(auto: bool) -> bytes:
+    """Modo del sistema. AUTO tiene un watchdog de 300 ms; MANUAL, de 1000 ms."""
+    return _comando('M', 'SYS_MODE', 1 if auto else 0)
+
+
+def parse_line(linea: str) -> Optional[Event]:
     """Interpreta una línea del ESP32.
 
-    Devuelve un `UltraMessage`, un `StatusMessage` o None si la línea no es un
-    mensaje válido. Una línea inválida nunca lanza una excepción: se descarta.
+    Devuelve un `Event`, o None si la línea no es un evento (depuración, ruido o
+    una línea vacía). Nunca lanza una excepción.
     """
-    try:
-        datos = json.loads(linea)
-    except ValueError:
+    if not linea.startswith(PREFIJO_EVENTO):
         return None
-    if not isinstance(datos, dict):
+    partes = linea[len(PREFIJO_EVENTO):].split(':')
+    nombre = partes[0]
+    if not nombre or not all(c.isupper() or c.isdigit() or c == '_' for c in nombre):
         return None
-
-    tipo = datos.get('t')
-    if tipo == 'ultra':
-        dist = datos.get('dist_cm')
-        valida = datos.get('valid')
-        if datos.get('id') != 'front' or not _es_entero(dist) or dist < 0:
-            return None
-        if not isinstance(valida, bool):
-            return None
-        return UltraMessage(dist_cm=dist, valid=valida)
-
-    if tipo == 'status':
-        firmware = datos.get('fw')
-        watchdog = datos.get('wd')
-        ultima_seq = datos.get('last_seq')
-        if not isinstance(firmware, str) or not isinstance(watchdog, bool):
-            return None
-        if not _es_entero(ultima_seq) or ultima_seq < 0:
-            return None
-        return StatusMessage(firmware=firmware, watchdog_tripped=watchdog, last_seq=ultima_seq)
-
-    return None
+    return Event(name=nombre, args=tuple(partes[1:]))

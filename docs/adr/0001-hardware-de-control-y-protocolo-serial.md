@@ -1,6 +1,6 @@
 # ADR-0001: Hardware de control y protocolo serial Jetson ↔ ESP32
 
-- **Estado:** Aprobada (2026-10-11)
+- **Estado:** Aprobada (2026-10-11). Secciones 2 a 6 reemplazadas por el [ADR-0002](0002-protocolo-serial-del-firmware-embedded.md).
 - **Contexto de decisión:** arquitectura ROS2 sobre el template del repositorio (ver [ARQUITECTURA.md](../ARQUITECTURA.md))
 
 ## Contexto
