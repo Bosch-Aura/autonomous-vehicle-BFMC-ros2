@@ -75,8 +75,8 @@ Los topes y el umbral tienen que coincidir con `Brain-Aura/hardware.env`, de don
 
 ## Problemas del firmware vistos al probar con el auto (2026-10-17)
 
-No los resuelve el bridge. Hay que corregirlos en `embedded` para poder andar:
+1. **El ultrasónico frenaba siempre:** había un obstáculo real a 22 cm. El sensor funciona.
+2. **`WATCHDOG_TIMEOUT` justo después de armar:** era una resta sin signo que daba la vuelta (`Heartbeat age: 4294967271 ms`). Corregido en `embedded` (commit `fa7b3b6`, rama `fix/plan-mejoras-fase0-fase2`).
+3. **Dos eventos pegados en una línea:** `Serial.println()` hace dos escrituras y varias tareas imprimían a la vez. Corregido en el mismo commit: cada línea se escribe entera bajo un mutex.
 
-1. **El ultrasónico ve un obstáculo a 21–22 cm todo el tiempo**, incluso sin ningún comando: frena de emergencia cada ~150 ms y engancha FAULT a los ~0,3 s de arrancar. `hardware.env` ya dice que el sensor está muerto.
-2. **`WATCHDOG_TIMEOUT` justo después de armar en modo AUTO**, aun recibiendo comandos cada 50 ms. Se sospecha de la cuenta `current_ms - last_heartbeat_ms` en `supervisor_task.cpp`: es sin signo, y si `LinkRxTask` actualiza el heartbeat después de que el supervisor leyó `current_ms`, la resta da la vuelta y parece un timeout enorme. Falta confirmarlo.
-3. Varias tareas escriben al serial sin un lock compartido, y a veces dos eventos salen pegados en una línea (`EVENT:CMD_EXECUTED:EMERGENCY_BRAKEEVENT:STATE_CHANGED:FAULT`). El bridge interpreta mal esa línea, pero no se rompe.
+Con esos arreglos, el bridge mantiene el ESP32 en RUNNING en modo AUTO, y el watchdog real sigue saltando a los ~300 ms si se corta el enlace.
