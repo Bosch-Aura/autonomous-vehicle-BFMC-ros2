@@ -59,13 +59,15 @@ Por defecto, `web_video_server` usa el puerto 8080 y `rosbridge`, el 9090.
 
 ### 2. En tu computadora
 
-Abrí `index.html` en el navegador (doble clic) y escribí la IP de la Jetson. Si el navegador bloquea algo al abrirlo como archivo, servilo desde esta carpeta:
+Servila desde esta carpeta (es la forma que se probó con la Jetson real):
 
 ```bash
 python -m http.server 8000
 ```
 
-y abrí `http://localhost:8000`. Después apretá **Conectar**.
+Abrí `http://localhost:8000/index.html`, escribí la IP de la Jetson y apretá **Conectar**. Abrir `index.html` con doble clic debería andar también, pero no se probó.
+
+Si la imagen se queda en "conectando…" y el panel del carril sí funciona, el pedido de la imagen no está recibiendo cuadros: abrí `http://<IP>:8080` y mirá si `/camera/color/image_raw` figura en la lista, y probá `http://<IP>:8080/stream_viewer?topic=/camera/color/image_raw`.
 
 ### 3. Calibrar `warp_src`
 
@@ -101,12 +103,20 @@ Los valores iniciales de los puntos son los del `params.yaml` actual. **Valores 
 - `rosbridge` acepta la suscripción a `/perception/lane` con el tipo `bfmc_interfaces/msg/LaneState` y entrega `detected`, `lateral_error_m`, `heading_error_rad`, `confidence` e `intersection_detected`.
 - `web_video_server` entrega la imagen en `/stream` cuando la cámara publica con calidad de servicio confiable **y** con "mejor esfuerzo". Para eso la página pide la imagen con `qos_profile=sensor_data`: sin ese parámetro, una cámara en "mejor esfuerzo" no llega al navegador.
 
-**Sin verificar** (necesita la Jetson y la cámara real):
+**Verificado en la Jetson real** (Orin, Ubuntu 22.04, aarch64) con la RealSense, desde una computadora Windows en la misma red:
 
-- Que los paquetes `ros-humble-web-video-server`, `ros-humble-rosbridge-server` y `ros-humble-realsense2-camera` existan para la arquitectura de la Jetson (arm64).
-- Que el driver de la RealSense publique la imagen en `/camera/color/image_raw` con `bfmc_camera`, y con qué calidad de servicio.
-- Que `detected` pase a verdadero con la pista real, y que el trapecio calibrado dé una buena detección.
-- Que la red y el firewall permitan la conexión.
+- Los paquetes `ros-humble-web-video-server` 3.1.0, `ros-humble-rosbridge-server` 2.0.8 y `ros-humble-realsense2-camera` 4.58.4 existen e instalan en arm64.
+- `calibrar.sh` compila el workspace y lanza los cuatro procesos; aparecen `/camera/color/image_raw` y `/perception/lane`.
+- La RealSense publica la imagen con calidad de servicio `RELIABLE`, en `640 x 480`, y `web_video_server` la sirve a otra computadora de la red.
+- La página muestra la imagen real con el trapecio encima, y los datos de `/perception/lane` llegan por `rosbridge` (`Último dato` de decenas de milisegundos).
+- `web_video_server` **no decodifica `%2F`** en el parámetro `topic`: con `topic=%2Fcamera%2Fcolor%2Fimage_raw` abre el stream, manda 22 bytes (solo el separador) y ningún cuadro. Por eso la página escribe el topic con barras normales. Esto se vio solo contra la Jetson real; el servidor falso de las pruebas anteriores no lo detectaba.
+
+**Sin verificar:**
+
+- Cuántos cuadros por segundo entrega la cámara (`ros2 topic hz /camera/color/image_raw`).
+- Que `detected` pase a verdadero con la pista real, y que el trapecio calibrado dé una buena detección. Hoy `detected` da "sí" con la cámara apuntando a una habitación: el detector con los valores por defecto no está calibrado.
+- Abrir `index.html` como archivo (`file:///...`): la prueba con el pedido corregido se hizo servida con `python -m http.server`.
+- La orientación de la cámara montada en el auto: en las pruebas la imagen salió girada porque la cámara estaba apoyada de costado.
 
 ## Qué no hace (todavía)
 
