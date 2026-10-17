@@ -258,8 +258,11 @@ function conectar() {
   const video = $('video');
   video.onload = () => fijarEstado('estado-video', 'recibiendo', 'ok');
   video.onerror = () => fijarEstado('estado-video', 'sin imagen', 'mal');
-  video.src = 'http://' + cfg.host + ':' + cfg.puertoVideo + '/stream?type=mjpeg&topic=' +
-    encodeURIComponent(cfg.topicImagen);
+  // qos_profile=sensor_data: la imagen se pide como "mejor esfuerzo", que sirve tanto si la cámara
+  // publica con ese perfil como si lo hace como "confiable". Sin esto, web_video_server no recibe
+  // nada de una cámara que publique con "mejor esfuerzo".
+  video.src = 'http://' + cfg.host + ':' + cfg.puertoVideo +
+    '/stream?type=mjpeg&qos_profile=sensor_data&topic=' + encodeURIComponent(cfg.topicImagen);
   fijarEstado('estado-video', 'conectando…', 'suave');
 
   fijarEstado('estado-datos', 'conectando…', 'suave');
