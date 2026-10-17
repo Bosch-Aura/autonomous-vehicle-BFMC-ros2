@@ -247,6 +247,12 @@ function leerConfiguracion() {
   };
 }
 
+// web_video_server no decodifica %2F en el parámetro topic: con las barras codificadas busca un
+// topic que no existe y no manda ningún cuadro. Se codifica todo menos las barras.
+function topicEnUrl(topic) {
+  return encodeURIComponent(topic).replace(/%2F/gi, '/');
+}
+
 function conectar() {
   const cfg = leerConfiguracion();
   if (!cfg) return;
@@ -262,7 +268,7 @@ function conectar() {
   // publica con ese perfil como si lo hace como "confiable". Sin esto, web_video_server no recibe
   // nada de una cámara que publique con "mejor esfuerzo".
   video.src = 'http://' + cfg.host + ':' + cfg.puertoVideo +
-    '/stream?type=mjpeg&qos_profile=sensor_data&topic=' + encodeURIComponent(cfg.topicImagen);
+    '/stream?type=mjpeg&qos_profile=sensor_data&topic=' + topicEnUrl(cfg.topicImagen);
   fijarEstado('estado-video', 'conectando…', 'suave');
 
   fijarEstado('estado-datos', 'conectando…', 'suave');
