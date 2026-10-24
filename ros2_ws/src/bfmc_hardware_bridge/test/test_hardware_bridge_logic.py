@@ -84,42 +84,75 @@ def test_un_comando_viejo_se_descarta_y_se_frena():
     assert lineas(logic, now=10.5) == ['C:SET_STEER:105', 'C:SET_SPEED:0']
 
 
-# --- emergencia ------------------------------------------------------------------------------
+# --- obstáculo del ESP32 ------------------------------------------------------------------
 
-def test_una_emergencia_envia_un_freno_de_emergencia_y_despues_velocidad_cero():
+def test_un_obstaculo_del_esp32_se_informa_con_su_distancia():
+    logic = lista_para_andar()
+    recibir(logic, 1.0, 'EVENT:OBSTACLE_DETECTED:22',
+            'EVENT:STATE_AUTO_TRANSITION:RUNNING->STOPPED:OBSTACLE')
+    estado = logic.state(now=1.0)
+    assert (estado.obstacle, estado.obstacle_cm, estado.esp32_state) == (True, 22, 'STOPPED')
+
+
+def test_al_despejarse_el_obstaculo_ya_no_se_informa():
+    logic = lista_para_andar()
+    recibir(logic, 1.0, 'EVENT:OBSTACLE_DETECTED:22',
+            'EVENT:STATE_AUTO_TRANSITION:RUNNING->STOPPED:OBSTACLE')
+    recibir(logic, 2.0, 'EVENT:OBSTACLE_CLEARED', 'EVENT:STATE_AUTO_TRANSITION:STOPPED->RUNNING')
+    estado = logic.state(now=2.0)
+    assert (estado.obstacle, estado.obstacle_cm, estado.esp32_state) == (False, None, 'RUNNING')
+
+
+def test_la_transicion_a_stopped_por_obstaculo_lo_informa_aunque_no_llegue_el_aviso():
+    logic = lista_para_andar()
+    recibir(logic, 1.0, 'EVENT:STATE_AUTO_TRANSITION:RUNNING->STOPPED:OBSTACLE')
+    estado = logic.state(now=1.0)
+    assert (estado.obstacle, estado.obstacle_cm) == (True, None)
+
+
+def test_un_stopped_pedido_por_servicio_no_es_un_obstaculo():
+    logic = lista_para_andar()
+    recibir(logic, 1.0, 'EVENT:STATE_AUTO_TRANSITION:RUNNING->STOPPED:SYS_STOP')
+    estado = logic.state(now=1.0)
+    assert (estado.obstacle, estado.esp32_state) == (False, 'STOPPED')
+
+
+def test_una_distancia_ilegible_se_informa_como_desconocida():
+    logic = lista_para_andar()
+    recibir(logic, 1.0, 'EVENT:OBSTACLE_DETECTED:abc')
+    estado = logic.state(now=1.0)
+    assert (estado.obstacle, estado.obstacle_cm) == (True, None)
+
+
+@pytest.mark.parametrize('evento', [
+    'EVENT:WATCHDOG_TIMEOUT', 'EVENT:ESTOP_TRIGGERED:GPIO', 'EVENT:STATE_CHANGED:RUNNING',
+    'EVENT:STATE_CHANGED:DISARMED', 'EVENT:SYSTEM_READY',
+])
+def test_un_cambio_de_estado_borra_el_obstaculo(evento):
+    logic = lista_para_andar()
+    recibir(logic, 1.0, 'EVENT:OBSTACLE_DETECTED:22',
+            'EVENT:STATE_AUTO_TRANSITION:RUNNING->STOPPED:OBSTACLE')
+    recibir(logic, 2.0, evento)
+    assert logic.state(now=2.0).obstacle is False
+
+
+def test_al_reabrir_el_puerto_se_olvida_el_obstaculo():
+    logic = lista_para_andar()
+    recibir(logic, 1.0, 'EVENT:OBSTACLE_DETECTED:22')
+    logic.on_port_opened()
+    assert logic.state(now=1.0).obstacle is False
+
+
+def test_con_un_obstaculo_el_puente_no_manda_ningun_freno_y_sigue_con_el_comando():
+    # Frena el firmware. El puente sigue enviando el comando vigente: apenas el ESP32 se
+    # despeje, el auto vuelve a andar con el próximo ciclo (el firmware lo pide así).
     logic = lista_para_andar()
     logic.on_drive_command(0.5, 0.0, now=10.0)
-    logic.on_safety(True)
-    assert lineas(logic, now=10.0) == ['E:BRAKE_NOW:0', 'C:SET_STEER:105', 'C:SET_SPEED:0']
-    assert lineas(logic, now=10.05) == ['C:SET_STEER:105', 'C:SET_SPEED:0']
-
-
-def test_mientras_dura_la_emergencia_no_se_repite_el_freno_de_emergencia():
-    # Cada E:BRAKE_NOW reinicia los 5 s de bloqueo del firmware.
-    logic = lista_para_andar()
-    logic.on_safety(True)
-    lineas(logic, now=10.0)
-    logic.on_safety(True)
-    assert 'E:BRAKE_NOW:0' not in lineas(logic, now=10.05)
-
-
-def test_al_terminar_la_emergencia_se_reanuda_el_comando_vigente():
-    logic = lista_para_andar()
-    logic.on_drive_command(0.5, 0.0, now=10.0)
-    logic.on_safety(True)
-    lineas(logic, now=10.0)
-    logic.on_safety(False)
-    assert 'C:SET_SPEED:255' in lineas(logic, now=10.05)
-
-
-def test_una_emergencia_nueva_vuelve_a_enviar_el_freno_de_emergencia():
-    logic = lista_para_andar()
-    logic.on_safety(True)
-    lineas(logic, now=10.0)
-    logic.on_safety(False)
-    lineas(logic, now=10.05)
-    logic.on_safety(True)
-    assert lineas(logic, now=10.1)[0] == 'E:BRAKE_NOW:0'
+    recibir(logic, 10.0, 'EVENT:OBSTACLE_DETECTED:22',
+            'EVENT:STATE_AUTO_TRANSITION:RUNNING->STOPPED:OBSTACLE')
+    enviadas = lineas(logic, now=10.0) + lineas(logic, now=10.05)
+    assert 'E:BRAKE_NOW:0' not in enviadas
+    assert 'C:SET_SPEED:255' in enviadas
 
 
 # --- armado ---------------------------------------------------------------------------------

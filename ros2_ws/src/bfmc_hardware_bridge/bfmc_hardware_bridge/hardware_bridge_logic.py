@@ -9,8 +9,10 @@ Reglas (ADR-0002):
   renueva el TTL de 200 ms de los comandos y hace de heartbeat para el watchdog
   del ESP32 (300 ms).
 - Si el último comando es viejo, se envía velocidad 0 y dirección al centro.
-- Si `bfmc_safety` indica emergencia, se envía un freno de emergencia al empezar
-  y velocidad 0 mientras dure.
+- Ante un obstáculo el ESP32 frena solo (pasa a STOPPED, sin FAULT) y avisa con
+  OBSTACLE_DETECTED:<cm> y OBSTACLE_CLEARED. El puente lo registra y lo informa
+  (`HardwareState.obstacle`), pero no manda ningún freno por su cuenta: el que
+  frena es el firmware, y quien decide qué hacer con eso es `bfmc_decision`.
 - Al abrir el puerto, o si el ESP32 se reinicia, se lo arma. El ESP32 no tiene
   modos de manejo: si el auto va solo o lo maneja una persona se decide acá.
   Un FAULT posterior (watchdog, E-STOP u obstáculo) **no** se rearma solo: hace
@@ -27,8 +29,8 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from bfmc_hardware_bridge.protocol import (
-    encode_arm, encode_brake_now, encode_direction, encode_disarm, encode_resume,
-    encode_speed, encode_steer, encode_stop, Event, parse_line,
+    encode_arm, encode_direction, encode_disarm, encode_resume, encode_speed, encode_steer,
+    encode_stop, Event, parse_line,
 )
 from bfmc_hardware_bridge.units import Esp32Limits, to_duty, to_servo
 
@@ -54,10 +56,16 @@ class BridgeConfig:
 
 @dataclass(frozen=True)
 class HardwareState:
-    """Estado del enlace con el ESP32."""
+    """Estado del enlace con el ESP32.
+
+    `obstacle` es verdadero mientras el ESP32 está detenido por el ultrasónico;
+    `obstacle_cm` es la distancia a la que lo vio, o None si no la informó.
+    """
 
     link_up: bool
     esp32_state: str
+    obstacle: bool = False
+    obstacle_cm: Optional[int] = None
 
     @property
     def fault(self) -> bool:
@@ -78,10 +86,10 @@ class BridgeLogic:
         self._speed_mps = 0.0
         self._steering_rad = 0.0
         self._cmd_time = None
-        self._emergency = False
-        self._emergency_sent = False
         self._last_rx = None
         self._state = ''
+        self._obstacle = False
+        self._obstacle_cm = None
         self._direction = None
         self._want_arm = False
         self._last_arm = None
@@ -96,12 +104,6 @@ class BridgeLogic:
         self._speed_mps = speed_mps
         self._steering_rad = steering_rad
         self._cmd_time = now
-
-    def on_safety(self, emergency: bool) -> None:
-        """Registra el estado de emergencia informado por bfmc_safety."""
-        if not emergency:
-            self._emergency_sent = False
-        self._emergency = emergency
 
     def on_port_opened(self) -> None:
         """El puerto se acaba de abrir: no se sabe nada del ESP32, hay que armarlo."""
@@ -152,12 +154,7 @@ class BridgeLogic:
         limits = self._config.limits
         comando_vigente = (self._cmd_time is not None
                            and (now - self._cmd_time) <= self._config.cmd_timeout_s)
-        if self._emergency:
-            if not self._emergency_sent:
-                tramas.append(encode_brake_now())
-                self._emergency_sent = True
-            sentido, duty, servo = None, 0, limits.servo_center
-        elif comando_vigente:
+        if comando_vigente:
             sentido, duty = to_duty(self._speed_mps, limits)
             servo = to_servo(self._steering_rad, limits)
         else:
@@ -180,7 +177,8 @@ class BridgeLogic:
         """Estado del enlace en el instante `now`."""
         link_up = (self._last_rx is not None
                    and (now - self._last_rx) <= self._config.link_timeout_s)
-        return HardwareState(link_up=link_up, esp32_state=self._state)
+        return HardwareState(link_up=link_up, esp32_state=self._state,
+                             obstacle=self._obstacle, obstacle_cm=self._obstacle_cm)
 
     def stop_requested(self) -> Optional[bool]:
         """Último pedido de stop: True detener, False arrancar, None si nadie pidió nada."""
@@ -191,6 +189,10 @@ class BridgeLogic:
         self._state = ''
         self._nueva_sesion()
 
+    def _despejar_obstaculo(self):
+        self._obstacle = False
+        self._obstacle_cm = None
+
     def _nueva_sesion(self):
         """Hay que volver a armar; el sentido recordado ya no vale.
 
@@ -200,7 +202,7 @@ class BridgeLogic:
         self._stop_confirmed = self._stop_wanted is not True
         self._last_stop = None
         self._direction = None
-        self._emergency_sent = False
+        self._despejar_obstaculo()
         self._want_arm = self._state not in ARMADOS
         self._last_arm = None
 
@@ -232,8 +234,16 @@ class BridgeLogic:
             destino = args[0].rpartition('->')[2]
             if destino in ESTADOS:
                 self._cambiar_estado(destino)
+                # 'RUNNING->STOPPED:OBSTACLE': la causa va después. Con SYS_STOP no hay obstáculo.
+                if destino == 'STOPPED' and len(args) > 1 and args[1] == 'OBSTACLE':
+                    self._obstacle = True
+        elif nombre == 'OBSTACLE_DETECTED':
+            self._obstacle = True
+            self._obstacle_cm = int(args[0]) if args and args[0].isdigit() else None
+        elif nombre == 'OBSTACLE_CLEARED':
+            self._despejar_obstaculo()
         elif nombre in ('WATCHDOG_TIMEOUT', 'FAULT_TRIGGERED', 'ESTOP_TRIGGERED'):
-            self._state = 'FAULT'
+            self._cambiar_estado('FAULT')
         elif nombre == 'CMD_RECEIVED' and args and args[0] in ('SYS_STOP', 'SYS_RESUME'):
             # El firmware responde CMD_RECEIVED siempre, aunque el stop ya
             # estuviera así: es la confirmación de que llegó.
@@ -246,6 +256,9 @@ class BridgeLogic:
 
     def _cambiar_estado(self, estado):
         self._state = estado
+        # Un obstáculo solo existe mientras el ESP32 está en STOPPED.
+        if estado != 'STOPPED':
+            self._despejar_obstaculo()
         # Armado conseguido: a partir de acá un FAULT no se rearma solo.
         if estado in ARMADOS:
             self._want_arm = False

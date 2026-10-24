@@ -16,7 +16,6 @@ hardware_bridge:
 
     # Topics y servicios.
     cmd_topic: /cmd/drive              # comando final (ackermann_msgs/AckermannDriveStamped)
-    safety_topic: /safety/status       # si indica emergencia, el puente frena
     status_topic: /hardware/status
     status_frame_id: base_link
     status_rate_hz: 2.0                # [Hz] frecuencia de /hardware/status

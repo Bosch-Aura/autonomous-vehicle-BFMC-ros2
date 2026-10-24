@@ -4,7 +4,7 @@ from bfmc_hardware_bridge.hardware_bridge_logic import BridgeConfig, BridgeLogic
 from bfmc_hardware_bridge.line_buffer import LineBuffer
 from bfmc_hardware_bridge.serial_port import PySerialPort
 from bfmc_hardware_bridge.units import Esp32Limits
-from bfmc_interfaces.msg import HardwareStatus, SafetyStatus
+from bfmc_interfaces.msg import HardwareStatus
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
@@ -19,8 +19,8 @@ PARAMETROS_ENTEROS = (
     'baud_rate', 'duty_start', 'duty_max', 'servo_left', 'servo_center', 'servo_right',
 )
 PARAMETROS_TEXTO = (
-    'serial_port', 'cmd_topic', 'safety_topic', 'status_topic',
-    'status_frame_id', 'arm_service', 'stop_service',
+    'serial_port', 'cmd_topic', 'status_topic', 'status_frame_id', 'arm_service',
+    'stop_service',
 )
 
 
@@ -32,9 +32,9 @@ class HardwareBridgeNode(Node):
     """Traduce los comandos de ROS al protocolo del ESP32 y publica lo que este reporta.
 
     En cada ciclo lee el puerto, procesa lo recibido y envía velocidad y
-    dirección: las del último comando, o 0 y centro si hay una emergencia o el
-    comando es viejo. Reenviar en cada ciclo hace de heartbeat para el watchdog
-    del ESP32.
+    dirección: las del último comando, o 0 y centro si el comando es viejo.
+    Reenviar en cada ciclo hace de heartbeat para el watchdog del ESP32. Si el
+    ESP32 se detiene por un obstáculo, el nodo lo informa en /hardware/status.
 
     Todos los parámetros se declaran sin valor por defecto: los valores viven en
     config/params.yaml y, si falta alguno, el nodo falla al arrancar.
@@ -74,14 +74,13 @@ class HardwareBridgeNode(Node):
         self._ultimo_intento = None
         self._ultimo_estado = None
         self._estado_informado = None
+        self._obstaculo_informado = False
 
         reliable = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
         self._pub_estado = self.create_publisher(
             HardwareStatus, self._param('status_topic'), reliable)
         self.create_subscription(
             AckermannDriveStamped, self._param('cmd_topic'), self._on_cmd, reliable)
-        self.create_subscription(
-            SafetyStatus, self._param('safety_topic'), self._on_safety, reliable)
         self.create_service(Trigger, self._param('arm_service'), self._on_arm)
         self.create_service(SetBool, self._param('stop_service'), self._on_stop)
 
@@ -98,9 +97,6 @@ class HardwareBridgeNode(Node):
     # --- mensajes y servicios de ROS -----------------------------------------
     def _on_cmd(self, msg: AckermannDriveStamped):
         self._logic.on_drive_command(msg.drive.speed, msg.drive.steering_angle, self._now_s())
-
-    def _on_safety(self, msg: SafetyStatus):
-        self._logic.on_safety(msg.emergency)
 
     def _on_arm(self, _request, response):
         # Es la salida de FAULT: el puente nunca rearma solo después de un fallo.
@@ -157,25 +153,39 @@ class HardwareBridgeNode(Node):
             except OSError as error:
                 self._cerrar_puerto(error)
 
-        self._informar_cambio_de_estado(now)
-        self._publicar_estado(now)
+        # Un cambio de estado o de obstáculo se publica enseguida: bfmc_decision no tiene que
+        # esperar al próximo turno de status_rate_hz para enterarse.
+        cambio = self._informar_cambio_de_estado(now)
+        self._publicar_estado(now, forzar=cambio)
 
     # --- publicaciones --------------------------------------------------------
     def _informar_cambio_de_estado(self, now):
+        """Registra en el log los cambios de estado o de obstáculo; True si hubo alguno."""
         estado = self._logic.state(now)
-        if estado.esp32_state == self._estado_informado:
-            return
-        self._estado_informado = estado.esp32_state
-        texto = 'ESP32 en estado %s' % (estado.esp32_state or '?')
-        if estado.fault:
-            self.get_logger().error(
-                texto + ': frenado; para rearmarlo, llamar a %s' % self._param('arm_service'))
-        else:
-            self.get_logger().info(texto)
+        cambio = (estado.esp32_state != self._estado_informado
+                  or estado.obstacle != self._obstaculo_informado)
+        if estado.esp32_state != self._estado_informado:
+            self._estado_informado = estado.esp32_state
+            texto = 'ESP32 en estado %s' % (estado.esp32_state or '?')
+            if estado.fault:
+                self.get_logger().error(
+                    texto + ': frenado; para rearmarlo, llamar a %s' % self._param('arm_service'))
+            else:
+                self.get_logger().info(texto)
+        if estado.obstacle != self._obstaculo_informado:
+            self._obstaculo_informado = estado.obstacle
+            if estado.obstacle:
+                distancia = '?' if estado.obstacle_cm is None else str(estado.obstacle_cm)
+                self.get_logger().warning(
+                    'obstáculo a %s cm: el ESP32 se detuvo por su cuenta' % distancia)
+            else:
+                self.get_logger().info('obstáculo despejado')
+        return cambio
 
-    def _publicar_estado(self, now):
+    def _publicar_estado(self, now, forzar=False):
         periodo = 1.0 / self._param('status_rate_hz')
-        if self._ultimo_estado is not None and (now - self._ultimo_estado) < periodo:
+        reciente = self._ultimo_estado is not None and (now - self._ultimo_estado) < periodo
+        if reciente and not forzar:
             return
         self._ultimo_estado = now
         estado = self._logic.state(now)
@@ -183,9 +193,13 @@ class HardwareBridgeNode(Node):
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = self._param('status_frame_id')
         msg.link_up = estado.link_up
-        # El firmware no distingue el motivo del FAULT (watchdog, E-STOP u
-        # obstáculo); en todos los casos frenó y espera que lo rearmen.
+        # El firmware no distingue el motivo del FAULT (watchdog o E-STOP); en los dos
+        # casos frenó y espera que lo rearmen. Un obstáculo no es FAULT: va aparte.
         msg.watchdog_tripped = estado.fault
+        msg.obstacle_stop = estado.obstacle
+        msg.obstacle_distance_m = (
+            estado.obstacle_cm / 100.0
+            if estado.obstacle and estado.obstacle_cm is not None else float('nan'))
         # El firmware no informa su versión ni confirma secuencias (ADR-0002).
         msg.firmware_version = ''
         msg.last_seq = 0

@@ -10,7 +10,7 @@ import time
 
 from ackermann_msgs.msg import AckermannDriveStamped
 from bfmc_hardware_bridge.hardware_bridge_node import HardwareBridgeNode
-from bfmc_interfaces.msg import HardwareStatus, SafetyStatus
+from bfmc_interfaces.msg import HardwareStatus
 import pytest
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
@@ -80,8 +80,6 @@ class Entorno:
         param = nodo.get_parameter
         self.pub_cmd = auxiliar.create_publisher(
             AckermannDriveStamped, param('cmd_topic').value, RELIABLE)
-        self.pub_seguridad = auxiliar.create_publisher(
-            SafetyStatus, param('safety_topic').value, RELIABLE)
         auxiliar.create_subscription(
             HardwareStatus, param('status_topic').value, self.estados.append, RELIABLE)
         self.cliente_armado = auxiliar.create_client(Trigger, param('arm_service').value)
@@ -102,11 +100,6 @@ class Entorno:
         mensaje.drive.speed = velocidad
         mensaje.drive.steering_angle = direccion
         self.pub_cmd.publish(mensaje)
-
-    def emergencia(self, activa):
-        mensaje = SafetyStatus()
-        mensaje.emergency = activa
-        self.pub_seguridad.publish(mensaje)
 
 
 @pytest.fixture
@@ -156,18 +149,35 @@ def test_un_comando_se_envia_al_esp32_en_sus_unidades(entorno):
     assert 'C:SET_STEER:50' in tramas
 
 
-def test_una_emergencia_frena_aunque_siga_llegando_un_comando(entorno):
+def test_un_obstaculo_del_esp32_se_publica_con_su_distancia_y_se_despeja(entorno):
+    def avisar():
+        entorno.puerto.por_leer += (
+            b'EVENT:OBSTACLE_DETECTED:22\nEVENT:STATE_AUTO_TRANSITION:RUNNING->STOPPED:OBSTACLE\n')
+
+    assert entorno.esperar(
+        lambda: any(e.obstacle_stop for e in entorno.estados), avisar)
+    detectado = [e for e in entorno.estados if e.obstacle_stop][-1]
+    assert detectado.obstacle_distance_m == pytest.approx(0.22)
+    assert detectado.watchdog_tripped is False
+
+    def despejar():
+        entorno.puerto.por_leer += (
+            b'EVENT:OBSTACLE_CLEARED\nEVENT:STATE_AUTO_TRANSITION:STOPPED->RUNNING\n')
+
+    entorno.estados.clear()
+    assert entorno.esperar(
+        lambda: entorno.estados and not entorno.estados[-1].obstacle_stop, despejar)
+    assert math.isnan(entorno.estados[-1].obstacle_distance_m)
+
+
+def test_un_obstaculo_no_hace_que_el_puente_mande_un_freno(entorno):
     def publicar():
         entorno.comando(0.5, 0.0)
-        entorno.emergencia(True)
+        entorno.puerto.por_leer += b'EVENT:OBSTACLE_DETECTED:22\n'
 
-    def frenado():
-        tramas = entorno.puerto.tramas()
-        velocidades = [t for t in tramas if t.startswith('C:SET_SPEED:')]
-        return 'E:BRAKE_NOW:0' in tramas and velocidades[-3:] == ['C:SET_SPEED:0'] * 3
-
-    assert entorno.esperar(frenado, publicar)
-    assert entorno.puerto.tramas().count('E:BRAKE_NOW:0') == 1
+    assert entorno.esperar(lambda: any(e.obstacle_stop for e in entorno.estados), publicar)
+    assert 'E:BRAKE_NOW:0' not in entorno.puerto.tramas()
+    assert 'C:SET_SPEED:255' in entorno.puerto.tramas()
 
 
 def test_un_evento_del_esp32_levanta_el_enlace(entorno):

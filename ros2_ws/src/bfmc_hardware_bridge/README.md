@@ -4,19 +4,18 @@ Puente entre ROS2 y el ESP32. Es el **único** nodo que abre el puerto serial: n
 
 ## Responsabilidad
 
-Hablar con el ESP32. **No decide** nada: reenvía lo que decide `bfmc_decision`, salvo que frena si `bfmc_safety` lo pide o si el comando es viejo.
+Hablar con el ESP32. **No decide** nada: reenvía lo que decide `bfmc_decision` (con 0 y dirección al centro si el comando es viejo) e informa lo que el ESP32 reporta, incluido que se detuvo por un obstáculo.
 
 ## Topics y servicios
 
 | Dirección | Parámetro | Nombre | Tipo | Descripción |
 |---|---|---|---|---|
 | Se suscribe | `cmd_topic` | `/cmd/drive` | `ackermann_msgs/AckermannDriveStamped` | Comando final (m/s y rad) |
-| Se suscribe | `safety_topic` | `/safety/status` | `bfmc_interfaces/SafetyStatus` | Si indica emergencia, el puente frena |
-| Publica | `status_topic` | `/hardware/status` | `bfmc_interfaces/HardwareStatus` | Enlace vivo y si el ESP32 está en FAULT (`watchdog_tripped`) |
+| Publica | `status_topic` | `/hardware/status` | `bfmc_interfaces/HardwareStatus` | Enlace vivo, si el ESP32 está en FAULT (`watchdog_tripped`) y si está detenido por un obstáculo (`obstacle_stop`, `obstacle_distance_m`) |
 | Servicio | `arm_service` | `/hardware/arm` | `std_srvs/Trigger` | Rearma el ESP32 después de un FAULT |
 | Servicio | `stop_service` | `/hardware/stop` | `std_srvs/SetBool` | `true`: detener (STOPPED). `false`: arrancar |
 
-El firmware no informa distancias, así que este nodo **no publica** `/hardware/ultrasonic`. El frenado por obstáculo lo hace el propio ESP32.
+El ultrasónico lo maneja el propio ESP32: frena solo ante un obstáculo y avisa con `OBSTACLE_DETECTED:<cm>` y `OBSTACLE_CLEARED`. Este nodo **no publica** `/hardware/ultrasonic`; informa el obstáculo en `/hardware/status`.
 
 ## Cómo funciona
 
@@ -24,8 +23,7 @@ En cada ciclo (`send_rate_hz`, 20 Hz) el nodo lee el puerto, procesa los eventos
 
 | Situación | Líneas enviadas |
 |---|---|
-| Comando vigente y sin emergencia | `C:SET_DIR` (solo si cambió el sentido), `C:SET_STEER`, `C:SET_SPEED` |
-| Empieza una emergencia de `bfmc_safety` | `E:BRAKE_NOW:0` una vez, y después velocidad 0 y dirección al centro |
+| Comando vigente | `C:SET_DIR` (solo si cambió el sentido), `C:SET_STEER`, `C:SET_SPEED` |
 | Sin comandos, o el último tiene más de `cmd_timeout_s` | `C:SET_STEER:<centro>`, `C:SET_SPEED:0` |
 
 Reenviar velocidad y dirección en cada ciclo renueva el TTL de 200 ms del firmware y hace de **heartbeat** para su watchdog (300 ms).
@@ -33,6 +31,8 @@ Reenviar velocidad y dirección en cada ciclo renueva el TTL de 200 ms del firmw
 **Arranque:** al abrir el puerto, o si el ESP32 se reinicia (`EVENT:SYSTEM_READY`), el nodo arma la placa solo, reintentando hasta que el firmware confirme. Envía como mucho un comando `M:` por ciclo, porque el firmware guarda uno solo. En esta Jetson, **abrir el puerto reinicia la placa**; el nodo lo detecta y la vuelve a armar. El firmware no tiene modos AUTO/MANUAL, así que no se configura ninguno.
 
 **STOPPED:** con un obstáculo delante, o tras `M:SYS_STOP:0`, el ESP32 queda armado pero quieto (velocidad 0, servo congelado) y vuelve solo a `RUNNING`. El nodo lo registra como estado `STOPPED`; no es FAULT y no lo rearma.
+
+**Obstáculo:** el nodo lo detecta con `EVENT:OBSTACLE_DETECTED:<cm>`, con `STATE_AUTO_TRANSITION:RUNNING->STOPPED:OBSTACLE` o con ambos, y lo publica en `obstacle_stop` mientras dure, con la distancia en `obstacle_distance_m` (`NaN` si el firmware no la informó). Se borra con `OBSTACLE_CLEARED`, con cualquier otro cambio de estado o si la placa se reinicia. **El puente no manda ningún freno por esto**: frena el firmware, y `bfmc_decision` decide qué hacer. Tras despejarse, el firmware pide un `C:SET_SPEED` nuevo; como el puente envía la velocidad en cada ciclo, el auto retoma apenas `bfmc_decision` vuelva a pedir movimiento.
 
 **Detener y arrancar desde otro nodo:** el servicio `/hardware/stop` (`std_srvs/SetBool`) deja el ESP32 en `STOPPED` con `true` (`M:SYS_STOP:0`, queda enganchado) y lo suelta con `false` (`M:SYS_RESUME:0`). El nodo reintenta hasta que el ESP32 confirme y, si la placa se reinicia, le vuelve a enviar el stop. Arrancar no mueve el auto: avanza con el próximo `/cmd/drive`.
 
@@ -87,7 +87,7 @@ ros2 launch bfmc_hardware_bridge hardware_bridge.launch.py
 ros2 topic echo /hardware/status
 ```
 
-`link_up: true` indica que el ESP32 responde, y `watchdog_tripped: false`, que no está en FAULT. Para usar otro puerto sin editar el YAML:
+`link_up: true` indica que el ESP32 responde, `watchdog_tripped: false`, que no está en FAULT, y `obstacle_stop: false`, que no está detenido por un obstáculo. Para usar otro puerto sin editar el YAML:
 
 ```bash
 ros2 run bfmc_hardware_bridge hardware_bridge --ros-args --params-file config/params.yaml -p serial_port:=/dev/ttyUSB0
