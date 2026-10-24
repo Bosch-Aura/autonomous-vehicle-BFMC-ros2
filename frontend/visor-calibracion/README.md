@@ -1,8 +1,8 @@
 # Visor de calibración
 
-Una página de un solo archivo (`index.html`) para **ver desde una computadora lo que ve la Jetson**: la imagen de la cámara, los datos de `/perception/lane` y el trapecio `warp_src` de `bfmc_lane_detection` para calibrarlo. No es el dashboard del vehículo (ver [`../README.md`](../README.md)): es una herramienta provisoria de calibración.
+Una página de un solo archivo (`index.html`) para **calibrar `bfmc_lane_detection` desde una computadora, viendo lo que ve la Jetson**. Muestra la imagen de la cámara, lo que el detector toma por línea, la vista desde arriba con las ventanas y las curvas, y los datos de `/perception/lane`. Y deja **cambiar los parámetros del detector en vivo**: el trapecio `warp_src`, el umbral de color y la región de interés. No es el dashboard del vehículo (ver [`../README.md`](../README.md)): es una herramienta provisoria de calibración.
 
-- **Solo lectura.** La página se suscribe a un topic y pide una imagen. No publica ni llama servicios.
+- **Lee y calibra.** Se suscribe a `/perception/lane`, pide imágenes y llama a los servicios `get_parameters` y `set_parameters` del nodo del detector. No publica ningún topic ni llama ningún otro servicio.
 - **Sin dependencias.** No usa librerías ni internet: habla el protocolo de `rosbridge` (JSON por WebSocket) directamente. Funciona en una red sin salida a internet.
 - **No es un paquete ROS.** `colcon` no la compila ni la testea.
 
@@ -10,9 +10,11 @@ Una página de un solo archivo (`index.html`) para **ver desde una computadora l
 
 | Zona | Qué es |
 |---|---|
-| Imagen de la cámara | El stream de `web_video_server`, con el trapecio de `warp_src` dibujado encima |
-| Carril | `detected`, `lateral_error_m`, `heading_error_rad`, `confidence` e `intersection_detected` de `/perception/lane`, y cuánto hace que llegó el último dato (rojo si pasó más de 1 s) |
-| `warp_src` | Los ocho valores del trapecio, en el formato de `params.yaml`, listos para copiar |
+| **Cámara y trapecio** | La imagen de la cámara con el trapecio de `warp_src` encima. Se arrastran los cuatro puntos y, con "Aplicar en vivo", el detector usa el trapecio mientras se mueve. |
+| **Lo que ve el detector** | La imagen de la cámara con lo que el detector toma por **blanco pintado de rojo**, el trapecio que usa (amarillo), el límite de la región de interés (cian), las líneas que encontró (verde la izquierda, azul la derecha) y el error lateral (magenta). Sirve para ver si está tomando por línea algo que no lo es. |
+| **Vista desde arriba** | Lo que el detector ve después de "aplanar" el piso: la máscara de blancos, las **ventanas deslizantes** que siguen cada línea, las curvas ajustadas, el auto (amarillo) y la fila donde mide (naranja). |
+| **Carril** | `detected`, `lateral_error_m`, `heading_error_rad`, `confidence` e `intersection_detected` de `/perception/lane`, y cuánto hace que llegó el último dato (rojo si pasó más de 1 s). |
+| **Ajustes en vivo** | Tres deslizadores (brillo mínimo y saturación máxima del blanco, y cuánto de arriba se descarta) y el texto con las cuatro líneas del `params.yaml`, listas para copiar. |
 
 ## Cómo usarlo
 
@@ -59,28 +61,31 @@ Por defecto, `web_video_server` usa el puerto 8080 y `rosbridge`, el 9090.
 
 ### 2. En tu computadora
 
-Servila desde esta carpeta (es la forma que se probó con la Jetson real):
+Servila desde esta carpeta (es la forma con la que se probó):
 
 ```bash
 python -m http.server 8000
 ```
 
-Abrí `http://localhost:8000/index.html`, escribí la IP de la Jetson y apretá **Conectar**. Abrir `index.html` con doble clic debería andar también, pero no se probó.
+Abrí `http://localhost:8000/index.html`, escribí la IP de la Jetson y apretá **Conectar**. Al conectar, la página **lee del detector los valores que tiene en ese momento** (trapecio, color y región) y empieza desde ahí.
 
-Si la imagen se queda en "conectando…" y el panel del carril sí funciona, el pedido de la imagen no está recibiendo cuadros: abrí `http://<IP>:8080` y mirá si `/camera/color/image_raw` figura en la lista, y probá `http://<IP>:8080/stream_viewer?topic=/camera/color/image_raw`.
+Si la imagen se queda en "conectando…" y el panel del carril sí funciona, el pedido de la imagen no está recibiendo cuadros: abrí `http://<IP>:8080` y mirá si el topic figura en la lista, y probá `http://<IP>:8080/stream_viewer?topic=/camera/color/image_raw`.
 
-### 3. Calibrar `warp_src`
+### 3. Calibrar
 
-1. Con el auto apoyado sobre la pista, arrastrá los cuatro puntos hasta que el trapecio calce con el carril, como lo debe ver el detector.
-2. Apretá **Copiar** y pegá la línea en `ros2_ws/src/bfmc_lane_detection/config/params.yaml`.
-3. Relanzá `lane_detection`: el nodo lee sus parámetros al arrancar.
-4. Volvé a mirar `confidence` y `detected`.
+Con el auto apoyado sobre la pista y la cámara derecha:
 
-Los valores iniciales de los puntos son los del `params.yaml` actual. **Valores del params.yaml** los restablece.
+1. **Trapecio.** Arrastrá los cuatro puntos hasta que el trapecio calce con el carril. El detector lo usa al instante: en "Lo que ve el detector" el trapecio amarillo se mueve, y en la vista desde arriba las dos líneas tienen que quedar **paralelas y verticales**. Si el trapecio es inválido (los puntos se cruzan o quedan alineados), se pone en rojo, no se envía y el detector sigue con el último válido.
+2. **Color.** Mirá qué pinta de rojo en "Lo que ve el detector". Si toma por blanco cosas que no son línea (una pared, una hoja), subí el brillo mínimo o bajá la saturación máxima hasta que solo queden las líneas.
+3. **Región.** Subí "descartar de arriba" para ignorar el fondo; el límite es la línea cian.
+4. **Escala.** Cuando cambia el trapecio también cambian `lane_width_px` y `forward_range_m` (cuántos píxeles de la vista desde arriba son el ancho del carril y la distancia hacia adelante). Se miden en la vista desde arriba y se escriben en el `params.yaml`; la página todavía no los cambia.
+5. **Dejarlo fijo.** Lo que se cambia en vivo vale **mientras el nodo siga andando**: no se guarda. Apretá **Copiar**, pegá las cuatro líneas en `ros2_ws/src/bfmc_lane_detection/config/params.yaml` (ya vienen con la sangría que usa el archivo) y reiniciá el script.
+
+**Aplicar en vivo** se puede apagar: entonces la página no manda nada y los cambios quedan solo en el navegador. **Valores del detector** vuelve a los que se leyeron al conectar.
 
 ## Seguridad: leer antes de abrir los puertos
 
-`rosbridge` **no autentica** y, tal como se lanza arriba, permite a cualquier cliente de la red publicar en cualquier topic (incluido `/cmd/drive`) y llamar servicios. `web_video_server` escucha en todas las interfaces (`0.0.0.0`) y tampoco autentica. Esta página no publica nada, pero los puertos quedan abiertos para quien los use.
+`rosbridge` **no autentica** y permite a cualquier cliente de la red publicar en cualquier topic (incluido `/cmd/drive`) y llamar servicios. `web_video_server` escucha en todas las interfaces (`0.0.0.0`) y tampoco autentica. Esta página solo cambia parámetros del detector de carril, pero **cualquiera con acceso a los puertos puede hacer lo mismo y mucho más**.
 
 - Usá una **red solo del equipo**, con contraseña (un router o un hotspot propio), no una Wi-Fi compartida.
 - Limitá con **firewall** los puertos 8080 y 9090 de la Jetson a las IP de las computadoras del equipo.
@@ -89,37 +94,27 @@ Los valores iniciales de los puntos son los del `params.yaml` actual. **Valores 
 
 ## Qué está verificado y qué no
 
-**Verificado en un navegador, contra un servidor falso** que imita a `web_video_server` y a `rosbridge`:
+**Verificado en un contenedor de ROS 2 Humble (amd64)** con el detector, `web_video_server` 3.1.0 y `rosbridge_server` 2.0.8 reales y una cámara falsa (un carril proyectado con la geometría del YAML y un cartel blanco afuera del trapecio), con la página abierta en un navegador:
 
-- La página muestra la imagen y actualiza los datos cuando llegan mensajes.
-- Los valores iniciales de `warp_src` coinciden con los del `params.yaml`.
-- El arrastre mueve solo el punto elegido y limita los valores a 0–1.
-- Si cae la conexión, muestra "reintentando" y el último dato se marca en rojo.
-- La única orden que envía la página es la suscripción (`subscribe`).
+- Las tres imágenes llegan: la cámara (640 x 480), la del detector (640 x 480) y la vista desde arriba (400 x 400).
+- La página lee del nodo el trapecio, el color y la región al conectar, y los muestra.
+- Al mover un punto del trapecio, el nodo cambia: `ros2 param get /lane_detection warp_src` devuelve el valor nuevo, el log dice "detector actualizado", y las mediciones y las imágenes cambian. Los deslizadores cambian `white_hsv_min`, `white_hsv_max` y `roi_top_fraction` en el nodo.
+- Un trapecio cruzado no se envía; el nodo conserva el último válido; y los valores puestos antes se recuperan al recargar la página.
+- En la imagen del detector, el cartel blanco aparece en rojo (lo toma por blanco) pero queda afuera del trapecio y no cuenta.
 
-**Verificado en un contenedor de ROS 2 Humble (amd64), con una cámara falsa** que publica una imagen sintética en `/camera/color/image_raw`, junto con `lane_detection`, `web_video_server` 3.1.0 y `rosbridge_server` 2.0.8 de los repositorios de Humble:
-
-- `calibrar.sh` compila el workspace, avisa de los paquetes que faltan, lanza los cuatro procesos y, con Ctrl+C, los detiene sin dejar ninguno vivo.
-- `rosbridge` acepta la suscripción a `/perception/lane` con el tipo `bfmc_interfaces/msg/LaneState` y entrega `detected`, `lateral_error_m`, `heading_error_rad`, `confidence` e `intersection_detected`.
-- `web_video_server` entrega la imagen en `/stream` cuando la cámara publica con calidad de servicio confiable **y** con "mejor esfuerzo". Para eso la página pide la imagen con `qos_profile=sensor_data`: sin ese parámetro, una cámara en "mejor esfuerzo" no llega al navegador.
-
-**Verificado en la Jetson real** (Orin, Ubuntu 22.04, aarch64) con la RealSense, desde una computadora Windows en la misma red:
-
-- Los paquetes `ros-humble-web-video-server` 3.1.0, `ros-humble-rosbridge-server` 2.0.8 y `ros-humble-realsense2-camera` 4.58.4 existen e instalan en arm64.
-- `calibrar.sh` compila el workspace y lanza los cuatro procesos; aparecen `/camera/color/image_raw` y `/perception/lane`.
-- La RealSense publica la imagen con calidad de servicio `RELIABLE`, en `640 x 480`, y `web_video_server` la sirve a otra computadora de la red.
-- La página muestra la imagen real con el trapecio encima, y los datos de `/perception/lane` llegan por `rosbridge` (`Último dato` de decenas de milisegundos).
-- `web_video_server` **no decodifica `%2F`** en el parámetro `topic`: con `topic=%2Fcamera%2Fcolor%2Fimage_raw` abre el stream, manda 22 bytes (solo el separador) y ningún cuadro. Por eso la página escribe el topic con barras normales. Esto se vio solo contra la Jetson real; el servidor falso de las pruebas anteriores no lo detectaba.
+**Verificado en la Jetson real** (Orin, Ubuntu 22.04.5, aarch64, RealSense), antes de esta función: los paquetes existen en arm64, el script compila y lanza todo, la cámara publica en `RELIABLE` a 640 x 480, y la página muestra la imagen y los datos del carril.
 
 **Sin verificar:**
 
-- Cuántos cuadros por segundo entrega la cámara (`ros2 topic hz /camera/color/image_raw`).
-- Que `detected` pase a verdadero con la pista real, y que el trapecio calibrado dé una buena detección. Hoy `detected` da "sí" con la cámara apuntando a una habitación: el detector con los valores por defecto no está calibrado.
-- Abrir `index.html` como archivo (`file:///...`): la prueba con el pedido corregido se hizo servida con `python -m http.server`.
-- La orientación de la cámara montada en el auto: en las pruebas la imagen salió girada porque la cámara estaba apoyada de costado.
+- Las imágenes de depuración y la calibración en vivo **en la Jetson real**, con la cámara real: el costo en CPU de dibujar las imágenes y que 10 imágenes por segundo no atrasen al detector.
+- Cuántos cuadros por segundo entrega la cámara.
+- Que con la pista real el trapecio y el color calibrados den buena detección.
+- Abrir `index.html` con doble clic (como archivo): la prueba se hizo servida con `python -m http.server`.
+- La orientación de la cámara montada en el auto.
 
 ## Qué no hace (todavía)
 
-- No muestra las líneas detectadas ni la vista cenital: `lane_detection` no publica una imagen anotada.
-- No controla nada ni autentica.
+- No cambia `lane_width_px`, `forward_range_m` ni el resto de los parámetros: solo el trapecio, el brillo, la saturación y la región.
+- No guarda los cambios en el `params.yaml`: hay que copiarlos.
+- No autentica ni controla el auto.
 - No muestra `sign_detection`, `/safety/status` ni `/vehicle/state`.

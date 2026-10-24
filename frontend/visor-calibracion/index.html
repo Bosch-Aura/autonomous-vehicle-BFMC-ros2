@@ -21,21 +21,25 @@
   header { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: end;
            padding: 12px 16px; background: var(--panel); border-bottom: 1px solid var(--borde); }
   header label { display: flex; flex-direction: column; font-size: 12px; color: var(--suave); }
-  input { padding: 6px 8px; border: 1px solid var(--borde); border-radius: 6px;
-          background: var(--fondo); color: var(--texto); font: inherit; }
+  input[type="text"], input[inputmode] { padding: 6px 8px; border: 1px solid var(--borde);
+          border-radius: 6px; background: var(--fondo); color: var(--texto); font: inherit; }
   input.corto { width: 80px; }
   input.largo { width: 230px; }
   button { padding: 7px 12px; border: 1px solid var(--borde); border-radius: 6px;
            background: var(--acento); color: #fff; font: inherit; cursor: pointer; }
   button.sec { background: transparent; color: var(--texto); }
-  main { display: grid; grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
-         gap: 16px; padding: 16px; }
+  main { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+         gap: 16px; padding: 16px; align-items: start; }
   @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+  .imagenes { display: grid; grid-template-columns: 1fr; gap: 16px; }
+  @media (min-width: 1200px) { .imagenes { grid-template-columns: 1fr 1fr; } }
   .tarjeta { background: var(--panel); border: 1px solid var(--borde); border-radius: 8px;
              padding: 12px; margin-bottom: 16px; }
+  .imagenes .tarjeta { margin-bottom: 0; }
   h2 { margin: 0 0 8px; font-size: 15px; }
   .marco { position: relative; width: 100%; aspect-ratio: 4 / 3; background: #222;
            border-radius: 6px; overflow: hidden; }
+  .marco.cuadrado { aspect-ratio: 1 / 1; }
   .marco img, .marco canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
   .marco img { object-fit: fill; }
   .marco canvas { touch-action: none; cursor: crosshair; }
@@ -45,33 +49,50 @@
   .ok { color: var(--ok); } .mal { color: var(--mal); } .suave { color: var(--suave); }
   .barra { height: 6px; background: var(--borde); border-radius: 3px; overflow: hidden; margin-top: 4px; }
   .barra > div { height: 100%; width: 0; background: var(--acento); }
-  textarea { width: 100%; height: 3.4em; resize: none; font: 12px ui-monospace, monospace;
+  textarea { width: 100%; height: 6.6em; resize: none; font: 12px ui-monospace, monospace;
              padding: 6px; border: 1px solid var(--borde); border-radius: 6px;
              background: var(--fondo); color: var(--texto); }
   .fila { display: flex; gap: 8px; margin-top: 8px; }
+  .deslizador { display: block; margin: 10px 0 2px; }
+  .deslizador span { display: flex; justify-content: space-between; }
+  .deslizador input { width: 100%; }
+  .interruptor { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
   small { color: var(--suave); }
 </style>
 </head>
 <body>
 <header>
-  <label>IP de la Jetson <input id="host" class="largo" placeholder="192.168.x.x" autocomplete="off"></label>
-  <label>Puerto del video <input id="puerto-video" class="corto" value="8080" inputmode="numeric"></label>
-  <label>Puerto de rosbridge <input id="puerto-rosbridge" class="corto" value="9090" inputmode="numeric"></label>
-  <label>Topic de la imagen <input id="topic-imagen" class="largo" value="/camera/color/image_raw"></label>
-  <label>Topic del carril <input id="topic-carril" class="largo" value="/perception/lane"></label>
+  <label>IP de la Jetson <input id="host" type="text" class="largo" placeholder="192.168.x.x" autocomplete="off"></label>
+  <label>Puerto del video <input id="puerto-video" type="text" class="corto" value="8080" inputmode="numeric"></label>
+  <label>Puerto de rosbridge <input id="puerto-rosbridge" type="text" class="corto" value="9090" inputmode="numeric"></label>
+  <label>Topic de la imagen <input id="topic-imagen" type="text" class="largo" value="/camera/color/image_raw"></label>
+  <label>Topic del carril <input id="topic-carril" type="text" class="largo" value="/perception/lane"></label>
+  <label>Imagen del detector <input id="topic-overlay" type="text" class="largo" value="/perception/lane_debug/overlay"></label>
+  <label>Vista desde arriba <input id="topic-cenital" type="text" class="largo" value="/perception/lane_debug/birdview"></label>
+  <label>Nodo del detector <input id="nodo" type="text" class="largo" value="/lane_detection"></label>
   <button id="conectar">Conectar</button>
   <button id="desconectar" class="sec">Desconectar</button>
 </header>
 
 <main>
   <section>
-    <div class="tarjeta">
-      <h2>Imagen de la cámara <small id="estado-video">sin conexión</small></h2>
-      <div class="marco">
-        <img id="video" alt="">
-        <canvas id="capa"></canvas>
+    <div class="imagenes">
+      <div class="tarjeta">
+        <h2>Cámara y trapecio <small id="estado-video">sin conexión</small></h2>
+        <div class="marco">
+          <img id="video" alt="">
+          <canvas id="capa"></canvas>
+        </div>
+        <small>Arrastrá los cuatro puntos hasta que el trapecio calce con el carril. Con "Aplicar en vivo", el detector usa el trapecio mientras lo movés.</small>
       </div>
-      <small>Arrastrá los cuatro puntos hasta que el trapecio calce con el carril, como lo ve el auto.</small>
+
+      <div class="tarjeta">
+        <h2>Lo que ve el detector <small id="estado-overlay">sin conexión</small></h2>
+        <div class="marco">
+          <img id="overlay" alt="">
+        </div>
+        <small>Rojo: lo que toma por blanco. Amarillo: el trapecio que usa. Cian: límite de la región. Verde y azul: las líneas que encontró. Magenta: el error lateral.</small>
+      </div>
     </div>
   </section>
 
@@ -89,12 +110,27 @@
     </div>
 
     <div class="tarjeta">
-      <h2>warp_src</h2>
-      <small>Orden: arriba-izquierda, arriba-derecha, abajo-derecha, abajo-izquierda. Fracción del ancho y del alto.</small>
+      <h2>Vista desde arriba <small id="estado-cenital">sin conexión</small></h2>
+      <div class="marco cuadrado">
+        <img id="cenital" alt="">
+      </div>
+      <small>Cajas: las ventanas que siguen cada línea. Amarillo: el auto. Naranja: la fila donde se mide.</small>
+    </div>
+
+    <div class="tarjeta">
+      <h2>Ajustes en vivo <small id="estado-ajustes">sin conexión</small></h2>
+      <label class="interruptor"><input type="checkbox" id="en-vivo" checked> Aplicar en vivo al detector</label>
+      <label class="deslizador"><span>Brillo mínimo del blanco <b id="valor-brillo">200</b></span>
+        <input type="range" id="brillo" min="0" max="255" step="1" value="200"></label>
+      <label class="deslizador"><span>Saturación máxima del blanco <b id="valor-saturacion">60</b></span>
+        <input type="range" id="saturacion" min="0" max="255" step="1" value="60"></label>
+      <label class="deslizador"><span>Región: descartar de arriba <b id="valor-roi">0.50</b></span>
+        <input type="range" id="roi" min="0" max="0.9" step="0.01" value="0.5"></label>
+      <small>Lo que se cambia acá vale mientras el nodo siga andando. Para dejarlo fijo, copiá las líneas al params.yaml.</small>
       <textarea id="salida" readonly></textarea>
       <div class="fila">
         <button id="copiar">Copiar</button>
-        <button id="restablecer" class="sec">Valores del params.yaml</button>
+        <button id="restablecer" class="sec">Valores del detector</button>
       </div>
       <small id="aviso-copia"></small>
     </div>
@@ -104,38 +140,88 @@
 <script>
 'use strict';
 
-// Solo lectura: esta página se suscribe a un topic y pide una imagen. Nunca publica ni llama servicios.
+// Esta página lee el estado del carril y la imagen, y cambia los parámetros del nodo del detector
+// (trapecio, umbral de color y región) con los servicios get_parameters / set_parameters.
+// No publica ningún topic ni llama ningún otro servicio.
 
-// Los mismos valores que bfmc_lane_detection/config/params.yaml:
-// arriba-izquierda, arriba-derecha, abajo-derecha, abajo-izquierda (x, y de cada uno).
+// Valores de partida, los mismos de bfmc_lane_detection/config/params.yaml. Al conectar se
+// reemplazan por los que el detector tiene en ese momento.
+// warp_src: arriba-izquierda, arriba-derecha, abajo-derecha, abajo-izquierda (x, y de cada uno).
 const WARP_INICIAL = [0.30, 0.55, 0.70, 0.55, 1.00, 0.95, 0.00, 0.95];
+const HSV_MIN_INICIAL = [0, 0, 200];
+const HSV_MAX_INICIAL = [179, 60, 255];
+const ROI_INICIAL = 0.5;
+
 const RADIO_PUNTO = 9;
 const VENCIMIENTO_DATO_MS = 1000;
 const REINTENTO_MS = 3000;
+const ESPERA_SERVICIO_MS = 3000;
+const ENVIO_CADA_MS = 100;
+const GIRO_MINIMO = 1e-4;           // el mismo criterio que valida el detector
 const HOST_VALIDO = /^[A-Za-z0-9.\-]+$/;
+const AVISO_TRAPECIO_INVALIDO =
+  'trapecio inválido (cruzado o aplastado): el detector sigue con el último válido';
 
 const $ = (id) => document.getElementById(id);
 const capa = $('capa');
 const ctx = capa.getContext('2d');
 
 let puntos = [];
+let hsvMin = HSV_MIN_INICIAL.slice();
+let hsvMax = HSV_MAX_INICIAL.slice();
+let roi = ROI_INICIAL;
+let delDetector = null;             // lo que el detector tenía al conectar
 let arrastrando = -1;
 let socket = null;
 let quiereConexion = false;
 let temporizadorReintento = null;
 let ultimoDatoMs = 0;
+let contadorLlamadas = 0;
+const pendientes = {};              // llamadas a servicios esperando respuesta
+const envios = {};                  // un envío en espera por parámetro
 
-function restablecer() {
-  puntos = [];
-  for (let i = 0; i < WARP_INICIAL.length; i += 2) {
-    puntos.push({ x: WARP_INICIAL[i], y: WARP_INICIAL[i + 1] });
-  }
-  dibujar();
+// ---------------------------------------------------------------- trapecio y ajustes
+
+const redondear = (v) => Math.round(v * 1000) / 1000;
+
+function warpValores() {
+  return puntos.flatMap((p) => [redondear(p.x), redondear(p.y)]);
 }
 
-function textoWarp() {
-  const valores = puntos.flatMap((p) => [p.x.toFixed(2), p.y.toFixed(2)]);
-  return 'warp_src: [' + valores.join(', ') + ']';
+// Los cuatro puntos, en el orden pedido, tienen que formar un cuadrilátero convexo.
+function cuadrilateroValido(valores) {
+  const p = [];
+  for (let i = 0; i < 8; i += 2) p.push({ x: valores[i], y: valores[i + 1] });
+  for (let i = 0; i < 4; i++) {
+    const a = p[i], b = p[(i + 1) % 4], c = p[(i + 2) % 4];
+    const giro = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+    if (!(giro > GIRO_MINIMO)) return false;
+  }
+  return true;
+}
+
+function ponerWarp(valores) {
+  puntos = [];
+  for (let i = 0; i < valores.length; i += 2) puntos.push({ x: valores[i], y: valores[i + 1] });
+}
+
+function textoYaml() {
+  return [
+    '    warp_src: [' + warpValores().map((v) => v.toFixed(3)).join(', ') + ']',
+    '    white_hsv_min: [' + hsvMin.join(', ') + ']',
+    '    white_hsv_max: [' + hsvMax.join(', ') + ']',
+    '    roi_top_fraction: ' + roi.toFixed(2),
+  ].join('\n');
+}
+
+function mostrarControles() {
+  $('brillo').value = hsvMin[2];
+  $('saturacion').value = hsvMax[1];
+  $('roi').value = roi;
+  $('valor-brillo').textContent = hsvMin[2];
+  $('valor-saturacion').textContent = hsvMax[1];
+  $('valor-roi').textContent = roi.toFixed(2);
+  dibujar();
 }
 
 function ajustarCanvas() {
@@ -155,7 +241,7 @@ function dibujar() {
     ctx.fillStyle = 'rgba(11, 107, 203, 0.18)';
     ctx.fill();
     ctx.lineWidth = 2;
-    ctx.strokeStyle = '#ffd400';
+    ctx.strokeStyle = cuadrilateroValido(warpValores()) ? '#ffd400' : '#ff4040';
     ctx.stroke();
     puntos.forEach((p, i) => {
       ctx.beginPath();
@@ -169,7 +255,7 @@ function dibujar() {
       ctx.fillText(String(i + 1), p.x * w + 12, p.y * h - 10);
     });
   }
-  $('salida').value = textoWarp();
+  $('salida').value = textoYaml();
 }
 
 function posicionRelativa(evento) {
@@ -192,6 +278,16 @@ function puntoCercano(pos) {
   return mejor;
 }
 
+function enviarWarp() {
+  const valores = warpValores();
+  if (!cuadrilateroValido(valores)) {
+    cancelarEnvio('warp_src');
+    fijarEstado('estado-ajustes', AVISO_TRAPECIO_INVALIDO, 'mal');
+    return;
+  }
+  enviarEnVivo('warp_src', 'decimales', valores);
+}
+
 capa.addEventListener('pointerdown', (e) => {
   arrastrando = puntoCercano(posicionRelativa(e));
   if (arrastrando >= 0) { capa.setPointerCapture(e.pointerId); dibujar(); }
@@ -200,10 +296,38 @@ capa.addEventListener('pointermove', (e) => {
   if (arrastrando < 0) return;
   puntos[arrastrando] = posicionRelativa(e);
   dibujar();
+  enviarWarp();
 });
-capa.addEventListener('pointerup', () => { arrastrando = -1; dibujar(); });
+capa.addEventListener('pointerup', () => {
+  const eraArrastre = arrastrando >= 0;
+  arrastrando = -1;
+  dibujar();
+  if (eraArrastre) enviarWarp();
+});
 capa.addEventListener('pointercancel', () => { arrastrando = -1; dibujar(); });
 window.addEventListener('resize', ajustarCanvas);
+
+$('brillo').addEventListener('input', (e) => {
+  hsvMin[2] = parseInt(e.target.value, 10);
+  mostrarControles();
+  enviarEnVivo('white_hsv_min', 'enteros', hsvMin.slice());
+});
+$('saturacion').addEventListener('input', (e) => {
+  hsvMax[1] = parseInt(e.target.value, 10);
+  mostrarControles();
+  enviarEnVivo('white_hsv_max', 'enteros', hsvMax.slice());
+});
+$('roi').addEventListener('input', (e) => {
+  roi = parseFloat(e.target.value);
+  mostrarControles();
+  enviarEnVivo('roi_top_fraction', 'decimal', roi);
+});
+$('en-vivo').addEventListener('change', (e) => {
+  if (e.target.checked) enviarTodo();
+  else fijarEstado('estado-ajustes', 'no se envía: los cambios quedan solo acá', 'suave');
+});
+
+// ---------------------------------------------------------------- estado y datos
 
 function fijarEstado(id, texto, clase) {
   const el = $(id);
@@ -232,6 +356,123 @@ function actualizarEdad() {
 }
 setInterval(actualizarEdad, 250);
 
+// ---------------------------------------------------------------- servicios de ROS
+
+function nodoDetector() {
+  const nombre = $('nodo').value.trim() || '/lane_detection';
+  return nombre.startsWith('/') ? nombre : '/' + nombre;
+}
+
+// Llama a un servicio de rosbridge y devuelve una promesa con los valores de la respuesta.
+function llamarServicio(servicio, tipo, args) {
+  return new Promise((resolver, rechazar) => {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      rechazar(new Error('sin conexión con rosbridge'));
+      return;
+    }
+    const id = 'visor-' + (++contadorLlamadas);
+    const temporizador = setTimeout(() => {
+      delete pendientes[id];
+      rechazar(new Error('el nodo no respondió'));
+    }, ESPERA_SERVICIO_MS);
+    pendientes[id] = { resolver, rechazar, temporizador };
+    socket.send(JSON.stringify({ op: 'call_service', id, service: servicio, type: tipo, args }));
+  });
+}
+
+// Tipos de ParameterValue (rcl_interfaces/msg/ParameterType).
+function valorDeParametro(tipo, valor) {
+  switch (tipo) {
+    case 'entero': return { type: 2, integer_value: valor };
+    case 'decimal': return { type: 3, double_value: valor };
+    case 'enteros': return { type: 7, integer_array_value: valor };
+    case 'decimales': return { type: 8, double_array_value: valor };
+    default: throw new Error('tipo de parámetro desconocido: ' + tipo);
+  }
+}
+
+function leerValor(v) {
+  switch (v.type) {
+    case 2: return v.integer_value;
+    case 3: return v.double_value;
+    case 7: return v.integer_array_value;
+    case 8: return v.double_array_value;
+    default: return null;
+  }
+}
+
+async function aplicar(nombre, tipo, valor) {
+  try {
+    const r = await llamarServicio(
+      nodoDetector() + '/set_parameters', 'rcl_interfaces/srv/SetParameters',
+      { parameters: [{ name: nombre, value: valorDeParametro(tipo, valor) }] });
+    const resultado = r.results[0];
+    if (resultado.successful) {
+      // Si mientras tanto el trapecio quedó inválido, ese aviso es el que importa.
+      if (cuadrilateroValido(warpValores())) fijarEstado('estado-ajustes', 'aplicado en el detector', 'ok');
+    } else fijarEstado('estado-ajustes', 'el detector lo rechazó: ' + resultado.reason, 'mal');
+  } catch (error) {
+    fijarEstado('estado-ajustes', 'no se pudo aplicar: ' + error.message, 'mal');
+  }
+}
+
+function cancelarEnvio(nombre) {
+  const envio = envios[nombre];
+  if (envio && envio.temporizador) { clearTimeout(envio.temporizador); envio.temporizador = null; }
+}
+
+// Se manda a lo sumo un cambio cada ENVIO_CADA_MS por parámetro, siempre el último valor.
+function enviarEnVivo(nombre, tipo, valor) {
+  if (!$('en-vivo').checked) return;
+  const envio = envios[nombre] || (envios[nombre] = { temporizador: null, tipo, valor });
+  envio.tipo = tipo;
+  envio.valor = valor;
+  if (envio.temporizador) return;
+  envio.temporizador = setTimeout(() => {
+    envio.temporizador = null;
+    aplicar(nombre, envio.tipo, envio.valor);
+  }, ENVIO_CADA_MS);
+}
+
+function enviarTodo() {
+  const valores = warpValores();
+  if (cuadrilateroValido(valores)) enviarEnVivo('warp_src', 'decimales', valores);
+  enviarEnVivo('white_hsv_min', 'enteros', hsvMin.slice());
+  enviarEnVivo('white_hsv_max', 'enteros', hsvMax.slice());
+  enviarEnVivo('roi_top_fraction', 'decimal', roi);
+}
+
+// Lee del detector los valores que tiene ahora, para empezar desde lo que realmente usa.
+async function leerDelDetector() {
+  try {
+    const r = await llamarServicio(
+      nodoDetector() + '/get_parameters', 'rcl_interfaces/srv/GetParameters',
+      { names: ['warp_src', 'white_hsv_min', 'white_hsv_max', 'roi_top_fraction'] });
+    const [warp, minimo, maximo, region] = r.values.map(leerValor);
+    if (!Array.isArray(warp) || warp.length !== 8 || !Array.isArray(minimo) || minimo.length !== 3 ||
+        !Array.isArray(maximo) || maximo.length !== 3 || typeof region !== 'number') {
+      throw new Error('el nodo devolvió valores inesperados');
+    }
+    delDetector = { warp: warp.map(redondear), hsvMin: minimo.slice(), hsvMax: maximo.slice(), roi: region };
+    restablecerDesdeElDetector();
+    fijarEstado('estado-ajustes', 'valores leídos del detector', 'ok');
+  } catch (error) {
+    delDetector = null;
+    fijarEstado('estado-ajustes', 'no se pudieron leer los valores del detector (' + error.message + ')', 'mal');
+  }
+}
+
+function restablecerDesdeElDetector() {
+  const base = delDetector || { warp: WARP_INICIAL, hsvMin: HSV_MIN_INICIAL, hsvMax: HSV_MAX_INICIAL, roi: ROI_INICIAL };
+  ponerWarp(base.warp);
+  hsvMin = base.hsvMin.slice();
+  hsvMax = base.hsvMax.slice();
+  roi = base.roi;
+  mostrarControles();
+}
+
+// ---------------------------------------------------------------- conexión
+
 function leerConfiguracion() {
   const host = $('host').value.trim();
   if (!HOST_VALIDO.test(host)) { fijarEstado('estado-datos', 'IP o nombre inválido', 'mal'); return null; }
@@ -244,6 +485,8 @@ function leerConfiguracion() {
     host, puertoVideo, puertoRosbridge,
     topicImagen: $('topic-imagen').value.trim(),
     topicCarril: $('topic-carril').value.trim(),
+    topicOverlay: $('topic-overlay').value.trim(),
+    topicCenital: $('topic-cenital').value.trim(),
   };
 }
 
@@ -251,6 +494,23 @@ function leerConfiguracion() {
 // topic que no existe y no manda ningún cuadro. Se codifica todo menos las barras.
 function topicEnUrl(topic) {
   return encodeURIComponent(topic).replace(/%2F/gi, '/');
+}
+
+// qos_profile=sensor_data: la imagen se pide como "mejor esfuerzo", que sirve tanto si el que
+// publica usa ese perfil como si usa "confiable". Sin esto, web_video_server no recibe nada de
+// una cámara que publique con "mejor esfuerzo".
+function pedirVideo(idImagen, idEstado, cfg, topic) {
+  const imagen = $(idImagen);
+  imagen.onload = () => fijarEstado(idEstado, 'recibiendo', 'ok');
+  imagen.onerror = () => fijarEstado(idEstado, 'sin imagen', 'mal');
+  imagen.src = 'http://' + cfg.host + ':' + cfg.puertoVideo +
+    '/stream?type=mjpeg&qos_profile=sensor_data&topic=' + topicEnUrl(topic);
+  fijarEstado(idEstado, 'conectando…', 'suave');
+}
+
+function soltarVideo(idImagen, idEstado) {
+  $(idImagen).removeAttribute('src');
+  fijarEstado(idEstado, 'sin conexión', 'suave');
 }
 
 function conectar() {
@@ -261,34 +521,42 @@ function conectar() {
   clearTimeout(temporizadorReintento);
   if (socket) { socket.onclose = null; socket.close(); }
 
-  const video = $('video');
-  video.onload = () => fijarEstado('estado-video', 'recibiendo', 'ok');
-  video.onerror = () => fijarEstado('estado-video', 'sin imagen', 'mal');
-  // qos_profile=sensor_data: la imagen se pide como "mejor esfuerzo", que sirve tanto si la cámara
-  // publica con ese perfil como si lo hace como "confiable". Sin esto, web_video_server no recibe
-  // nada de una cámara que publique con "mejor esfuerzo".
-  video.src = 'http://' + cfg.host + ':' + cfg.puertoVideo +
-    '/stream?type=mjpeg&qos_profile=sensor_data&topic=' + topicEnUrl(cfg.topicImagen);
-  fijarEstado('estado-video', 'conectando…', 'suave');
+  pedirVideo('video', 'estado-video', cfg, cfg.topicImagen);
+  pedirVideo('overlay', 'estado-overlay', cfg, cfg.topicOverlay);
+  pedirVideo('cenital', 'estado-cenital', cfg, cfg.topicCenital);
 
   fijarEstado('estado-datos', 'conectando…', 'suave');
   socket = new WebSocket('ws://' + cfg.host + ':' + cfg.puertoRosbridge);
   socket.onopen = () => {
     fijarEstado('estado-datos', 'conectado', 'ok');
-    // Solo se suscribe. A lo sumo 10 mensajes por segundo y sin cola, para ver siempre el último dato.
+    // Suscripción al estado del carril: a lo sumo 10 mensajes por segundo y sin cola, para ver
+    // siempre el último dato.
     socket.send(JSON.stringify({
       op: 'subscribe', topic: cfg.topicCarril, type: 'bfmc_interfaces/msg/LaneState',
       throttle_rate: 100, queue_length: 1,
     }));
+    leerDelDetector();
   };
   socket.onmessage = (evento) => {
     let msg;
     try { msg = JSON.parse(evento.data); } catch (e) { return; }
     if (msg.op === 'publish' && msg.topic === cfg.topicCarril && msg.msg) mostrarDato(msg.msg);
+    if (msg.op === 'service_response' && pendientes[msg.id]) {
+      const pendiente = pendientes[msg.id];
+      delete pendientes[msg.id];
+      clearTimeout(pendiente.temporizador);
+      if (msg.result) pendiente.resolver(msg.values);
+      else pendiente.rechazar(new Error(typeof msg.values === 'string' ? msg.values : 'el servicio falló'));
+    }
     if (msg.op === 'status' && msg.level === 'error') fijarEstado('estado-datos', 'error: ' + msg.msg, 'mal');
   };
   socket.onclose = () => {
     fijarEstado('estado-datos', quiereConexion ? 'desconectado, reintentando…' : 'desconectado', 'mal');
+    Object.keys(pendientes).forEach((id) => {
+      clearTimeout(pendientes[id].temporizador);
+      pendientes[id].rechazar(new Error('se cortó la conexión'));
+      delete pendientes[id];
+    });
     if (quiereConexion) temporizadorReintento = setTimeout(conectar, REINTENTO_MS);
   };
   socket.onerror = () => { /* onclose se encarga del estado */ };
@@ -298,13 +566,15 @@ function desconectar() {
   quiereConexion = false;
   clearTimeout(temporizadorReintento);
   if (socket) { socket.close(); socket = null; }
-  $('video').removeAttribute('src');
-  fijarEstado('estado-video', 'sin conexión', 'suave');
+  soltarVideo('video', 'estado-video');
+  soltarVideo('overlay', 'estado-overlay');
+  soltarVideo('cenital', 'estado-cenital');
   fijarEstado('estado-datos', 'desconectado', 'suave');
+  fijarEstado('estado-ajustes', 'sin conexión', 'suave');
 }
 
 function copiar() {
-  const texto = textoWarp();
+  const texto = textoYaml();
   const listo = () => { $('aviso-copia').textContent = 'copiado'; };
   const respaldo = () => {
     $('salida').select();
@@ -320,10 +590,13 @@ function copiar() {
 $('conectar').addEventListener('click', conectar);
 $('desconectar').addEventListener('click', desconectar);
 $('copiar').addEventListener('click', copiar);
-$('restablecer').addEventListener('click', restablecer);
+$('restablecer').addEventListener('click', () => {
+  restablecerDesdeElDetector();
+  enviarTodo();
+});
 
 try { $('host').value = localStorage.getItem('visor-host') || ''; } catch (e) { /* sin almacenamiento */ }
-restablecer();
+restablecerDesdeElDetector();
 ajustarCanvas();
 </script>
 </body>
