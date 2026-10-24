@@ -35,7 +35,7 @@ El firmware **no tiene modos de manejo** (`embedded` PR #5 sacó `M:SYS_MODE` y 
 
 ### 3. ESP32 → Jetson
 
-Solo las líneas `EVENT:<NOMBRE>[:<arg>...]` son protocolo; el resto es depuración y se descarta. El bridge usa `STATE_CHANGED`, `STATE_AUTO_TRANSITION`, `CMD_EXECUTED:SYS_ARM`, `SYSTEM_READY`, `WATCHDOG_TIMEOUT`, `FAULT_TRIGGERED` y `ESTOP_TRIGGERED`.
+Solo las líneas `EVENT:<NOMBRE>[:<arg>...]` son protocolo; el resto es depuración y se descarta. El bridge usa `STATE_CHANGED`, `STATE_AUTO_TRANSITION` (toma el estado que sigue a la flecha: `ARMED->RUNNING`, `RUNNING->STOPPED:<causa>`, `STOPPED->RUNNING`), `CMD_EXECUTED:SYS_ARM`, `SYSTEM_READY`, `WATCHDOG_TIMEOUT` y `ESTOP_TRIGGERED`. `FAULT_TRIGGERED` ya no lo emite el firmware, pero se sigue tratando como FAULT.
 
 Cualquier evento cuenta como señal de vida. El firmware responde `EVENT:CMD_RECEIVED:SET_SPEED:<v>` a cada velocidad, así que al enviarla en cada ciclo siempre hay tráfico de vuelta.
 
@@ -49,9 +49,12 @@ período del bridge 50 ms  <  TTL de los comandos 200 ms  <  watchdog 300 ms
 
 Sin un comando vigente (más viejo que `cmd_timeout_s`), el bridge envía velocidad 0 y dirección al centro. No hace falta `M:PING`.
 
-### 5. Armado y FAULT
+### 5. Armado, STOPPED y FAULT
 
-El firmware entra en `FAULT` por watchdog, por E-STOP o por un obstáculo del ultrasónico, y **no sale solo**. El bridge configura el modo y arma al abrir el puerto y cuando el ESP32 se reinicia (`SYSTEM_READY`), pero **nunca rearma después de un FAULT**. Para eso está el servicio `/hardware/arm` (`std_srvs/Trigger`). `/hardware/status` publica el FAULT en `watchdog_tripped`.
+`STOPPED` es un estado **armado pero quieto** del firmware: velocidad 0 y servo congelado. Se entra por un obstáculo del ultrasónico (mientras esté) o por `M:SYS_STOP:0`, que queda enganchado hasta `M:SYS_RESUME:0`; vuelve solo a `RUNNING` cuando no queda ninguna causa. Para el bridge cuenta como armado: no lo rearma y no es FAULT. El bridge todavía no manda `SYS_STOP` ni `SYS_RESUME`.
+
+
+El firmware entra en `FAULT` por watchdog o por E-STOP, y **no sale solo**. El bridge arma al abrir el puerto y cuando el ESP32 se reinicia (`SYSTEM_READY`), pero **nunca rearma después de un FAULT**. Para eso está el servicio `/hardware/arm` (`std_srvs/Trigger`). `/hardware/status` publica el FAULT en `watchdog_tripped`.
 
 ### 6. Unidades
 
@@ -70,7 +73,7 @@ Los topes y el umbral tienen que coincidir con `Brain-Aura/hardware.env`, de don
 ## Consecuencias
 
 - El bridge habla con el firmware que está flasheado hoy, sin tocar `embedded`.
-- **`/hardware/ultrasonic` deja de publicarse:** el firmware no informa distancias. El frenado por obstáculo lo hace el propio ESP32. `bfmc_safety` va a necesitar otra fuente, o que el firmware publique la lectura.
+- **`/hardware/ultrasonic` deja de publicarse:** el firmware no informa distancias. El frenado por obstáculo lo hace el propio ESP32 (pasa a `STOPPED`). `bfmc_safety` va a necesitar otra fuente, o que el firmware publique la lectura.
 - `HardwareStatus.firmware_version` queda vacío y `last_seq` en 0: el firmware no informa versión ni confirma secuencias.
 - Abrir el puerto reinicia el ESP32 en esta Jetson, aunque DTR y RTS queden en reposo. El bridge lo detecta por `SYSTEM_READY` y vuelve a configurar y armar.
 

@@ -31,7 +31,9 @@ Reenviar velocidad y dirección en cada ciclo renueva el TTL de 200 ms del firmw
 
 **Arranque:** al abrir el puerto, o si el ESP32 se reinicia (`EVENT:SYSTEM_READY`), el nodo arma la placa solo, reintentando hasta que el firmware confirme. Envía como mucho un comando `M:` por ciclo, porque el firmware guarda uno solo. En esta Jetson, **abrir el puerto reinicia la placa**; el nodo lo detecta y la vuelve a armar. El firmware no tiene modos AUTO/MANUAL, así que no se configura ninguno.
 
-**FAULT:** el ESP32 entra en FAULT por watchdog, E-STOP u obstáculo, frena y no sale solo. El nodo lo publica en `watchdog_tripped` y lo registra como error, pero **nunca rearma solo**. Para seguir:
+**STOPPED:** con un obstáculo delante, o tras `M:SYS_STOP:0`, el ESP32 queda armado pero quieto (velocidad 0, servo congelado) y vuelve solo a `RUNNING`. El nodo lo registra como estado `STOPPED`; no es FAULT y no lo rearma.
+
+**FAULT:** el ESP32 entra en FAULT por watchdog o E-STOP, frena y no sale solo. El nodo lo publica en `watchdog_tripped` y lo registra como error, pero **nunca rearma solo**. Para seguir:
 
 ```bash
 ros2 service call /hardware/arm std_srvs/srv/Trigger

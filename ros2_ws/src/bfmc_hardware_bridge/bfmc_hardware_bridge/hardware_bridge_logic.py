@@ -28,7 +28,10 @@ from bfmc_hardware_bridge.protocol import (
 )
 from bfmc_hardware_bridge.units import Esp32Limits, to_duty, to_servo
 
-ESTADOS = ('DISARMED', 'ARMED', 'RUNNING', 'FAULT')
+ESTADOS = ('DISARMED', 'ARMED', 'RUNNING', 'STOPPED', 'FAULT')
+# Armado: el ESP32 obedece o, en STOPPED, está armado pero quieto (obstáculo o
+# M:SYS_STOP). En ninguno de estos hace falta armar.
+ARMADOS = ('ARMED', 'RUNNING', 'STOPPED')
 
 
 @dataclass(frozen=True)
@@ -163,7 +166,7 @@ class BridgeLogic:
         """Hay que volver a armar; el sentido recordado ya no vale."""
         self._direction = None
         self._emergency_sent = False
-        self._want_arm = self._state not in ('ARMED', 'RUNNING')
+        self._want_arm = self._state not in ARMADOS
         self._last_arm = None
 
     def _gestion(self, now):
@@ -183,17 +186,21 @@ class BridgeLogic:
             self._nueva_sesion()
         elif nombre == 'STATE_CHANGED' and args and args[0] in ESTADOS:
             self._cambiar_estado(args[0])
-        elif nombre == 'STATE_AUTO_TRANSITION':
-            self._cambiar_estado('RUNNING')
+        elif nombre == 'STATE_AUTO_TRANSITION' and args:
+            # 'ARMED->RUNNING', 'RUNNING->STOPPED' (con la causa en args[1]) o
+            # 'STOPPED->RUNNING': el estado nuevo va después de la flecha.
+            destino = args[0].rpartition('->')[2]
+            if destino in ESTADOS:
+                self._cambiar_estado(destino)
         elif nombre in ('WATCHDOG_TIMEOUT', 'FAULT_TRIGGERED', 'ESTOP_TRIGGERED'):
             self._state = 'FAULT'
         elif nombre == 'CMD_EXECUTED' and args and args[0] == 'SYS_ARM':
             # Si ya estaba armado, el firmware confirma sin emitir STATE_CHANGED.
-            if self._state != 'RUNNING':
+            if self._state not in ('RUNNING', 'STOPPED'):
                 self._cambiar_estado('ARMED')
 
     def _cambiar_estado(self, estado):
         self._state = estado
         # Armado conseguido: a partir de acá un FAULT no se rearma solo.
-        if estado in ('ARMED', 'RUNNING'):
+        if estado in ARMADOS:
             self._want_arm = False

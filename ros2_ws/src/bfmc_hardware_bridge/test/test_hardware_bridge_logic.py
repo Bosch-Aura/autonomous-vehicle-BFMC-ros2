@@ -227,6 +227,37 @@ def test_despues_de_un_reinicio_se_reenvia_el_sentido():
     assert 'C:SET_DIR:0' in lineas(logic, now=1.1)
 
 
+def test_stopped_cuenta_como_armado_y_no_se_lo_rearma():
+    logic = lista_para_andar()
+    recibir(logic, 1.0, 'EVENT:STATE_AUTO_TRANSITION:RUNNING->STOPPED:OBSTACLE',
+            'EVENT:STATE_CHANGED:STOPPED')
+    assert logic.state(now=1.0).esp32_state == 'STOPPED'
+    assert logic.state(now=1.0).fault is False
+    assert not any(linea.startswith('M:') for linea in lineas(logic, now=1.0))
+
+
+def test_la_transicion_automatica_toma_el_estado_de_destino():
+    logic = lista_para_andar()
+    recibir(logic, 1.0, 'EVENT:STATE_AUTO_TRANSITION:RUNNING->STOPPED:SYS_STOP')
+    assert logic.state(now=1.0).esp32_state == 'STOPPED'
+    recibir(logic, 2.0, 'EVENT:STATE_AUTO_TRANSITION:STOPPED->RUNNING')
+    assert logic.state(now=2.0).esp32_state == 'RUNNING'
+
+
+def test_si_el_esp32_arranca_con_un_obstaculo_queda_armado_en_stopped():
+    # Con un obstáculo delante, al armar el ESP32 pasa por ARMED y RUNNING a STOPPED.
+    logic = logica()
+    logic.on_port_opened()
+    recibir(logic, 0.0, *ARRANQUE_DEL_ESP32)
+    assert lineas(logic, now=0.0)[0] == 'M:SYS_ARM:0'
+    recibir(logic, 0.05, 'EVENT:CMD_EXECUTED:SYS_ARM', 'EVENT:STATE_CHANGED:ARMED',
+            'EVENT:STATE_AUTO_TRANSITION:ARMED->RUNNING',
+            'EVENT:STATE_AUTO_TRANSITION:RUNNING->STOPPED:OBSTACLE',
+            'EVENT:STATE_CHANGED:STOPPED', 'EVENT:CMD_EXECUTED:SYS_ARM')
+    assert logic.state(now=0.05).esp32_state == 'STOPPED'
+    assert not any(linea.startswith('M:') for linea in lineas(logic, now=1.0))
+
+
 def test_al_cerrar_se_frena_y_se_desarma():
     assert logica().shutdown_frames() == b'C:SET_SPEED:0\nM:SYS_DISARM:0\n'
 

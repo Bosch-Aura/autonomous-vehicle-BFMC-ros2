@@ -113,7 +113,7 @@ Las dos detecciones de intersección (por señal y por geometría del carril) en
 ## 7. Seguridad
 
 - **Watchdog en el ESP32:** si pasan 300 ms sin un comando válido de la Jetson, frena, centra la dirección y queda en FAULT hasta que lo rearmen. Funciona aunque se caiga todo el software de la Jetson.
-- **Frenado por obstáculo en el ESP32:** el firmware frena y entra en FAULT por su cuenta si el ultrasónico detecta algo cerca.
+- **Frenado por obstáculo en el ESP32:** si el ultrasónico detecta algo a menos de 30 cm, el firmware pasa a `STOPPED` (frena y congela la dirección) por su cuenta, y vuelve a `RUNNING` cuando se despeja. No es FAULT: no hay que rearmar.
 - **Defensa en profundidad:** `bfmc_hardware_bridge` también escucha `/safety/status` y frena si indica emergencia, sin pasar por `bfmc_decision`.
 - La seguridad no depende del dashboard ni de ningún cliente de red.
 
