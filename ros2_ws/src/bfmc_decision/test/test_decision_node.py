@@ -13,7 +13,7 @@ from bfmc_decision.decision_logic import State
 from bfmc_decision.decision_node import DecisionNode
 from bfmc_interfaces.action import ManeuverExecute
 from bfmc_interfaces.msg import (
-    HardwareStatus, LaneState, SafetyStatus, SignDetection, SignDetectionArray, VehicleState,
+    HardwareStatus, LaneState, SignDetection, SignDetectionArray, VehicleState,
 )
 import pytest
 import rclpy
@@ -57,7 +57,6 @@ class Entorno:
         crear = auxiliar.create_publisher
         self.pub_lane = crear(LaneState, param('lane_topic').value, RELIABLE)
         self.pub_signs = crear(SignDetectionArray, param('signs_topic').value, RELIABLE)
-        self.pub_safety = crear(SafetyStatus, param('safety_topic').value, RELIABLE)
         self.pub_hardware = crear(HardwareStatus, param('hardware_topic').value, RELIABLE)
         self.pub_lane_cmd = crear(
             AckermannDriveStamped, param('lane_cmd_topic').value, RELIABLE)
@@ -92,15 +91,10 @@ class Entorno:
         carril.confidence = 1.0
         self.pub_lane.publish(carril)
 
-        seguridad = SafetyStatus()
-        seguridad.emergency = emergencia
-        seguridad.reason = (SafetyStatus.REASON_OBSTACLE if emergencia
-                            else SafetyStatus.REASON_NONE)
-        seguridad.sensor_valid = True
-        self.pub_safety.publish(seguridad)
-
         hardware = HardwareStatus()
         hardware.link_up = True
+        hardware.obstacle_stop = emergencia
+        hardware.obstacle_distance_m = 0.22 if emergencia else float('nan')
         self.pub_hardware.publish(hardware)
 
         self.pub_lane_cmd.publish(_comando(*CARRIL))
@@ -199,7 +193,7 @@ def test_con_las_entradas_sanas_reenvia_el_comando_del_carril(entorno):
     assert entorno.ultimo_estado() == VehicleState.STATE_LANE_FOLLOW
 
 
-def test_una_emergencia_de_seguridad_detiene_el_auto_y_se_informa(entorno):
+def test_un_obstaculo_que_detuvo_al_esp32_detiene_el_auto_y_se_informa(entorno):
     assert entorno.esperar(
         lambda: entorno.ultimo_estado() == VehicleState.STATE_EMERGENCY, emergencia=True)
     assert entorno.ultimo_comando() == (0.0, 0.0)

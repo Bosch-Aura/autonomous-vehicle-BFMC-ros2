@@ -6,7 +6,7 @@ import math
 
 from bfmc_decision.decision_logic import (
     DecisionConfig, DecisionLogic, Drive, HardwareObservation, LaneObservation,
-    SafetyObservation, SignObservation, Source, State, STOPPED,
+    SignObservation, Source, State, STOPPED,
 )
 import pytest
 
@@ -16,7 +16,7 @@ MANIOBRA = Drive(0.5, -0.25)
 
 def logica(**cambios):
     base = {
-        'safety_timeout_s': 0.5, 'hardware_timeout_s': 1.5, 'lane_cmd_timeout_s': 0.5,
+        'hardware_timeout_s': 1.5, 'lane_cmd_timeout_s': 0.5,
         'maneuver_cmd_timeout_s': 0.5, 'signs_timeout_s': 0.5, 'lane_lost_timeout_s': 2.0,
         'maneuver_request_timeout_s': 1.0, 'maneuver_timeout_s': 15.0, 'maneuver_cooldown_s': 5.0,
         'min_sign_confidence': 0.6, 'stop_distance_m': 1.0, 'intersection_distance_m': 1.5,
@@ -26,11 +26,10 @@ def logica(**cambios):
     return DecisionLogic(DecisionConfig(**{**base, **cambios}))
 
 
-def entradas(logic, now, emergencia=False, motivo='', enlace=True, watchdog=False,
+def entradas(logic, now, obstaculo=False, distancia=math.nan, enlace=True, watchdog=False,
              carril_detectado=True, interseccion=False, comando=CARRIL):
     """Alimenta las entradas habituales, todas con el instante `now`."""
-    logic.on_safety(SafetyObservation(emergencia, motivo), now)
-    logic.on_hardware(HardwareObservation(enlace, watchdog), now)
+    logic.on_hardware(HardwareObservation(enlace, watchdog, obstaculo, distancia), now)
     logic.on_lane_command(comando, now)
     logic.on_lane(LaneObservation(carril_detectado, interseccion), now)
 
@@ -60,8 +59,13 @@ def test_sin_ninguna_entrada_el_auto_espera_detenido():
 
 def test_sin_comando_de_carril_todavia_se_espera():
     logic = logica()
-    logic.on_safety(SafetyObservation(False, ''), 10.0)
     logic.on_hardware(HardwareObservation(True, False), 10.0)
+    assert logic.step(10.0).state == State.STARTING
+
+
+def test_sin_estado_del_hardware_todavia_se_espera():
+    logic = logica()
+    logic.on_lane_command(CARRIL, 10.0)
     assert logic.step(10.0).state == State.STARTING
 
 
@@ -76,33 +80,40 @@ def test_con_las_primeras_entradas_se_sigue_el_carril():
 
 # --- emergencia -------------------------------------------------------------
 
-def test_una_emergencia_de_seguridad_detiene_el_auto():
+def test_un_obstaculo_que_detuvo_al_esp32_detiene_el_auto_y_dice_a_que_distancia():
     logic = logica()
-    entradas(logic, 10.0, emergencia=True, motivo='obstáculo cercano')
+    entradas(logic, 10.0, obstaculo=True, distancia=0.22)
     decision = logic.step(10.0)
     assert decision.state == State.EMERGENCY
     assert decision.command == STOPPED
-    assert 'obstáculo cercano' in decision.reason
+    assert 'obstáculo' in decision.reason and '0.22' in decision.reason
+
+
+def test_un_obstaculo_sin_distancia_conocida_tambien_detiene_el_auto():
+    logic = logica()
+    entradas(logic, 10.0, obstaculo=True)
+    decision = logic.step(10.0)
+    assert decision.state == State.EMERGENCY
+    assert 'obstáculo' in decision.reason
 
 
 def test_en_emergencia_el_comando_es_cero_aunque_el_control_pida_avanzar():
     logic = logica()
-    entradas(logic, 10.0, emergencia=True, comando=Drive(0.5, 0.25))
+    entradas(logic, 10.0, obstaculo=True, comando=Drive(0.5, 0.25))
     assert logic.step(10.0).command == STOPPED
 
 
-def test_un_estado_de_seguridad_vencido_es_una_emergencia():
-    logic = logica(safety_timeout_s=0.5)
-    entradas(logic, 10.0)
-    decision = logic.step(10.75)
-    assert decision.state == State.EMERGENCY
-    assert 'seguridad' in decision.reason
+def test_ya_no_hace_falta_ningun_estado_de_seguridad_para_conducir():
+    logic = logica()
+    logic.on_hardware(HardwareObservation(True, False), 10.0)
+    logic.on_lane_command(CARRIL, 10.0)
+    logic.on_lane(LaneObservation(True, False), 10.0)
+    assert logic.step(10.0).state == State.LANE_FOLLOW
 
 
 def test_un_estado_de_hardware_vencido_es_una_emergencia():
     logic = logica(hardware_timeout_s=1.5)
     entradas(logic, 10.0)
-    logic.on_safety(SafetyObservation(False, ''), 12.0)
     logic.on_lane_command(CARRIL, 12.0)
     decision = logic.step(12.0)
     assert decision.state == State.EMERGENCY
@@ -128,7 +139,6 @@ def test_un_watchdog_cortado_es_una_emergencia():
 def test_un_comando_de_carril_vencido_es_una_emergencia():
     logic = logica(lane_cmd_timeout_s=0.5)
     entradas(logic, 10.0)
-    logic.on_safety(SafetyObservation(False, ''), 10.75)
     logic.on_hardware(HardwareObservation(True, False), 10.75)
     decision = logic.step(10.75)
     assert decision.state == State.EMERGENCY
@@ -162,9 +172,9 @@ def test_recuperar_el_carril_reinicia_la_cuenta_del_carril_perdido():
 
 def test_la_emergencia_termina_cuando_las_condiciones_se_normalizan():
     logic = logica()
-    entradas(logic, 10.0, emergencia=True)
+    entradas(logic, 10.0, obstaculo=True)
     assert logic.step(10.0).state == State.EMERGENCY
-    entradas(logic, 10.25, emergencia=False)
+    entradas(logic, 10.25, obstaculo=False)
     assert logic.step(10.25).state == State.LANE_FOLLOW
 
 
@@ -314,7 +324,6 @@ def test_durante_una_maniobra_no_rige_la_emergencia_por_carril_perdido():
 def test_durante_una_maniobra_no_rige_la_emergencia_por_comando_de_carril_vencido():
     logic = logica(lane_cmd_timeout_s=0.5)
     ahora = en_maniobra(logic)
-    logic.on_safety(SafetyObservation(False, ''), ahora + 2.0)
     logic.on_hardware(HardwareObservation(True, False), ahora + 2.0)
     logic.on_maneuver_command(MANIOBRA, ahora + 2.0)
     assert logic.step(ahora + 2.0).state == State.MANEUVER
@@ -378,21 +387,21 @@ def test_una_maniobra_que_supera_su_tiempo_maximo_se_cancela():
     assert decision.cancel_maneuver is True
 
 
-def test_una_emergencia_durante_la_maniobra_la_cancela_una_sola_vez():
+def test_un_obstaculo_durante_la_maniobra_la_cancela_una_sola_vez():
     logic = logica()
     ahora = en_maniobra(logic)
-    entradas(logic, ahora + 0.25, emergencia=True, motivo='obstáculo cercano')
+    entradas(logic, ahora + 0.25, obstaculo=True, distancia=0.22)
     primera = logic.step(ahora + 0.25)
     assert primera.state == State.EMERGENCY
     assert primera.cancel_maneuver is True
-    entradas(logic, ahora + 0.5, emergencia=True, motivo='obstáculo cercano')
+    entradas(logic, ahora + 0.5, obstaculo=True, distancia=0.22)
     assert logic.step(ahora + 0.5).cancel_maneuver is False
 
 
 def test_el_resultado_tardio_de_una_maniobra_cancelada_se_ignora():
     logic = logica()
     ahora = en_maniobra(logic)
-    entradas(logic, ahora + 0.25, emergencia=True)
+    entradas(logic, ahora + 0.25, obstaculo=True)
     logic.step(ahora + 0.25)
     logic.on_maneuver_result(ahora + 0.5)
     entradas(logic, ahora + 0.75)
@@ -421,7 +430,7 @@ def test_el_comando_siempre_sale_de_una_sola_fuente_coherente_con_el_estado():
     entradas(logic, 10.25)
     logic.on_maneuver_command(MANIOBRA, 10.25)
     decisiones.append(logic.step(10.25))                  # maniobra
-    entradas(logic, 10.5, emergencia=True)
+    entradas(logic, 10.5, obstaculo=True)
     decisiones.append(logic.step(10.5))                   # emergencia
 
     for decision in decisiones:
@@ -438,7 +447,6 @@ def test_el_comando_siempre_sale_de_una_sola_fuente_coherente_con_el_estado():
 # --- validación de la configuración -----------------------------------------
 
 @pytest.mark.parametrize('cambio', [
-    {'safety_timeout_s': 0.0},
     {'hardware_timeout_s': -1.0},
     {'lane_cmd_timeout_s': 0.0},
     {'signs_timeout_s': 0.0},

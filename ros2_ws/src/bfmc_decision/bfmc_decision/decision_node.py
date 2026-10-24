@@ -1,13 +1,10 @@
 """Nodo ROS2 de bfmc_decision: único nodo que decide y único publicador de /cmd/drive."""
 from ackermann_msgs.msg import AckermannDriveStamped
 from bfmc_decision.decision_logic import (
-    DecisionConfig, DecisionLogic, Drive, HardwareObservation, LaneObservation,
-    SafetyObservation, SignObservation,
+    DecisionConfig, DecisionLogic, Drive, HardwareObservation, LaneObservation, SignObservation,
 )
 from bfmc_interfaces.action import ManeuverExecute
-from bfmc_interfaces.msg import (
-    HardwareStatus, LaneState, SafetyStatus, SignDetectionArray, VehicleState,
-)
+from bfmc_interfaces.msg import HardwareStatus, LaneState, SignDetectionArray, VehicleState
 import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
@@ -15,24 +12,17 @@ from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 
 PARAMETROS_TEXTO = (
-    'lane_topic', 'signs_topic', 'safety_topic', 'hardware_topic', 'lane_cmd_topic',
+    'lane_topic', 'signs_topic', 'hardware_topic', 'lane_cmd_topic',
     'maneuver_cmd_topic', 'drive_topic', 'state_topic', 'maneuver_action_name',
     'frame_id', 'intersection_direction',
 )
 PARAMETROS_DECIMALES = (
-    'rate_hz', 'safety_timeout_s', 'hardware_timeout_s', 'lane_cmd_timeout_s',
+    'rate_hz', 'hardware_timeout_s', 'lane_cmd_timeout_s',
     'maneuver_cmd_timeout_s', 'signs_timeout_s', 'lane_lost_timeout_s',
     'maneuver_request_timeout_s', 'maneuver_timeout_s', 'maneuver_cooldown_s',
     'min_sign_confidence', 'stop_distance_m', 'intersection_distance_m',
 )
 PARAMETROS_LISTA = ('stop_labels', 'intersection_labels')
-
-REASONS = {
-    SafetyStatus.REASON_NONE: 'sin emergencia',
-    SafetyStatus.REASON_OBSTACLE: 'obstáculo cercano',
-    SafetyStatus.REASON_SENSOR_INVALID: 'sensor inválido',
-    SafetyStatus.REASON_SENSOR_STALE: 'sensor sin datos',
-}
 
 
 class DecisionNode(Node):
@@ -58,7 +48,6 @@ class DecisionNode(Node):
         self.declare_parameter('intersection_min_frames', Parameter.Type.INTEGER)
 
         self._logic = DecisionLogic(DecisionConfig(
-            safety_timeout_s=self._valor('safety_timeout_s'),
             hardware_timeout_s=self._valor('hardware_timeout_s'),
             lane_cmd_timeout_s=self._valor('lane_cmd_timeout_s'),
             maneuver_cmd_timeout_s=self._valor('maneuver_cmd_timeout_s'),
@@ -87,8 +76,6 @@ class DecisionNode(Node):
         self.create_subscription(LaneState, self._valor('lane_topic'), self._on_lane, reliable)
         self.create_subscription(
             SignDetectionArray, self._valor('signs_topic'), self._on_signs, reliable)
-        self.create_subscription(
-            SafetyStatus, self._valor('safety_topic'), self._on_safety, reliable)
         self.create_subscription(
             HardwareStatus, self._valor('hardware_topic'), self._on_hardware, reliable)
         self.create_subscription(
@@ -122,13 +109,11 @@ class DecisionNode(Node):
         senales = [SignObservation(s.label, s.confidence, s.distance_m) for s in msg.detections]
         self._logic.on_signs(senales, self._now_s())
 
-    def _on_safety(self, msg: SafetyStatus):
-        motivo = REASONS.get(msg.reason, 'motivo desconocido')
-        self._logic.on_safety(SafetyObservation(msg.emergency, motivo), self._now_s())
-
     def _on_hardware(self, msg: HardwareStatus):
         self._logic.on_hardware(
-            HardwareObservation(msg.link_up, msg.watchdog_tripped), self._now_s())
+            HardwareObservation(msg.link_up, msg.watchdog_tripped, msg.obstacle_stop,
+                                msg.obstacle_distance_m),
+            self._now_s())
 
     def _on_lane_cmd(self, msg: AckermannDriveStamped):
         self._logic.on_lane_command(

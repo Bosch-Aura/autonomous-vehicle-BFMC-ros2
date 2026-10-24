@@ -8,7 +8,6 @@ decision:
     # Topics.
     lane_topic: /perception/lane
     signs_topic: /perception/signs
-    safety_topic: /safety/status
     hardware_topic: /hardware/status
     lane_cmd_topic: /control/lane_cmd
     maneuver_cmd_topic: /maneuver/cmd
@@ -18,8 +17,7 @@ decision:
     frame_id: base_link
 
     # Entradas vencidas: una entrada que deja de llegar cuenta como emergencia.
-    safety_timeout_s: 0.5              # [s] el estado de seguridad llega a 20 Hz [asumido]
-    hardware_timeout_s: 1.5            # [s] el estado del hardware llega a 2 Hz [asumido]
+    hardware_timeout_s: 1.5            # [s] el estado del hardware llega a 2 Hz y, ante un cambio, al instante [asumido]
     lane_cmd_timeout_s: 0.5            # [s] sin comando de carril hay emergencia (no rige en maniobras) [asumido]
     maneuver_cmd_timeout_s: 0.5        # [s] una maniobra sin comando vigente deja el auto detenido [asumido]
     signs_timeout_s: 0.5               # [s] las detecciones más viejas que esto se ignoran [asumido]

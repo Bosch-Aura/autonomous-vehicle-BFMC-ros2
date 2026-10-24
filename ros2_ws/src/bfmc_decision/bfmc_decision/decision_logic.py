@@ -6,7 +6,8 @@ comportamiento en el tiempo se verifica sin esperar.
 Cada ciclo (`step`) elige UNA sola fuente para el comando final, de mayor a menor
 prioridad:
 
-1. Emergencia: seguridad, enlace con el hardware o entradas vencidas. Se detiene.
+1. Emergencia: un obstáculo que frenó al ESP32, el enlace con el hardware o entradas
+   vencidas. Se detiene.
 2. Maniobra activa: se usa el comando de la maniobra y se ignora el carril.
 3. Evento de señal o intersección: se pide una maniobra.
 4. Seguir carril: se reenvía el comando del control. Es lo normal.
@@ -63,17 +64,13 @@ class SignObservation:
 
 
 @dataclass(frozen=True)
-class SafetyObservation:
-
-    emergency: bool
-    reason_text: str
-
-
-@dataclass(frozen=True)
 class HardwareObservation:
+    """Lo que informa el puente del ESP32: enlace, watchdog y si se detuvo por un obstáculo."""
 
     link_up: bool
     watchdog_tripped: bool
+    obstacle_stop: bool = False
+    obstacle_distance_m: float = math.nan
 
 
 @dataclass(frozen=True)
@@ -101,7 +98,6 @@ class Decision:
 class DecisionConfig:
     """Parámetros de la lógica. Sus valores vienen de config/params.yaml."""
 
-    safety_timeout_s: float
     hardware_timeout_s: float
     lane_cmd_timeout_s: float
     maneuver_cmd_timeout_s: float
@@ -120,9 +116,9 @@ class DecisionConfig:
 
     def __post_init__(self):
         tiempos = (
-            self.safety_timeout_s, self.hardware_timeout_s, self.lane_cmd_timeout_s,
-            self.maneuver_cmd_timeout_s, self.signs_timeout_s, self.lane_lost_timeout_s,
-            self.maneuver_request_timeout_s, self.maneuver_timeout_s)
+            self.hardware_timeout_s, self.lane_cmd_timeout_s, self.maneuver_cmd_timeout_s,
+            self.signs_timeout_s, self.lane_lost_timeout_s, self.maneuver_request_timeout_s,
+            self.maneuver_timeout_s)
         if min(tiempos) <= 0.0:
             raise ValueError('todos los tiempos límite deben ser positivos')
         if self.maneuver_cooldown_s < 0.0:
@@ -154,8 +150,6 @@ class DecisionLogic:
         self._intersection_streak = 0
         self._signs = ()
         self._signs_time = None
-        self._safety = None
-        self._safety_time = None
         self._hardware = None
         self._hardware_time = None
         self._lane_cmd = None
@@ -180,10 +174,6 @@ class DecisionLogic:
     def on_signs(self, signs: Sequence[SignObservation], now: float) -> None:
         self._signs = tuple(signs)
         self._signs_time = now
-
-    def on_safety(self, safety: SafetyObservation, now: float) -> None:
-        self._safety = safety
-        self._safety_time = now
 
     def on_hardware(self, hardware: HardwareObservation, now: float) -> None:
         self._hardware = hardware
@@ -240,24 +230,25 @@ class DecisionLogic:
 
     # --- emergencia -----------------------------------------------------------------
     def _faltan_primeras_entradas(self):
-        return (self._safety_time is None or self._hardware_time is None
-                or self._lane_cmd_time is None)
+        return self._hardware_time is None or self._lane_cmd_time is None
 
     def _motivo_de_emergencia(self, now):
         """Devuelve el motivo de la emergencia, o None si no hay."""
         cfg = self._config
 
         # Estas condiciones valen siempre, también durante una maniobra.
-        if (now - self._safety_time) > cfg.safety_timeout_s:
-            return 'estado de seguridad vencido'
-        if self._safety.emergency:
-            return 'seguridad: %s' % (self._safety.reason_text or 'emergencia')
         if (now - self._hardware_time) > cfg.hardware_timeout_s:
             return 'estado del hardware vencido'
         if not self._hardware.link_up:
             return 'enlace con el ESP32 caído'
         if self._hardware.watchdog_tripped:
             return 'el watchdog del ESP32 cortó los motores'
+        if self._hardware.obstacle_stop:
+            # El que frenó es el firmware; acá se refleja y se cancela la maniobra en curso.
+            distancia = self._hardware.obstacle_distance_m
+            if math.isnan(distancia):
+                return 'obstáculo: el ESP32 se detuvo'
+            return 'obstáculo a %.2f m: el ESP32 se detuvo' % distancia
 
         # Las que dependen del carril NO valen durante una maniobra: dentro de una
         # intersección las líneas desaparecen a propósito y la maniobra no las usa.

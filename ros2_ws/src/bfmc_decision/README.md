@@ -1,6 +1,6 @@
 # bfmc_decision
 
-El nodo que **decide** qué hace el auto, y el **único que publica el comando final** (`/cmd/drive`). Percepción y seguridad informan hechos; este nodo los arbitra.
+El nodo que **decide** qué hace el auto, y el **único que publica el comando final** (`/cmd/drive`). La percepción y el estado del hardware informan hechos; este nodo los arbitra.
 
 ## Responsabilidad
 
@@ -12,8 +12,8 @@ En cada ciclo se aplica la primera regla que corresponda:
 
 | # | Estado | Cuándo | Comando |
 |---|---|---|---|
-| 0 | `STARTING` | Todavía no llegó alguna de las primeras entradas (seguridad, hardware, comando de carril) | Cero |
-| 1 | `EMERGENCY` | Seguridad indica emergencia, o una entrada se venció, o el enlace con el ESP32 cayó | Cero |
+| 0 | `STARTING` | Todavía no llegó alguna de las primeras entradas (estado del hardware, comando de carril) | Cero |
+| 1 | `EMERGENCY` | El ESP32 se detuvo por un obstáculo, o una entrada se venció, o el enlace con el ESP32 cayó | Cero |
 | 2 | `MANEUVER` | Hay una maniobra pedida o en curso | El de la maniobra (cero si no hay comando vigente) |
 | 3 | `MANEUVER` (pedido) | Una señal o la intersección del carril dispara un evento | Cero hasta que el servidor responda |
 | 4 | `LANE_FOLLOW` | Nada de lo anterior | El comando de `bfmc_control` |
@@ -24,7 +24,6 @@ En cada ciclo se aplica la primera regla que corresponda:
 |---|---|---|
 | Se suscribe | `/perception/lane` | `bfmc_interfaces/LaneState` |
 | Se suscribe | `/perception/signs` | `bfmc_interfaces/SignDetectionArray` |
-| Se suscribe | `/safety/status` | `bfmc_interfaces/SafetyStatus` |
 | Se suscribe | `/hardware/status` | `bfmc_interfaces/HardwareStatus` |
 | Se suscribe | `/control/lane_cmd` | `ackermann_msgs/AckermannDriveStamped` |
 | Se suscribe | `/maneuver/cmd` | `ackermann_msgs/AckermannDriveStamped` |
@@ -38,8 +37,7 @@ Cualquiera de estas condiciones detiene el auto:
 
 | Condición | Rige durante una maniobra |
 |---|---|
-| `/safety/status` indica emergencia | Sí |
-| `/safety/status` vencido (`safety_timeout_s`) | Sí |
+| El ESP32 informa que se detuvo por un obstáculo (`obstacle_stop` en `/hardware/status`) | Sí |
 | `/hardware/status` vencido (`hardware_timeout_s`) | Sí |
 | Enlace con el ESP32 caído, o watchdog del ESP32 cortado | Sí |
 | Comando de carril vencido (`lane_cmd_timeout_s`) | **No** |
@@ -69,7 +67,7 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 | Grupo | Parámetros |
 |---|---|
 | Frecuencia y topics | `rate_hz`, `*_topic`, `maneuver_action_name`, `frame_id` |
-| Entradas vencidas | `safety_timeout_s`, `hardware_timeout_s`, `lane_cmd_timeout_s`, `maneuver_cmd_timeout_s`, `signs_timeout_s`, `lane_lost_timeout_s` |
+| Entradas vencidas | `hardware_timeout_s`, `lane_cmd_timeout_s`, `maneuver_cmd_timeout_s`, `signs_timeout_s`, `lane_lost_timeout_s` |
 | Maniobras | `maneuver_request_timeout_s`, `maneuver_timeout_s`, `maneuver_cooldown_s` |
 | Señales | `min_sign_confidence`, `stop_distance_m`, `intersection_distance_m`, `stop_labels`, `intersection_labels` |
 | Intersección | `intersection_direction` (`left`, `right` o `straight`), `intersection_min_frames` |
