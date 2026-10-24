@@ -102,7 +102,6 @@ class DecisionConfig:
     lane_cmd_timeout_s: float
     maneuver_cmd_timeout_s: float
     signs_timeout_s: float
-    lane_lost_timeout_s: float
     maneuver_request_timeout_s: float
     maneuver_timeout_s: float
     maneuver_cooldown_s: float
@@ -117,8 +116,7 @@ class DecisionConfig:
     def __post_init__(self):
         tiempos = (
             self.hardware_timeout_s, self.lane_cmd_timeout_s, self.maneuver_cmd_timeout_s,
-            self.signs_timeout_s, self.lane_lost_timeout_s, self.maneuver_request_timeout_s,
-            self.maneuver_timeout_s)
+            self.signs_timeout_s, self.maneuver_request_timeout_s, self.maneuver_timeout_s)
         if min(tiempos) <= 0.0:
             raise ValueError('todos los tiempos límite deben ser positivos')
         if self.maneuver_cooldown_s < 0.0:
@@ -146,7 +144,6 @@ class DecisionLogic:
     def __init__(self, config: DecisionConfig):
         self._config = config
 
-        self._lane_lost_since = None
         self._intersection_streak = 0
         self._signs = ()
         self._signs_time = None
@@ -164,10 +161,6 @@ class DecisionLogic:
 
     # --- entradas -----------------------------------------------------------------
     def on_lane(self, lane: LaneObservation, now: float) -> None:
-        if lane.detected:
-            self._lane_lost_since = None
-        elif self._lane_lost_since is None:
-            self._lane_lost_since = now
         self._intersection_streak = (
             self._intersection_streak + 1 if lane.intersection_detected else 0)
 
@@ -255,9 +248,6 @@ class DecisionLogic:
         if self._maneuver is _Maneuver.NONE:
             if (now - self._lane_cmd_time) > cfg.lane_cmd_timeout_s:
                 return 'comando de carril vencido'
-            if (self._lane_lost_since is not None
-                    and (now - self._lane_lost_since) > cfg.lane_lost_timeout_s):
-                return 'carril perdido'
         return None
 
     def _emergencia(self, motivo, now):
@@ -299,7 +289,6 @@ class DecisionLogic:
         self._maneuver_name = ''
         self._cooldown_until = now + self._config.maneuver_cooldown_s
         # Lo observado del carril durante la maniobra no vale: se empieza de cero.
-        self._lane_lost_since = None
         self._intersection_streak = 0
 
     # --- eventos ----------------------------------------------------------------------

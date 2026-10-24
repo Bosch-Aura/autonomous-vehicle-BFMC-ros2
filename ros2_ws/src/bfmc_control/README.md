@@ -44,7 +44,7 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 | `cruise_speed_mps` | m/s | Velocidad de crucero |
 | `slowdown_gain` | — | Cuánto baja la velocidad al girar al máximo, en [0, 1) |
 | `min_confidence` | — | Confianza mínima para usar el carril |
-| `lost_speed_factor` | — | Fracción de la velocidad de crucero sin carril |
+| `lost_speed_factor` | — | Fracción de la velocidad de crucero sin carril. Con 1 no baja: el carril solo orienta y, sin él, el auto sigue a ciegas con la dirección al centro |
 | `max_dt_s` | s | Pausa máxima entre mediciones antes de reiniciar el PID |
 
 **Los valores de las ganancias y los límites son una primera propuesta, sin calibrar.** Se afinan en el auto. Orden sugerido: con `ki` y `kd` en 0, subir `kp` hasta que siga el carril sin oscilar; después agregar `kd` para amortiguar y, al final, `ki` si queda un error sostenido en las curvas.

@@ -18,7 +18,7 @@ PARAMETROS_TEXTO = (
 )
 PARAMETROS_DECIMALES = (
     'rate_hz', 'hardware_timeout_s', 'lane_cmd_timeout_s',
-    'maneuver_cmd_timeout_s', 'signs_timeout_s', 'lane_lost_timeout_s',
+    'maneuver_cmd_timeout_s', 'signs_timeout_s',
     'maneuver_request_timeout_s', 'maneuver_timeout_s', 'maneuver_cooldown_s',
     'min_sign_confidence', 'stop_distance_m', 'intersection_distance_m',
 )
@@ -52,7 +52,6 @@ class DecisionNode(Node):
             lane_cmd_timeout_s=self._valor('lane_cmd_timeout_s'),
             maneuver_cmd_timeout_s=self._valor('maneuver_cmd_timeout_s'),
             signs_timeout_s=self._valor('signs_timeout_s'),
-            lane_lost_timeout_s=self._valor('lane_lost_timeout_s'),
             maneuver_request_timeout_s=self._valor('maneuver_request_timeout_s'),
             maneuver_timeout_s=self._valor('maneuver_timeout_s'),
             maneuver_cooldown_s=self._valor('maneuver_cooldown_s'),

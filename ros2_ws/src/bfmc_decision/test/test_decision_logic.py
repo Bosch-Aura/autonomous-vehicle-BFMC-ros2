@@ -17,7 +17,7 @@ MANIOBRA = Drive(0.5, -0.25)
 def logica(**cambios):
     base = {
         'hardware_timeout_s': 1.5, 'lane_cmd_timeout_s': 0.5,
-        'maneuver_cmd_timeout_s': 0.5, 'signs_timeout_s': 0.5, 'lane_lost_timeout_s': 2.0,
+        'maneuver_cmd_timeout_s': 0.5, 'signs_timeout_s': 0.5,
         'maneuver_request_timeout_s': 1.0, 'maneuver_timeout_s': 15.0, 'maneuver_cooldown_s': 5.0,
         'min_sign_confidence': 0.6, 'stop_distance_m': 1.0, 'intersection_distance_m': 1.5,
         'stop_labels': ('stop',), 'intersection_labels': ('priority', 'roundabout'),
@@ -145,29 +145,14 @@ def test_un_comando_de_carril_vencido_es_una_emergencia():
     assert 'carril' in decision.reason
 
 
-def test_un_carril_perdido_por_demasiado_tiempo_es_una_emergencia():
-    logic = logica(lane_lost_timeout_s=2.0)
+def test_un_carril_sin_detectar_no_frena_el_auto_por_mucho_que_dure():
+    logic = logica()
     entradas(logic, 10.0, carril_detectado=False)
-    entradas(logic, 12.25, carril_detectado=False)
-    decision = logic.step(12.25)
-    assert decision.state == State.EMERGENCY
-    assert 'carril perdido' in decision.reason
-
-
-def test_un_carril_perdido_por_poco_tiempo_no_es_una_emergencia():
-    logic = logica(lane_lost_timeout_s=2.0)
-    entradas(logic, 10.0, carril_detectado=False)
-    entradas(logic, 11.0, carril_detectado=False)
-    assert logic.step(11.0).state == State.LANE_FOLLOW
-
-
-def test_recuperar_el_carril_reinicia_la_cuenta_del_carril_perdido():
-    logic = logica(lane_lost_timeout_s=2.0)
-    entradas(logic, 10.0, carril_detectado=False)
-    entradas(logic, 11.5, carril_detectado=True)
-    entradas(logic, 12.0, carril_detectado=False)
-    entradas(logic, 13.5, carril_detectado=False)
-    assert logic.step(13.5).state == State.LANE_FOLLOW
+    for instante in (12.25, 20.0, 60.0):
+        entradas(logic, instante, carril_detectado=False)
+        decision = logic.step(instante)
+        assert decision.state == State.LANE_FOLLOW
+        assert decision.command == CARRIL
 
 
 def test_la_emergencia_termina_cuando_las_condiciones_se_normalizan():
@@ -311,32 +296,12 @@ def test_al_terminar_la_maniobra_se_vuelve_a_seguir_el_carril():
     assert decision.command == CARRIL
 
 
-def test_durante_una_maniobra_no_rige_la_emergencia_por_carril_perdido():
-    logic = logica(lane_lost_timeout_s=2.0, maneuver_timeout_s=15.0)
-    ahora = en_maniobra(logic)
-    for paso in range(1, 6):
-        instante = ahora + paso
-        entradas(logic, instante, carril_detectado=False)
-        logic.on_maneuver_command(MANIOBRA, instante)
-        assert logic.step(instante).state == State.MANEUVER
-
-
 def test_durante_una_maniobra_no_rige_la_emergencia_por_comando_de_carril_vencido():
     logic = logica(lane_cmd_timeout_s=0.5)
     ahora = en_maniobra(logic)
     logic.on_hardware(HardwareObservation(True, False), ahora + 2.0)
     logic.on_maneuver_command(MANIOBRA, ahora + 2.0)
     assert logic.step(ahora + 2.0).state == State.MANEUVER
-
-
-def test_el_carril_perdido_durante_la_maniobra_no_cuenta_al_terminarla():
-    logic = logica(lane_lost_timeout_s=2.0)
-    ahora = en_maniobra(logic)
-    entradas(logic, ahora + 0.25, carril_detectado=False)
-    logic.on_maneuver_command(MANIOBRA, ahora + 0.25)
-    logic.on_maneuver_result(ahora + 4.0)
-    entradas(logic, ahora + 4.0, carril_detectado=False)
-    assert logic.step(ahora + 4.0).state == State.LANE_FOLLOW
 
 
 def test_la_espera_entre_maniobras_evita_repetir_la_misma_senal():

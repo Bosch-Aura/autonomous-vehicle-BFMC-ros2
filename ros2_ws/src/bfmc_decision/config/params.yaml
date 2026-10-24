@@ -21,7 +21,6 @@ decision:
     lane_cmd_timeout_s: 0.5            # [s] sin comando de carril hay emergencia (no rige en maniobras) [asumido]
     maneuver_cmd_timeout_s: 0.5        # [s] una maniobra sin comando vigente deja el auto detenido [asumido]
     signs_timeout_s: 0.5               # [s] las detecciones más viejas que esto se ignoran [asumido]
-    lane_lost_timeout_s: 2.0           # [s] carril sin detectar por más tiempo que esto hay emergencia [asumido]
 
     # Maniobras.
     maneuver_request_timeout_s: 1.0    # [s] espera máxima a que el servidor responda [asumido]

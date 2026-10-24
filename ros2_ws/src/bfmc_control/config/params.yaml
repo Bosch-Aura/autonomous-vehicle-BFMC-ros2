@@ -26,5 +26,5 @@ control:
 
     # Carril no detectado o poco confiable.
     min_confidence: 0.3                # [0, 1] debajo de esto se trata como carril perdido [asumido]
-    lost_speed_factor: 0.5             # [0, 1] fracción de la velocidad de crucero [asumido]
+    lost_speed_factor: 1.0             # [0, 1] fracción de la velocidad de crucero sin carril: 1 = no baja, el carril solo orienta
     max_dt_s: 0.5                      # [s] una pausa mayor entre mediciones reinicia el PID [asumido]

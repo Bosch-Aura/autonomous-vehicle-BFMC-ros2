@@ -41,9 +41,8 @@ Cualquiera de estas condiciones detiene el auto:
 | `/hardware/status` vencido (`hardware_timeout_s`) | Sí |
 | Enlace con el ESP32 caído, o watchdog del ESP32 cortado | Sí |
 | Comando de carril vencido (`lane_cmd_timeout_s`) | **No** |
-| Carril sin detectar por más de `lane_lost_timeout_s` | **No** |
 
-Las dos últimas **no rigen durante una maniobra**: dentro de una intersección las líneas del carril desaparecen a propósito y la maniobra no las usa. Al terminar la maniobra, lo observado del carril durante ella se descarta y se empieza de cero.
+La última **no rige durante una maniobra**: dentro de una intersección las líneas del carril desaparecen a propósito y la maniobra no las usa. Al terminar la maniobra, lo observado del carril durante ella se descarta y se empieza de cero.
 
 Una emergencia durante una maniobra la **cancela**. Cuando las condiciones se normalizan, el estado vuelve solo a `LANE_FOLLOW`.
 
@@ -67,7 +66,7 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 | Grupo | Parámetros |
 |---|---|
 | Frecuencia y topics | `rate_hz`, `*_topic`, `maneuver_action_name`, `frame_id` |
-| Entradas vencidas | `hardware_timeout_s`, `lane_cmd_timeout_s`, `maneuver_cmd_timeout_s`, `signs_timeout_s`, `lane_lost_timeout_s` |
+| Entradas vencidas | `hardware_timeout_s`, `lane_cmd_timeout_s`, `maneuver_cmd_timeout_s`, `signs_timeout_s` |
 | Maniobras | `maneuver_request_timeout_s`, `maneuver_timeout_s`, `maneuver_cooldown_s` |
 | Señales | `min_sign_confidence`, `stop_distance_m`, `intersection_distance_m`, `stop_labels`, `intersection_labels` |
 | Intersección | `intersection_direction` (`left`, `right` o `straight`), `intersection_min_frames` |
