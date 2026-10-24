@@ -1,0 +1,7 @@
+# Dónde está publicado el modelo de señales. Lo usa el comando `descargar_modelo`.
+# El modelo es el best.pt del repositorio anterior (AURA-2026, 2025-11-21): YOLOv8m
+# con 13 clases. No vive en el repositorio porque pesa 52 MB.
+repository: Bosch-Aura/autonomous-vehicle-BFMC-ros2
+tag: modelo-senales-v1
+asset: best.pt
+sha256: 2d3c08a221ebb43b30b95eb2f457cf3c260415cc6299d5909d22b4f17448c7a2
