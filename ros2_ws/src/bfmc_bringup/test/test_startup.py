@@ -14,8 +14,7 @@ import time
 
 import pytest
 
-NODOS = ['/lane_detection', '/control', '/safety', '/hardware_bridge', '/decision',
-         '/maneuvers']
+NODOS = ['/lane_detection', '/control', '/hardware_bridge', '/decision', '/maneuvers']
 PLAZO_DE_ARRANQUE_S = 40.0
 
 
@@ -87,8 +86,8 @@ def test_sin_entradas_el_comando_final_es_cero(sistema, entorno):
 def test_el_sistema_expone_los_topics_de_la_arquitectura(sistema, entorno):
     esperar_nodos(entorno)
     topics = set(ros2(entorno, 'topic', 'list').split())
-    esperados = {'/cmd/drive', '/vehicle/state', '/safety/status', '/hardware/status',
-                 '/hardware/ultrasonic', '/perception/lane', '/control/lane_cmd'}
+    esperados = {'/cmd/drive', '/vehicle/state', '/hardware/status', '/perception/lane',
+                 '/control/lane_cmd'}
     assert esperados <= topics, 'faltan topics: %s' % (esperados - topics)
 
 

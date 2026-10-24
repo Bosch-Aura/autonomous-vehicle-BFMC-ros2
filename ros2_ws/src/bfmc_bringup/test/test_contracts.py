@@ -26,7 +26,6 @@ def p():
         'lane': parametros('bfmc_lane_detection', 'lane_detection'),
         'signs': parametros('bfmc_sign_detection', 'sign_detection'),
         'control': parametros('bfmc_control', 'control'),
-        'safety': parametros('bfmc_safety', 'safety'),
         'bridge': parametros('bfmc_hardware_bridge', 'hardware_bridge'),
         'maneuvers': parametros('bfmc_maneuvers', 'maneuvers'),
         'decision': parametros('bfmc_decision', 'decision'),
@@ -40,9 +39,6 @@ CONTRATOS = {
                           ('decision', 'lane_topic')],
     'señales detectadas': [('signs', 'signs_topic'), ('decision', 'signs_topic')],
     'comando de carril': [('control', 'cmd_topic'), ('decision', 'lane_cmd_topic')],
-    'estado de seguridad': [('safety', 'status_topic'), ('bridge', 'safety_topic'),
-                            ('decision', 'safety_topic')],
-    'ultrasónico': [('bridge', 'ultrasonic_topic'), ('safety', 'ultrasonic_topic')],
     'estado del hardware': [('bridge', 'status_topic'), ('decision', 'hardware_topic')],
     'comando final': [('decision', 'drive_topic'), ('bridge', 'cmd_topic')],
     'comando de maniobra': [('maneuvers', 'cmd_topic'), ('decision', 'maneuver_cmd_topic')],
@@ -119,8 +115,6 @@ def test_las_entradas_vencidas_de_decision_toleran_la_frecuencia_con_que_se_publ
     # El estado del hardware se publica a status_rate_hz: su plazo debe ser mayor que el período.
     periodo_hardware = 1.0 / p['bridge']['status_rate_hz']
     assert p['decision']['hardware_timeout_s'] > periodo_hardware
-    # El de seguridad, a publish_rate_hz.
-    assert p['decision']['safety_timeout_s'] > 1.0 / p['safety']['publish_rate_hz']
 
 
 def test_el_plazo_del_comando_del_puente_es_mayor_que_el_periodo_de_decision(p):

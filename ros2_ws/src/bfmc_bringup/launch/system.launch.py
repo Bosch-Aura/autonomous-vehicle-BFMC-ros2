@@ -63,7 +63,6 @@ def generate_launch_description():
         _nodo('bfmc_lane_detection', 'lane_detection'),
         _nodo('bfmc_sign_detection', 'sign_detection', condicion=IfCondition(senales)),
         _nodo('bfmc_control', 'control'),
-        _nodo('bfmc_safety', 'safety'),
         _nodo('bfmc_hardware_bridge', 'hardware_bridge',
               [{'serial_port': LaunchConfiguration('serial_port')}]),
         _nodo('bfmc_maneuvers', 'maneuvers'),

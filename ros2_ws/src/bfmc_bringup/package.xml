@@ -11,7 +11,6 @@
   <exec_depend>bfmc_lane_detection</exec_depend>
   <exec_depend>bfmc_sign_detection</exec_depend>
   <exec_depend>bfmc_control</exec_depend>
-  <exec_depend>bfmc_safety</exec_depend>
   <exec_depend>bfmc_hardware_bridge</exec_depend>
   <exec_depend>bfmc_decision</exec_depend>
   <exec_depend>bfmc_maneuvers</exec_depend>

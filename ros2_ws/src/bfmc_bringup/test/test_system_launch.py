@@ -16,7 +16,6 @@ NODOS = {
     'bfmc_lane_detection': 'lane_detection',
     'bfmc_sign_detection': 'sign_detection',
     'bfmc_control': 'control',
-    'bfmc_safety': 'safety',
     'bfmc_hardware_bridge': 'hardware_bridge',
     'bfmc_maneuvers': 'maneuvers',
     'bfmc_decision': 'decision',

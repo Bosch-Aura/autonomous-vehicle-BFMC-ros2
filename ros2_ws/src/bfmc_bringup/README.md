@@ -28,12 +28,11 @@ ros2 launch bfmc_bringup system.launch.py serial_port:=/dev/ttyACM0 # otro puert
 | `bfmc_lane_detection` | `lane_detection` | |
 | `bfmc_sign_detection` | `sign_detection` | `signs` |
 | `bfmc_control` | `control` | |
-| `bfmc_safety` | `safety` | |
 | `bfmc_hardware_bridge` | `hardware_bridge` | |
 | `bfmc_maneuvers` | `maneuvers` | |
 | `bfmc_decision` | `decision` | |
 
-**Sin ninguna entrada, el sistema queda detenido:** `bfmc_decision` en `STARTING` y el comando final en cero. Empieza a conducir recién cuando llegan las primeras entradas de seguridad, hardware y comando de carril.
+**Sin ninguna entrada, el sistema queda detenido:** `bfmc_decision` en `STARTING` y el comando final en cero. Empieza a conducir recién cuando llegan las primeras entradas del hardware y del comando de carril.
 
 La detección de señales arranca **desactivada** porque necesita Ultralytics y el modelo descargado.
 
