@@ -29,7 +29,15 @@ class PySerialPort:
     def __init__(self, ruta: str, baud_rate: int):
         import serial  # se importa acá para que el resto del paquete no lo requiera
 
-        self._serial = serial.serial_for_url(ruta, baudrate=baud_rate, timeout=0)
+        # DTR y RTS se dejan en reposo ANTES de abrir: en el DevKit del ESP32 esas
+        # líneas manejan EN y BOOT, y abrir el puerto con RTS activo deja la placa
+        # retenida en reset. Aun así, con el driver de WCH de la Jetson abrir el
+        # puerto reinicia la placa: la lógica lo detecta por EVENT:SYSTEM_READY.
+        self._serial = serial.serial_for_url(ruta, baudrate=baud_rate, timeout=0,
+                                             do_not_open=True)
+        self._serial.dtr = False
+        self._serial.rts = False
+        self._serial.open()
 
     def write(self, datos: bytes) -> None:
         self._serial.write(datos)

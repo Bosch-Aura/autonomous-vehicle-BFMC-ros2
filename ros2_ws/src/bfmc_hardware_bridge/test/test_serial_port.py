@@ -15,8 +15,8 @@ def puerto():
 
 
 def test_lo_que_se_escribe_se_puede_leer(puerto):
-    puerto.write(b'{"t":"brake","seq":1}\n')
-    assert puerto.read_available() == b'{"t":"brake","seq":1}\n'
+    puerto.write(b'C:SET_SPEED:0\n')
+    assert puerto.read_available() == b'C:SET_SPEED:0\n'
 
 
 def test_sin_datos_pendientes_la_lectura_no_espera_y_devuelve_vacio(puerto):

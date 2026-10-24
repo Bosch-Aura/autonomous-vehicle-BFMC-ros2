@@ -1,57 +1,95 @@
-"""Tests de la conversión de unidades SI al formato del ESP32 (ADR-0001)."""
+"""Tests de la conversión de unidades SI al formato del ESP32 (ADR-0002)."""
 import math
 
-from bfmc_hardware_bridge.units import to_esp32_units
+from bfmc_hardware_bridge.units import Esp32Limits, to_duty, to_servo
 import pytest
 
-MAX_V = 0.5
-MAX_S = math.radians(25.0)
+LIMITES = Esp32Limits(max_speed_mps=0.5, max_steer_rad=math.radians(25.0), duty_start=140,
+                      duty_max=255, servo_left=50, servo_center=105, servo_right=160)
 
 
-def convertir(velocidad, direccion):
-    return to_esp32_units(velocidad, direccion, MAX_V, MAX_S)
+# --- velocidad -------------------------------------------------------------------------
+
+def test_velocidad_cero_es_duty_cero_sin_cambiar_el_sentido():
+    assert to_duty(0.0, LIMITES) == (None, 0)
 
 
-@pytest.mark.parametrize('velocidad, direccion, esperado', [
-    (0.0, 0.0, (0, 0)),
-    (0.25, 0.0, (250, 0)),
-    (-0.25, 0.0, (-250, 0)),
-    (0.0, math.radians(10.0), (0, 100)),
-    (0.0, math.radians(-10.0), (0, -100)),
-    (0.1, math.radians(5.0), (100, 50)),
-], ids=['reposo', 'avance', 'marcha_atras', 'izquierda', 'derecha', 'ambos'])
-def test_la_conversion_respeta_unidades_y_signo(velocidad, direccion, esperado):
-    assert convertir(velocidad, direccion) == esperado
+def test_la_velocidad_maxima_es_el_duty_maximo():
+    assert to_duty(0.5, LIMITES) == (True, 255)
 
 
-def test_una_velocidad_excesiva_se_recorta_en_ambos_sentidos():
-    assert convertir(5.0, 0.0)[0] == 500
-    assert convertir(-5.0, 0.0)[0] == -500
+def test_marcha_atras_da_el_mismo_duty_con_el_sentido_invertido():
+    assert to_duty(-0.25, LIMITES) == (False, to_duty(0.25, LIMITES)[1])
 
 
-def test_un_giro_excesivo_se_recorta_en_ambos_sentidos():
-    assert convertir(0.0, math.radians(90.0))[1] == 250
-    assert convertir(0.0, math.radians(-90.0))[1] == -250
+def test_la_mitad_de_la_velocidad_cae_a_mitad_de_camino_entre_arranque_y_maximo():
+    assert to_duty(0.25, LIMITES) == (True, 198)  # 140 + 0.5 * 115 = 197.5
 
 
-def test_el_maximo_exacto_no_se_recorta():
-    assert convertir(0.5, MAX_S) == (500, 250)
+def test_cualquier_velocidad_distinta_de_cero_supera_el_umbral_de_arranque():
+    assert to_duty(0.001, LIMITES)[1] >= 140
+    assert to_duty(-0.001, LIMITES)[1] >= 140
+
+
+def test_una_velocidad_excesiva_se_recorta_al_duty_maximo():
+    assert to_duty(5.0, LIMITES) == (True, 255)
+    assert to_duty(-5.0, LIMITES) == (False, 255)
 
 
 @pytest.mark.parametrize('valor', [math.nan, math.inf, -math.inf])
 def test_una_velocidad_no_finita_se_trata_como_cero(valor):
-    assert convertir(valor, 0.0) == (0, 0)
+    assert to_duty(valor, LIMITES) == (None, 0)
+
+
+# --- dirección -------------------------------------------------------------------------
+
+def test_recto_es_el_centro_del_servo():
+    assert to_servo(0.0, LIMITES) == 105
+
+
+def test_positivo_es_izquierda_y_llega_al_tope_izquierdo():
+    assert to_servo(math.radians(25.0), LIMITES) == 50
+
+
+def test_negativo_es_derecha_y_llega_al_tope_derecho():
+    assert to_servo(math.radians(-25.0), LIMITES) == 160
+
+
+def test_cada_lado_escala_con_su_propio_recorrido():
+    limites = Esp32Limits(0.5, math.radians(20.0), 140, 255, 60, 100, 120)
+    assert to_servo(math.radians(10.0), limites) == 80   # mitad de 100 -> 60
+    assert to_servo(math.radians(-10.0), limites) == 110  # mitad de 100 -> 120
+
+
+def test_un_giro_excesivo_se_recorta_al_tope():
+    assert to_servo(math.radians(90.0), LIMITES) == 50
+    assert to_servo(math.radians(-90.0), LIMITES) == 160
 
 
 @pytest.mark.parametrize('valor', [math.nan, math.inf, -math.inf])
-def test_una_direccion_no_finita_se_trata_como_cero(valor):
-    assert convertir(0.25, valor) == (250, 0)
+def test_una_direccion_no_finita_se_trata_como_recto(valor):
+    assert to_servo(valor, LIMITES) == 105
 
 
-def test_la_salida_siempre_son_enteros_dentro_del_rango():
-    for velocidad in [v / 4.0 for v in range(-40, 41)]:
-        for direccion in [d / 8.0 for d in range(-24, 25)]:
-            v, s = convertir(velocidad, direccion)
-            assert isinstance(v, int) and isinstance(s, int)
-            assert -500 <= v <= 500
-            assert -250 <= s <= 250
+def test_el_servo_siempre_es_un_entero_dentro_del_recorrido():
+    for grados in range(-40, 41):
+        servo = to_servo(math.radians(grados), LIMITES)
+        assert isinstance(servo, int) and 50 <= servo <= 160
+
+
+# --- límites ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize('cambios', [
+    {'max_speed_mps': 0.0},
+    {'max_steer_rad': -1.0},
+    {'duty_start': 0},
+    {'duty_start': 255},
+    {'duty_max': 256},
+    {'servo_center': 50},
+    {'servo_right': 100},
+])
+def test_limites_incoherentes_se_rechazan(cambios):
+    base = {'max_speed_mps': 0.5, 'max_steer_rad': 0.4, 'duty_start': 140, 'duty_max': 255,
+            'servo_left': 50, 'servo_center': 105, 'servo_right': 160}
+    with pytest.raises(ValueError):
+        Esp32Limits(**{**base, **cambios})

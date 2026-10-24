@@ -4,7 +4,6 @@ Usan los parámetros reales de config/params.yaml. Esperan mensajes reales, por
 eso tienen un tope de tiempo; las reglas se prueban aparte, sin ROS, en
 test_hardware_bridge_logic.py.
 """
-import json
 import math
 from pathlib import Path
 import time
@@ -16,13 +15,12 @@ import pytest
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import Range
+from std_srvs.srv import SetBool, Trigger
 import yaml
 
 PARAMS = Path(__file__).resolve().parents[1] / 'config' / 'params.yaml'
 TIMEOUT_S = 5.0
 RELIABLE = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
-BEST_EFFORT = QoSProfile(depth=5, reliability=ReliabilityPolicy.BEST_EFFORT)
 
 
 class PuertoFalso:
@@ -50,7 +48,7 @@ class PuertoFalso:
         self.cerrado = True
 
     def tramas(self):
-        return [json.loads(linea) for linea in bytes(self.escritos).decode().splitlines()]
+        return bytes(self.escritos).decode('ascii').splitlines()
 
 
 @pytest.fixture(scope='module')
@@ -77,7 +75,6 @@ class Entorno:
         self.auxiliar = auxiliar
         self.executor = executor
         self.puerto = puerto
-        self.rangos = []
         self.estados = []
         self.aperturas = 0
         param = nodo.get_parameter
@@ -86,9 +83,9 @@ class Entorno:
         self.pub_seguridad = auxiliar.create_publisher(
             SafetyStatus, param('safety_topic').value, RELIABLE)
         auxiliar.create_subscription(
-            Range, param('ultrasonic_topic').value, self.rangos.append, BEST_EFFORT)
-        auxiliar.create_subscription(
             HardwareStatus, param('status_topic').value, self.estados.append, RELIABLE)
+        self.cliente_armado = auxiliar.create_client(Trigger, param('arm_service').value)
+        self.cliente_stop = auxiliar.create_client(SetBool, param('stop_service').value)
 
     def esperar(self, condicion, publicar=None):
         limite = time.monotonic() + TIMEOUT_S
@@ -141,55 +138,82 @@ def test_el_nodo_abre_el_puerto_y_la_velocidad_con_los_valores_del_yaml(
                                     parametros_del_yaml['baud_rate'])
 
 
-def test_sin_comandos_el_nodo_envia_freno_como_heartbeat(entorno):
-    assert entorno.esperar(lambda: len(entorno.puerto.tramas()) >= 3)
-    tramas = entorno.puerto.tramas()
-    assert all(trama['t'] == 'brake' for trama in tramas)
-    assert [t['seq'] for t in tramas[:3]] == [0, 1, 2]
+def test_al_abrir_el_puerto_arma_el_esp32_sin_pedir_modo(entorno):
+    assert entorno.esperar(lambda: 'M:SYS_ARM:0' in entorno.puerto.tramas())
+    assert not any('SYS_MODE' in trama for trama in entorno.puerto.tramas())
+
+
+def test_sin_comandos_envia_velocidad_cero_como_heartbeat(entorno):
+    assert entorno.esperar(lambda: entorno.puerto.tramas().count('C:SET_SPEED:0') >= 3)
+    assert 'C:SET_STEER:105' in entorno.puerto.tramas()
 
 
 def test_un_comando_se_envia_al_esp32_en_sus_unidades(entorno):
-    def hay_comando():
-        return any(t['t'] == 'drive' for t in entorno.puerto.tramas())
-
-    assert entorno.esperar(hay_comando, lambda: entorno.comando(0.25, math.radians(10.0)))
-    trama = next(t for t in entorno.puerto.tramas() if t['t'] == 'drive')
-    assert trama['v'] == 250
-    assert trama['s'] == 100
+    assert entorno.esperar(lambda: 'C:SET_SPEED:255' in entorno.puerto.tramas(),
+                           lambda: entorno.comando(0.5, math.radians(25.0)))
+    tramas = entorno.puerto.tramas()
+    assert 'C:SET_DIR:1' in tramas
+    assert 'C:SET_STEER:50' in tramas
 
 
-def test_una_emergencia_envia_freno_aunque_siga_llegando_un_comando(entorno):
+def test_una_emergencia_frena_aunque_siga_llegando_un_comando(entorno):
     def publicar():
-        entorno.comando(0.25, 0.0)
+        entorno.comando(0.5, 0.0)
         entorno.emergencia(True)
 
-    def ultima_es_freno():
+    def frenado():
         tramas = entorno.puerto.tramas()
-        return len(tramas) > 10 and all(t['t'] == 'brake' for t in tramas[-5:])
+        velocidades = [t for t in tramas if t.startswith('C:SET_SPEED:')]
+        return 'E:BRAKE_NOW:0' in tramas and velocidades[-3:] == ['C:SET_SPEED:0'] * 3
 
-    assert entorno.esperar(ultima_es_freno, publicar)
-
-
-def test_una_lectura_valida_del_esp32_se_publica_como_range(entorno):
-    entorno.puerto.por_leer += b'{"t":"ultra","id":"front","dist_cm":87,"valid":true}\n'
-    assert entorno.esperar(lambda: entorno.rangos)
-    assert entorno.rangos[0].range == pytest.approx(0.87, abs=1e-5)
-    assert entorno.rangos[0].radiation_type == Range.ULTRASOUND
+    assert entorno.esperar(frenado, publicar)
+    assert entorno.puerto.tramas().count('E:BRAKE_NOW:0') == 1
 
 
-def test_una_lectura_sin_eco_se_publica_como_camino_despejado(entorno):
-    entorno.puerto.por_leer += b'{"t":"ultra","id":"front","dist_cm":0,"valid":false}\n'
-    assert entorno.esperar(lambda: entorno.rangos)
-    assert math.isinf(entorno.rangos[0].range) and entorno.rangos[0].range > 0
+def test_un_evento_del_esp32_levanta_el_enlace(entorno):
+    def responder():
+        entorno.puerto.por_leer += b'EVENT:CMD_RECEIVED:SET_SPEED:0\n'
+
+    assert entorno.esperar(lambda: any(e.link_up for e in entorno.estados), responder)
 
 
-def test_el_estado_del_esp32_se_publica_como_hardware_status(entorno):
-    entorno.puerto.por_leer += b'{"t":"status","fw":"0.1.0","wd":true,"last_seq":7}\n'
+def test_un_fault_del_esp32_se_publica_como_watchdog_tripped(entorno):
+    def responder():
+        entorno.puerto.por_leer += b'EVENT:WATCHDOG_TIMEOUT\nEVENT:STATE_CHANGED:FAULT\n'
+
     assert entorno.esperar(
-        lambda: any(e.link_up and e.firmware_version == '0.1.0' for e in entorno.estados))
-    estado = next(e for e in entorno.estados if e.link_up)
-    assert estado.watchdog_tripped is True
-    assert estado.last_seq == 7
+        lambda: any(e.link_up and e.watchdog_tripped for e in entorno.estados), responder)
+
+
+def test_el_servicio_de_armado_rearma_despues_de_un_fault(entorno):
+    entorno.puerto.por_leer += b'EVENT:STATE_CHANGED:RUNNING\n'
+    assert entorno.esperar(lambda: entorno.puerto.tramas().count('C:SET_SPEED:0') >= 2)
+    entorno.puerto.por_leer += b'EVENT:STATE_CHANGED:FAULT\n'
+    assert entorno.esperar(lambda: entorno.puerto.tramas().count('C:SET_SPEED:0') >= 4)
+    assert 'M:SYS_ARM:0' not in entorno.puerto.tramas()
+
+    assert entorno.cliente_armado.wait_for_service(timeout_sec=TIMEOUT_S)
+    respuesta = entorno.cliente_armado.call_async(Trigger.Request())
+    assert entorno.esperar(respuesta.done)
+    assert respuesta.result().success is True
+    assert entorno.esperar(lambda: 'M:SYS_ARM:0' in entorno.puerto.tramas())
+
+
+def test_el_servicio_de_stop_detiene_y_arranca_el_esp32(entorno):
+    assert entorno.cliente_stop.wait_for_service(timeout_sec=TIMEOUT_S)
+
+    def pedir(detener):
+        pedido = SetBool.Request()
+        pedido.data = detener
+        respuesta = entorno.cliente_stop.call_async(pedido)
+        assert entorno.esperar(respuesta.done)
+        assert respuesta.result().success is True
+
+    pedir(True)
+    assert entorno.esperar(lambda: 'M:SYS_STOP:0' in entorno.puerto.tramas())
+    entorno.puerto.por_leer += b'EVENT:CMD_RECEIVED:SYS_STOP\n'
+    pedir(False)
+    assert entorno.esperar(lambda: 'M:SYS_RESUME:0' in entorno.puerto.tramas())
 
 
 def test_sin_mensajes_del_esp32_el_enlace_se_publica_caido(entorno):
@@ -197,8 +221,8 @@ def test_sin_mensajes_del_esp32_el_enlace_se_publica_caido(entorno):
     assert entorno.estados[0].link_up is False
 
 
-def test_una_linea_de_ruido_no_levanta_el_enlace(entorno):
-    entorno.puerto.por_leer += b'ruido\n'
+def test_la_depuracion_del_esp32_no_levanta_el_enlace(entorno):
+    entorno.puerto.por_leer += b'[MotorTask] Motor task started\n'
     assert entorno.esperar(lambda: len(entorno.estados) >= 2)
     assert all(e.link_up is False for e in entorno.estados)
 
@@ -209,3 +233,17 @@ def test_si_el_puerto_falla_el_nodo_lo_cierra_y_lo_vuelve_a_abrir(entorno):
     assert entorno.esperar(lambda: entorno.puerto.cerrado)
     entorno.puerto.fallar = False
     assert entorno.esperar(lambda: len(entorno.aperturas) >= 2)
+
+
+def test_al_destruir_el_nodo_frena_y_desarma(ros):
+    puerto = PuertoFalso()
+    nodo = HardwareBridgeNode(port_factory=lambda ruta, baud: puerto)
+    executor = SingleThreadedExecutor()
+    executor.add_node(nodo)
+    limite = time.monotonic() + TIMEOUT_S
+    while not puerto.escritos and time.monotonic() < limite:
+        executor.spin_once(timeout_sec=0.05)
+    executor.shutdown()
+    nodo.destroy_node()
+    assert puerto.tramas()[-2:] == ['C:SET_SPEED:0', 'M:SYS_DISARM:0']
+    assert puerto.cerrado
