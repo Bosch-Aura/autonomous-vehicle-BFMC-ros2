@@ -15,7 +15,7 @@ import pytest
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import QoSProfile, ReliabilityPolicy
-from std_srvs.srv import Trigger
+from std_srvs.srv import SetBool, Trigger
 import yaml
 
 PARAMS = Path(__file__).resolve().parents[1] / 'config' / 'params.yaml'
@@ -85,6 +85,7 @@ class Entorno:
         auxiliar.create_subscription(
             HardwareStatus, param('status_topic').value, self.estados.append, RELIABLE)
         self.cliente_armado = auxiliar.create_client(Trigger, param('arm_service').value)
+        self.cliente_stop = auxiliar.create_client(SetBool, param('stop_service').value)
 
     def esperar(self, condicion, publicar=None):
         limite = time.monotonic() + TIMEOUT_S
@@ -196,6 +197,23 @@ def test_el_servicio_de_armado_rearma_despues_de_un_fault(entorno):
     assert entorno.esperar(respuesta.done)
     assert respuesta.result().success is True
     assert entorno.esperar(lambda: 'M:SYS_ARM:0' in entorno.puerto.tramas())
+
+
+def test_el_servicio_de_stop_detiene_y_arranca_el_esp32(entorno):
+    assert entorno.cliente_stop.wait_for_service(timeout_sec=TIMEOUT_S)
+
+    def pedir(detener):
+        pedido = SetBool.Request()
+        pedido.data = detener
+        respuesta = entorno.cliente_stop.call_async(pedido)
+        assert entorno.esperar(respuesta.done)
+        assert respuesta.result().success is True
+
+    pedir(True)
+    assert entorno.esperar(lambda: 'M:SYS_STOP:0' in entorno.puerto.tramas())
+    entorno.puerto.por_leer += b'EVENT:CMD_RECEIVED:SYS_STOP\n'
+    pedir(False)
+    assert entorno.esperar(lambda: 'M:SYS_RESUME:0' in entorno.puerto.tramas())
 
 
 def test_sin_mensajes_del_esp32_el_enlace_se_publica_caido(entorno):

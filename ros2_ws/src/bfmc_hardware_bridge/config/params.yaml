@@ -12,7 +12,7 @@ hardware_bridge:
     reconnect_period_s: 1.0            # [s] espera entre intentos de reabrir el puerto
 
     # Armado del ESP32 (el firmware no tiene modos de manejo; su watchdog es de 300 ms).
-    arm_retry_s: 0.5                   # [s] espera entre intentos de armar mientras el ESP32 no confirme
+    arm_retry_s: 0.5                   # [s] espera entre reintentos de armar, detener o arrancar mientras el ESP32 no confirme
 
     # Topics y servicios.
     cmd_topic: /cmd/drive              # comando final (ackermann_msgs/AckermannDriveStamped)
@@ -21,6 +21,7 @@ hardware_bridge:
     status_frame_id: base_link
     status_rate_hz: 2.0                # [Hz] frecuencia de /hardware/status
     arm_service: /hardware/arm         # std_srvs/Trigger: rearma el ESP32 después de un FAULT
+    stop_service: /hardware/stop       # std_srvs/SetBool: true detiene (STOPPED), false vuelve a arrancar
 
     # Seguridad.
     link_timeout_s: 0.5                # [s] sin eventos del ESP32 más tiempo que esto, el enlace se da por caído [asumido]

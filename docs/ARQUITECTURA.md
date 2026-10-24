@@ -71,7 +71,7 @@ Los nombres van sin el prefijo `bfmc_`: el paquete real de `camera` es `bfmc_cam
 | `bfmc_maneuvers` | Ejecuta una maniobra puntual (stop, intersección) cuando se la piden. Patrón Strategy: una clase por maniobra. | — | `/maneuver/cmd`, action `ManeuverExecute` |
 | `bfmc_safety` | Decide si el obstáculo exige parada. No frena por sí mismo. | `/hardware/ultrasonic` (hoy nadie lo publica, ver ADR-0002) | `/safety/status` |
 | `bfmc_decision` | Único nodo que decide. Arbitra por prioridad y publica el comando final. | `/perception/lane`, `/perception/signs`, `/safety/status`, `/control/lane_cmd`, `/maneuver/cmd`, `/hardware/status` | `/cmd/drive`, `/vehicle/state` |
-| `bfmc_hardware_bridge` | Único dueño del puerto serial. Traduce unidades, envía comandos y publica lo que reporta el ESP32. | `/cmd/drive`, `/safety/status` | `/hardware/status`, servicio `/hardware/arm` |
+| `bfmc_hardware_bridge` | Único dueño del puerto serial. Traduce unidades, envía comandos y publica lo que reporta el ESP32. | `/cmd/drive`, `/safety/status` | `/hardware/status`, servicios `/hardware/arm` y `/hardware/stop` |
 | `bfmc_bringup` | Launch files y parámetros de todo el sistema. | — | — |
 
 El dashboard vive en `frontend/`. Se conecta por `rosbridge_websocket`, solo lee `/vehicle/state` y no arranca ni controla nodos.
@@ -91,6 +91,7 @@ El dashboard vive en `frontend/`. Se conecta por `rosbridge_websocket`, solo lee
 | `/hardware/ultrasonic` | `sensor_msgs/Range` | nadie por ahora: el firmware no informa distancias (ADR-0002) |
 | `/hardware/status` | `bfmc_interfaces/HardwareStatus` | hardware_bridge |
 | `/hardware/arm` | Servicio `std_srvs/Trigger` | server: hardware_bridge. Rearma el ESP32 después de un FAULT |
+| `/hardware/stop` | Servicio `std_srvs/SetBool` | server: hardware_bridge. `true` detiene el auto (ESP32 en `STOPPED`, enganchado), `false` lo deja arrancar. Lo llama el nodo que decide detenerse (por ejemplo `bfmc_decision` en un pare) |
 | `/cmd/drive` | `ackermann_msgs/AckermannDriveStamped` | decision (único) |
 | `/vehicle/state` | `bfmc_interfaces/VehicleState` | decision |
 

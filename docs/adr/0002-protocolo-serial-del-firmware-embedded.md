@@ -51,7 +51,9 @@ Sin un comando vigente (más viejo que `cmd_timeout_s`), el bridge envía veloci
 
 ### 5. Armado, STOPPED y FAULT
 
-`STOPPED` es un estado **armado pero quieto** del firmware: velocidad 0 y servo congelado. Se entra por un obstáculo del ultrasónico (mientras esté) o por `M:SYS_STOP:0`, que queda enganchado hasta `M:SYS_RESUME:0`; vuelve solo a `RUNNING` cuando no queda ninguna causa. Para el bridge cuenta como armado: no lo rearma y no es FAULT. El bridge todavía no manda `SYS_STOP` ni `SYS_RESUME`.
+`STOPPED` es un estado **armado pero quieto** del firmware: velocidad 0 y servo congelado. Se entra por un obstáculo del ultrasónico (mientras esté) o por `M:SYS_STOP:0`, que queda enganchado hasta `M:SYS_RESUME:0`; vuelve solo a `RUNNING` cuando no queda ninguna causa. Para el bridge cuenta como armado: no lo rearma y no es FAULT.
+
+Otros nodos detienen o arrancan el auto con el servicio `/hardware/stop` (`std_srvs/SetBool`): `true` envía `M:SYS_STOP:0` y `false` `M:SYS_RESUME:0`. El bridge guarda el último pedido, lo reintenta cada `arm_retry_s` hasta que llegue `EVENT:CMD_RECEIVED:SYS_STOP`/`SYS_RESUME`, y si el ESP32 se reinicia (y olvida el stop) se lo vuelve a enviar antes de armarlo. Arrancar no mueve el auto por sí solo: avanza con el próximo `/cmd/drive`, y con un obstáculo delante sigue en `STOPPED`.
 
 
 El firmware entra en `FAULT` por watchdog o por E-STOP, y **no sale solo**. El bridge arma al abrir el puerto y cuando el ESP32 se reinicia (`SYSTEM_READY`), pero **nunca rearma después de un FAULT**. Para eso está el servicio `/hardware/arm` (`std_srvs/Trigger`). `/hardware/status` publica el FAULT en `watchdog_tripped`.

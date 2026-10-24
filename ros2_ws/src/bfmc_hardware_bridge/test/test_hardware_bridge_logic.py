@@ -258,6 +258,93 @@ def test_si_el_esp32_arranca_con_un_obstaculo_queda_armado_en_stopped():
     assert not any(linea.startswith('M:') for linea in lineas(logic, now=1.0))
 
 
+# --- detener y arrancar (STOPPED) -------------------------------------------------------------
+
+def gestion(logic, now):
+    return [linea for linea in lineas(logic, now) if linea.startswith('M:')]
+
+
+def test_sin_pedidos_no_se_envia_ni_stop_ni_resume():
+    logic = lista_para_andar()
+    assert gestion(logic, now=1.0) == []
+    assert logic.stop_requested() is None
+
+
+def test_detener_envia_sys_stop_y_lo_reintenta_hasta_la_confirmacion():
+    logic = lista_para_andar(arm_retry_s=0.5)
+    logic.request_stop(True)
+    assert gestion(logic, now=1.0) == ['M:SYS_STOP:0']
+    assert gestion(logic, now=1.25) == []
+    assert gestion(logic, now=1.5) == ['M:SYS_STOP:0']
+    recibir(logic, 1.55, 'EVENT:CMD_RECEIVED:SYS_STOP', 'EVENT:CMD_EXECUTED:SYS_STOP',
+            'EVENT:STATE_AUTO_TRANSITION:RUNNING->STOPPED:SYS_STOP',
+            'EVENT:STATE_CHANGED:STOPPED')
+    assert gestion(logic, now=2.5) == []
+    assert logic.state(now=2.5).stopped is True
+
+
+def test_arrancar_envia_sys_resume_hasta_la_confirmacion():
+    logic = lista_para_andar()
+    logic.request_stop(True)
+    lineas(logic, now=1.0)
+    recibir(logic, 1.05, 'EVENT:CMD_RECEIVED:SYS_STOP')
+    logic.request_stop(False)
+    assert gestion(logic, now=1.1) == ['M:SYS_RESUME:0']
+    recibir(logic, 1.15, 'EVENT:CMD_RECEIVED:SYS_RESUME',
+            'EVENT:STATE_AUTO_TRANSITION:STOPPED->RUNNING')
+    assert gestion(logic, now=2.0) == []
+    assert logic.state(now=2.0).esp32_state == 'RUNNING'
+
+
+def test_una_confirmacion_del_pedido_anterior_no_cuenta():
+    # Se pidió detener y enseguida arrancar: el CMD_RECEIVED:SYS_STOP que llega
+    # tarde no confirma el arranque.
+    logic = lista_para_andar(arm_retry_s=0.5)
+    logic.request_stop(True)
+    lineas(logic, now=1.0)
+    logic.request_stop(False)
+    lineas(logic, now=1.05)
+    recibir(logic, 1.1, 'EVENT:CMD_RECEIVED:SYS_STOP')
+    assert gestion(logic, now=1.6) == ['M:SYS_RESUME:0']
+
+
+def test_repetir_el_mismo_pedido_no_reenvia_nada():
+    logic = lista_para_andar()
+    logic.request_stop(True)
+    lineas(logic, now=1.0)
+    recibir(logic, 1.05, 'EVENT:CMD_RECEIVED:SYS_STOP')
+    logic.request_stop(True)
+    assert gestion(logic, now=1.1) == []
+
+
+def test_si_el_esp32_se_reinicia_se_le_vuelve_a_enviar_el_stop():
+    # El ESP32 olvida el SYS_STOP al reiniciarse.
+    logic = lista_para_andar()
+    logic.request_stop(True)
+    lineas(logic, now=1.0)
+    recibir(logic, 1.05, 'EVENT:CMD_RECEIVED:SYS_STOP')
+    recibir(logic, 2.0, *ARRANQUE_DEL_ESP32)
+    enviados = gestion(logic, now=2.0) + gestion(logic, now=2.05)
+    assert enviados == ['M:SYS_STOP:0', 'M:SYS_ARM:0']
+
+
+def test_tras_un_reinicio_un_pedido_de_arrancar_no_se_reenvia():
+    logic = lista_para_andar()
+    logic.request_stop(False)
+    lineas(logic, now=1.0)
+    recibir(logic, 1.05, 'EVENT:CMD_RECEIVED:SYS_RESUME')
+    recibir(logic, 2.0, *ARRANQUE_DEL_ESP32)
+    assert gestion(logic, now=2.0) == ['M:SYS_ARM:0']
+
+
+def test_stop_y_armado_nunca_salen_en_el_mismo_ciclo():
+    logic = logica()
+    logic.on_port_opened()
+    logic.request_stop(True)
+    for paso in range(20):
+        assert len(gestion(logic, now=paso * 0.05)) <= 1
+
+
 def test_al_cerrar_se_frena_y_se_desarma():
     assert logica().shutdown_frames() == b'C:SET_SPEED:0\nM:SYS_DISARM:0\n'
 

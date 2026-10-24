@@ -14,6 +14,7 @@ Hablar con el ESP32. **No decide** nada: reenvía lo que decide `bfmc_decision`,
 | Se suscribe | `safety_topic` | `/safety/status` | `bfmc_interfaces/SafetyStatus` | Si indica emergencia, el puente frena |
 | Publica | `status_topic` | `/hardware/status` | `bfmc_interfaces/HardwareStatus` | Enlace vivo y si el ESP32 está en FAULT (`watchdog_tripped`) |
 | Servicio | `arm_service` | `/hardware/arm` | `std_srvs/Trigger` | Rearma el ESP32 después de un FAULT |
+| Servicio | `stop_service` | `/hardware/stop` | `std_srvs/SetBool` | `true`: detener (STOPPED). `false`: arrancar |
 
 El firmware no informa distancias, así que este nodo **no publica** `/hardware/ultrasonic`. El frenado por obstáculo lo hace el propio ESP32.
 
@@ -32,6 +33,13 @@ Reenviar velocidad y dirección en cada ciclo renueva el TTL de 200 ms del firmw
 **Arranque:** al abrir el puerto, o si el ESP32 se reinicia (`EVENT:SYSTEM_READY`), el nodo arma la placa solo, reintentando hasta que el firmware confirme. Envía como mucho un comando `M:` por ciclo, porque el firmware guarda uno solo. En esta Jetson, **abrir el puerto reinicia la placa**; el nodo lo detecta y la vuelve a armar. El firmware no tiene modos AUTO/MANUAL, así que no se configura ninguno.
 
 **STOPPED:** con un obstáculo delante, o tras `M:SYS_STOP:0`, el ESP32 queda armado pero quieto (velocidad 0, servo congelado) y vuelve solo a `RUNNING`. El nodo lo registra como estado `STOPPED`; no es FAULT y no lo rearma.
+
+**Detener y arrancar desde otro nodo:** el servicio `/hardware/stop` (`std_srvs/SetBool`) deja el ESP32 en `STOPPED` con `true` (`M:SYS_STOP:0`, queda enganchado) y lo suelta con `false` (`M:SYS_RESUME:0`). El nodo reintenta hasta que el ESP32 confirme y, si la placa se reinicia, le vuelve a enviar el stop. Arrancar no mueve el auto: avanza con el próximo `/cmd/drive`.
+
+```bash
+ros2 service call /hardware/stop std_srvs/srv/SetBool "{data: true}"    # detener
+ros2 service call /hardware/stop std_srvs/srv/SetBool "{data: false}"   # arrancar
+```
 
 **FAULT:** el ESP32 entra en FAULT por watchdog o E-STOP, frena y no sale solo. El nodo lo publica en `watchdog_tripped` y lo registra como error, pero **nunca rearma solo**. Para seguir:
 
@@ -66,7 +74,7 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 | `max_steer_rad` | rad | Ángulo que corresponde al tope del servo |
 | `duty_start`, `duty_max` | duty | Umbral de arranque y máximo del motor |
 | `servo_left`, `servo_center`, `servo_right` | servo | Topes del servo |
-| `*_topic`, `arm_service`, `status_frame_id`, `status_rate_hz` | — | Nombres y frecuencia del estado |
+| `*_topic`, `arm_service`, `stop_service`, `status_frame_id`, `status_rate_hz` | — | Nombres y frecuencia del estado |
 
 Los valores de duty, servo y `max_steer_rad` tienen que coincidir con `Brain-Aura/hardware.env`, que es de donde los toma el firmware al compilar.
 

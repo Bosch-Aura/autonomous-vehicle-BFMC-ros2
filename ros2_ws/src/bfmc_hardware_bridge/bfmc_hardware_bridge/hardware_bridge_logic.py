@@ -15,6 +15,10 @@ Reglas (ADR-0002):
   modos de manejo: si el auto va solo o lo maneja una persona se decide acá.
   Un FAULT posterior (watchdog, E-STOP u obstáculo) **no** se rearma solo: hace
   falta pedirlo con `request_arm()`.
+- Otro nodo puede pedir detener el auto (`request_stop(True)`) o que vuelva a
+  arrancar (`request_stop(False)`). Se envía M:SYS_STOP o M:SYS_RESUME y se
+  reintenta hasta que el ESP32 lo confirme. El ESP32 olvida el stop al
+  reiniciarse, así que se le vuelve a enviar en cada sesión nueva.
 - Se envía como mucho un comando de gestión por ciclo: el
   firmware guarda uno solo y un segundo, llegado antes de que lo procese,
   pisaría al primero.
@@ -23,8 +27,8 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from bfmc_hardware_bridge.protocol import (
-    encode_arm, encode_brake_now, encode_direction, encode_disarm, encode_speed,
-    encode_steer, Event, parse_line,
+    encode_arm, encode_brake_now, encode_direction, encode_disarm, encode_resume,
+    encode_speed, encode_steer, encode_stop, Event, parse_line,
 )
 from bfmc_hardware_bridge.units import Esp32Limits, to_duty, to_servo
 
@@ -60,6 +64,11 @@ class HardwareState:
         """Indica si el ESP32 está en FAULT: frenó y no acepta tracción hasta rearmarlo."""
         return self.esp32_state == 'FAULT'
 
+    @property
+    def stopped(self) -> bool:
+        """Indica si el ESP32 está en STOPPED: armado pero quieto (obstáculo o SYS_STOP)."""
+        return self.esp32_state == 'STOPPED'
+
 
 class BridgeLogic:
     """Decide qué enviar al ESP32 y lleva el estado que este reporta."""
@@ -76,6 +85,10 @@ class BridgeLogic:
         self._direction = None
         self._want_arm = False
         self._last_arm = None
+        # Stop pedido por otro nodo: None si nadie pidió nada todavía.
+        self._stop_wanted = None
+        self._stop_confirmed = True
+        self._last_stop = None
 
     # --- entradas -------------------------------------------------------------
     def on_drive_command(self, speed_mps: float, steering_rad: float, now: float) -> None:
@@ -99,6 +112,18 @@ class BridgeLogic:
         """Pide armar el ESP32, por ejemplo para salir de FAULT."""
         self._want_arm = True
         self._last_arm = None
+
+    def request_stop(self, stop: bool) -> None:
+        """Pide detener el auto (True: M:SYS_STOP) o que vuelva a arrancar (False: M:SYS_RESUME).
+
+        El pedido queda guardado y se reenvía hasta que el ESP32 lo confirme.
+        Volver a arrancar solo suelta el stop: el auto se mueve con el próximo
+        comando de /cmd/drive, y si hay un obstáculo delante sigue detenido.
+        """
+        if stop != self._stop_wanted:
+            self._stop_wanted = stop
+            self._stop_confirmed = False
+            self._last_stop = None
 
     def on_serial_line(self, line: str, now: float) -> Optional[Event]:
         """Procesa una línea que llegó del ESP32.
@@ -157,20 +182,35 @@ class BridgeLogic:
                    and (now - self._last_rx) <= self._config.link_timeout_s)
         return HardwareState(link_up=link_up, esp32_state=self._state)
 
+    def stop_requested(self) -> Optional[bool]:
+        """Último pedido de stop: True detener, False arrancar, None si nadie pidió nada."""
+        return self._stop_wanted
+
     # --- internos -------------------------------------------------------------------
     def _olvidar_esp32(self):
         self._state = ''
         self._nueva_sesion()
 
     def _nueva_sesion(self):
-        """Hay que volver a armar; el sentido recordado ya no vale."""
+        """Hay que volver a armar; el sentido recordado ya no vale.
+
+        El ESP32 arranca sin stop enganchado: si se pidió detener, hay que
+        volver a enviarlo. Un pedido de arrancar ya está cumplido.
+        """
+        self._stop_confirmed = self._stop_wanted is not True
+        self._last_stop = None
         self._direction = None
         self._emergency_sent = False
         self._want_arm = self._state not in ARMADOS
         self._last_arm = None
 
     def _gestion(self, now):
-        """Como mucho un comando de gestión por ciclo: el armado, mientras haga falta."""
+        """Como mucho un comando de gestión por ciclo: primero el stop, después el armado."""
+        if not self._stop_confirmed:
+            if self._last_stop is None or (now - self._last_stop) >= self._config.arm_retry_s:
+                self._last_stop = now
+                return encode_stop() if self._stop_wanted else encode_resume()
+            # Mientras se espera la confirmación del stop, el armado puede seguir.
         if not self._want_arm:
             return None
         if self._last_arm is not None and (now - self._last_arm) < self._config.arm_retry_s:
@@ -194,6 +234,11 @@ class BridgeLogic:
                 self._cambiar_estado(destino)
         elif nombre in ('WATCHDOG_TIMEOUT', 'FAULT_TRIGGERED', 'ESTOP_TRIGGERED'):
             self._state = 'FAULT'
+        elif nombre == 'CMD_RECEIVED' and args and args[0] in ('SYS_STOP', 'SYS_RESUME'):
+            # El firmware responde CMD_RECEIVED siempre, aunque el stop ya
+            # estuviera así: es la confirmación de que llegó.
+            if (args[0] == 'SYS_STOP') == bool(self._stop_wanted):
+                self._stop_confirmed = True
         elif nombre == 'CMD_EXECUTED' and args and args[0] == 'SYS_ARM':
             # Si ya estaba armado, el firmware confirma sin emitir STATE_CHANGED.
             if self._state not in ('RUNNING', 'STOPPED'):
