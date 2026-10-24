@@ -136,6 +136,11 @@ def test_al_abrir_el_puerto_arma_el_esp32_sin_pedir_modo(entorno):
     assert not any('SYS_MODE' in trama for trama in entorno.puerto.tramas())
 
 
+def test_el_auto_arranca_detenido_y_el_arranque_lo_suelta(entorno):
+    assert entorno.esperar(lambda: 'M:SYS_STOP:0' in entorno.puerto.tramas())
+    assert 'M:SYS_RESUME:0' not in entorno.puerto.tramas()
+
+
 def test_sin_comandos_envia_velocidad_cero_como_heartbeat(entorno):
     assert entorno.esperar(lambda: entorno.puerto.tramas().count('C:SET_SPEED:0') >= 3)
     assert 'C:SET_STEER:105' in entorno.puerto.tramas()
@@ -147,6 +152,15 @@ def test_un_comando_se_envia_al_esp32_en_sus_unidades(entorno):
     tramas = entorno.puerto.tramas()
     assert 'C:SET_DIR:1' in tramas
     assert 'C:SET_STEER:50' in tramas
+
+
+def test_el_estado_del_esp32_se_publica_tal_como_lo_reporta(entorno):
+    def avisar():
+        entorno.puerto.por_leer += b'EVENT:STATE_AUTO_TRANSITION:RUNNING->STOPPED:SYS_STOP\n'
+
+    assert entorno.esperar(
+        lambda: any(e.esp32_state == 'STOPPED' for e in entorno.estados), avisar)
+    assert [e for e in entorno.estados if e.esp32_state == 'STOPPED'][-1].obstacle_stop is False
 
 
 def test_un_obstaculo_del_esp32_se_publica_con_su_distancia_y_se_despeja(entorno):

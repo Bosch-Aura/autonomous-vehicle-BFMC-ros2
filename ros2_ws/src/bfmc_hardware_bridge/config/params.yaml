@@ -22,6 +22,9 @@ hardware_bridge:
     arm_service: /hardware/arm         # std_srvs/Trigger: rearma el ESP32 después de un FAULT
     stop_service: /hardware/stop       # std_srvs/SetBool: true detiene (STOPPED), false vuelve a arrancar
 
+    # Arranque.
+    start_stopped: true                # el auto arranca detenido (SYS_STOP) hasta que se pida arrancar en /hardware/stop
+
     # Seguridad.
     link_timeout_s: 0.5                # [s] sin eventos del ESP32 más tiempo que esto, el enlace se da por caído [asumido]
     cmd_timeout_s: 0.25                # [s] un comando más viejo que esto se descarta y se frena [asumido]

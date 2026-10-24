@@ -53,7 +53,7 @@ def test_sign_detection_array_por_defecto_esta_vacio():
     assert list(SignDetectionArray().detections) == []
 
 
-def test_hardware_status_expone_enlace_watchdog_firmware_secuencia_y_obstaculo():
+def test_hardware_status_expone_enlace_watchdog_firmware_secuencia_obstaculo_y_estado():
     assert campos(HardwareStatus) == {
         'header': 'std_msgs/Header',
         'link_up': 'boolean',
@@ -62,6 +62,7 @@ def test_hardware_status_expone_enlace_watchdog_firmware_secuencia_y_obstaculo()
         'last_seq': 'uint32',
         'obstacle_stop': 'boolean',
         'obstacle_distance_m': 'float',
+        'esp32_state': 'string',
     }
 
 

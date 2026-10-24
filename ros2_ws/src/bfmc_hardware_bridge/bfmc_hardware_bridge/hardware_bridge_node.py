@@ -18,6 +18,7 @@ PARAMETROS_DECIMALES = (
 PARAMETROS_ENTEROS = (
     'baud_rate', 'duty_start', 'duty_max', 'servo_left', 'servo_center', 'servo_right',
 )
+PARAMETROS_BOOLEANOS = ('start_stopped',)
 PARAMETROS_TEXTO = (
     'serial_port', 'cmd_topic', 'status_topic', 'status_frame_id', 'arm_service',
     'stop_service',
@@ -48,6 +49,8 @@ class HardwareBridgeNode(Node):
         super().__init__('hardware_bridge')
         self._port_factory = port_factory
 
+        for nombre in PARAMETROS_BOOLEANOS:
+            self.declare_parameter(nombre, Parameter.Type.BOOL)
         for nombre in PARAMETROS_TEXTO:
             self.declare_parameter(nombre, Parameter.Type.STRING)
         for nombre in PARAMETROS_ENTEROS:
@@ -69,6 +72,9 @@ class HardwareBridgeNode(Node):
                 servo_right=self._param('servo_right'),
             ),
         ))
+        if self._param('start_stopped'):
+            # El auto arranca quieto: se mueve cuando alguien lo pide por /hardware/stop.
+            self._logic.request_stop(True)
         self._lineas = LineBuffer()
         self._port = None
         self._ultimo_intento = None
@@ -197,6 +203,7 @@ class HardwareBridgeNode(Node):
         # casos frenó y espera que lo rearmen. Un obstáculo no es FAULT: va aparte.
         msg.watchdog_tripped = estado.fault
         msg.obstacle_stop = estado.obstacle
+        msg.esp32_state = estado.esp32_state
         msg.obstacle_distance_m = (
             estado.obstacle_cm / 100.0
             if estado.obstacle and estado.obstacle_cm is not None else float('nan'))

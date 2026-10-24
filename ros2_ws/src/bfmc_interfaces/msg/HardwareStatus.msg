@@ -21,3 +21,8 @@ bool obstacle_stop
 # Distancia a la que el ESP32 detectó el obstáculo [m]. NaN si no hay obstáculo o si el
 # firmware no informó la distancia.
 float32 obstacle_distance_m
+
+# Estado que reporta el ESP32: DISARMED, ARMED, RUNNING, STOPPED o FAULT. Vacío si todavía no
+# informó ninguno. STOPPED es un auto armado pero quieto, por un pedido de detener o por un
+# obstáculo (en ese caso obstacle_stop también es true).
+string esp32_state

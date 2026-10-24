@@ -34,6 +34,8 @@ Reenviar velocidad y dirección en cada ciclo renueva el TTL de 200 ms del firmw
 
 **Obstáculo:** el nodo lo detecta con `EVENT:OBSTACLE_DETECTED:<cm>`, con `STATE_AUTO_TRANSITION:RUNNING->STOPPED:OBSTACLE` o con ambos, y lo publica en `obstacle_stop` mientras dure, con la distancia en `obstacle_distance_m` (`NaN` si el firmware no la informó). Se borra con `OBSTACLE_CLEARED`, con cualquier otro cambio de estado o si la placa se reinicia. **El puente no manda ningún freno por esto**: frena el firmware, y `bfmc_decision` decide qué hacer. Tras despejarse, el firmware pide un `C:SET_SPEED` nuevo; como el puente envía la velocidad en cada ciclo, el auto retoma apenas `bfmc_decision` vuelva a pedir movimiento.
 
+**Arranque detenido:** con `start_stopped: true` (el valor del YAML) el puente le pide `M:SYS_STOP:0` al ESP32 apenas lo arma, y se lo vuelve a pedir si la placa se reinicia. El auto no se mueve hasta que alguien llame a `/hardware/stop` con `false`. Con `false` en el parámetro, el auto arranca y se mueve con el primer `/cmd/drive`.
+
 **Detener y arrancar desde otro nodo:** el servicio `/hardware/stop` (`std_srvs/SetBool`) deja el ESP32 en `STOPPED` con `true` (`M:SYS_STOP:0`, queda enganchado) y lo suelta con `false` (`M:SYS_RESUME:0`). El nodo reintenta hasta que el ESP32 confirme y, si la placa se reinicia, le vuelve a enviar el stop. Arrancar no mueve el auto: avanza con el próximo `/cmd/drive`.
 
 ```bash
@@ -67,6 +69,7 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 | `serial_port`, `baud_rate` | —, baudios | USB del ESP32: `/dev/ttyCH341USB0` a 115200 en esta Jetson |
 | `send_rate_hz` | Hz | Frecuencia del ciclo. Tiene que quedar por debajo del TTL de 200 ms del firmware |
 | `arm_retry_s` | s | Espera entre intentos de armar |
+| `start_stopped` | bool | Si el auto arranca detenido hasta que se pida arrancar en `/hardware/stop` |
 | `reconnect_period_s` | s | Espera entre intentos de reabrir el puerto |
 | `cmd_timeout_s` | s | Antigüedad máxima de un comando. **Asumido** (0,25 s) |
 | `link_timeout_s` | s | Tiempo sin eventos para dar el enlace por caído. **Asumido** (0,5 s) |
