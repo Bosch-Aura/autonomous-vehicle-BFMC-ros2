@@ -107,6 +107,7 @@ Las dos detecciones de intersección (por señal y por geometría del carril) en
 
 ## 7. Seguridad
 
+- **Arranque detenido:** el puente deja al ESP32 en `STOPPED` apenas lo arma (`start_stopped`). El auto se mueve cuando alguien llama a `/hardware/stop` con `false`; hoy lo hace el botón Iniciar del visor, que además fija la velocidad de crucero de `bfmc_control`. Frenar es la misma llamada con `true`.
 - **Watchdog en el ESP32:** si pasan 300 ms sin un comando válido de la Jetson, frena, centra la dirección y queda en FAULT hasta que lo rearmen. Funciona aunque se caiga todo el software de la Jetson.
 - **Frenado por obstáculo en el ESP32:** si el ultrasónico detecta algo a menos de 30 cm (3 lecturas válidas), el firmware pasa a `STOPPED` (frena y congela la dirección) por su cuenta, y vuelve a `RUNNING` cuando se despeja (3 lecturas a 35 cm o más). No es FAULT: no hay que rearmar. **Es la única autoridad ante obstáculos**: no hay un segundo detector en la Jetson ([ADR-0003](adr/0003-el-esp32-es-la-autoridad-ante-obstaculos.md)). Los umbrales viven en el firmware, así que cambiarlos exige volver a flashear.
 - **La Jetson se entera, no frena:** `bfmc_hardware_bridge` informa el obstáculo en `/hardware/status` apenas cambia, y `bfmc_decision` lo trata como emergencia: el comando queda en cero y se cancela la maniobra en curso. Al despejarse, el firmware pide un `C:SET_SPEED` nuevo y el puente lo manda en cada ciclo, así que el auto retoma apenas `bfmc_decision` vuelve a seguir el carril.

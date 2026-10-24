@@ -56,8 +56,15 @@
   .deslizador { display: block; margin: 10px 0 2px; }
   .deslizador span { display: flex; justify-content: space-between; }
   .deslizador input { width: 100%; }
+  .deslizador b { white-space: nowrap; }
   .interruptor { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
   small { color: var(--suave); }
+  .mando { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  .mando button { padding: 14px 10px; font-size: 16px; font-weight: 600; }
+  button.frenar { background: var(--mal); }
+  button.iniciar { background: var(--ok); }
+  .aviso-mando { margin: 8px 0 0; padding: 8px 10px; border-radius: 6px; font-size: 13px;
+                 border: 1px solid var(--mal); color: var(--mal); }
 </style>
 </head>
 <body>
@@ -97,6 +104,25 @@
   </section>
 
   <aside>
+    <div class="tarjeta">
+      <h2>Mando del auto <small id="estado-auto">sin conexión</small></h2>
+      <table>
+        <tr><td>Auto</td><td id="a-auto">--</td></tr>
+        <tr><td>Enlace con el ESP32</td><td id="a-enlace">--</td></tr>
+        <tr><td>Decisión</td><td id="a-decision">--</td></tr>
+      </table>
+      <label class="deslizador"><span>Velocidad <b><output id="valor-velocidad">10</output> cm/s</b></span>
+        <input type="range" id="velocidad" min="0" max="50" step="1" value="10"></label>
+      <small>Es la velocidad que el auto pide, no la medida: el auto no tiene encoder. Con carril perdido va a la mitad.</small>
+      <div class="mando">
+        <button id="iniciar" class="iniciar">Iniciar</button>
+        <button id="frenar" class="frenar">Frenar</button>
+      </div>
+      <div class="fila"><button id="rearmar" class="sec">Rearmar después de una falla</button></div>
+      <p class="aviso-mando" id="aviso-mando" hidden></p>
+      <small>El auto arranca detenido. "Iniciar" lo suelta y "Frenar" lo detiene hasta el próximo "Iniciar". Un obstáculo lo frena solo.</small>
+    </div>
+
     <div class="tarjeta">
       <h2>Carril <small id="estado-datos">sin conexión</small></h2>
       <table>
@@ -142,7 +168,8 @@
 
 // Esta página lee el estado del carril y la imagen, y cambia los parámetros del nodo del detector
 // (trapecio, umbral de color y región) con los servicios get_parameters / set_parameters.
-// No publica ningún topic ni llama ningún otro servicio.
+// También maneja el auto: cambia la velocidad de crucero del nodo de control y llama a los
+// servicios del puente con el ESP32 para iniciar, frenar y rearmar. No publica ningún topic.
 
 // Valores de partida, los mismos de bfmc_lane_detection/config/params.yaml. Al conectar se
 // reemplazan por los que el detector tiene en ese momento.
@@ -157,6 +184,12 @@ const VENCIMIENTO_DATO_MS = 1000;
 const REINTENTO_MS = 3000;
 const ESPERA_SERVICIO_MS = 3000;
 const ENVIO_CADA_MS = 100;
+const NODO_CONTROL = '/control';
+const SERVICIO_STOP = '/hardware/stop';
+const SERVICIO_ARMAR = '/hardware/arm';
+const TOPIC_HARDWARE = '/hardware/status';
+const TOPIC_ESTADO = '/vehicle/state';
+const NOMBRES_DECISION = ['arrancando', 'siguiendo el carril', 'en maniobra', 'EMERGENCIA'];
 const GIRO_MINIMO = 1e-4;           // el mismo criterio que valida el detector
 const HOST_VALIDO = /^[A-Za-z0-9.\-]+$/;
 const AVISO_TRAPECIO_INVALIDO =
@@ -176,6 +209,7 @@ let socket = null;
 let quiereConexion = false;
 let temporizadorReintento = null;
 let ultimoDatoMs = 0;
+let envioVelocidad = null;          // un envío de velocidad en espera
 let contadorLlamadas = 0;
 const pendientes = {};              // llamadas a servicios esperando respuesta
 const envios = {};                  // un envío en espera por parámetro
@@ -536,11 +570,23 @@ function conectar() {
       throttle_rate: 100, queue_length: 1,
     }));
     leerDelDetector();
+    leerVelocidadDelControl();
+    fijarEstado('estado-auto', 'conectado', 'ok');
+    socket.send(JSON.stringify({
+      op: 'subscribe', topic: TOPIC_HARDWARE, type: 'bfmc_interfaces/msg/HardwareStatus',
+      throttle_rate: 200, queue_length: 1,
+    }));
+    socket.send(JSON.stringify({
+      op: 'subscribe', topic: TOPIC_ESTADO, type: 'bfmc_interfaces/msg/VehicleState',
+      throttle_rate: 200, queue_length: 1,
+    }));
   };
   socket.onmessage = (evento) => {
     let msg;
     try { msg = JSON.parse(evento.data); } catch (e) { return; }
     if (msg.op === 'publish' && msg.topic === cfg.topicCarril && msg.msg) mostrarDato(msg.msg);
+    if (msg.op === 'publish' && msg.topic === TOPIC_HARDWARE && msg.msg) mostrarHardware(msg.msg);
+    if (msg.op === 'publish' && msg.topic === TOPIC_ESTADO && msg.msg) mostrarDecision(msg.msg);
     if (msg.op === 'service_response' && pendientes[msg.id]) {
       const pendiente = pendientes[msg.id];
       delete pendientes[msg.id];
@@ -571,6 +617,7 @@ function desconectar() {
   soltarVideo('cenital', 'estado-cenital');
   fijarEstado('estado-datos', 'desconectado', 'suave');
   fijarEstado('estado-ajustes', 'sin conexión', 'suave');
+  fijarEstado('estado-auto', 'sin conexión', 'suave');
 }
 
 function copiar() {
@@ -585,6 +632,116 @@ function copiar() {
   } else {
     respaldo();
   }
+}
+
+// ---------------------------------------------------------------- mando del auto
+
+function ponerVelocidad(cmPorSegundo) {
+  $('velocidad').value = cmPorSegundo;
+  $('valor-velocidad').textContent = Math.round(cmPorSegundo);
+}
+
+function avisoDelMando(texto) {
+  $('aviso-mando').textContent = texto || '';
+  $('aviso-mando').hidden = !texto;
+}
+
+// Cambia la velocidad de crucero del nodo de control. Devuelve true si el nodo la aceptó.
+async function aplicarVelocidad(cmPorSegundo) {
+  try {
+    const r = await llamarServicio(
+      NODO_CONTROL + '/set_parameters', 'rcl_interfaces/srv/SetParameters',
+      { parameters: [{ name: 'cruise_speed_mps', value: valorDeParametro('decimal', cmPorSegundo / 100) }] });
+    if (!r.results[0].successful) {
+      avisoDelMando('el control rechazó la velocidad: ' + r.results[0].reason);
+      return false;
+    }
+    avisoDelMando('');
+    return true;
+  } catch (error) {
+    avisoDelMando('no se pudo cambiar la velocidad: ' + error.message);
+    return false;
+  }
+}
+
+$('velocidad').addEventListener('input', (e) => {
+  const valor = parseInt(e.target.value, 10);
+  ponerVelocidad(valor);
+  clearTimeout(envioVelocidad);
+  envioVelocidad = setTimeout(() => aplicarVelocidad(valor), ENVIO_CADA_MS);
+});
+
+// Pide detener (true) o soltar el freno (false); el estado que reporta el ESP32 lo confirma.
+async function pedirStop(detener) {
+  try {
+    await llamarServicio(SERVICIO_STOP, 'std_srvs/srv/SetBool', { data: detener });
+    avisoDelMando('');
+  } catch (error) {
+    avisoDelMando((detener ? 'NO se confirmó el freno: ' : 'no se pudo iniciar: ') + error.message);
+  }
+}
+
+$('frenar').addEventListener('click', () => {
+  clearTimeout(envioVelocidad);
+  pedirStop(true);
+});
+
+$('iniciar').addEventListener('click', async () => {
+  clearTimeout(envioVelocidad);
+  // Primero la velocidad que muestra el deslizador, así el auto no arranca con otra.
+  if (await aplicarVelocidad(parseInt($('velocidad').value, 10))) pedirStop(false);
+});
+
+$('rearmar').addEventListener('click', async () => {
+  try {
+    const r = await llamarServicio(SERVICIO_ARMAR, 'std_srvs/srv/Trigger', {});
+    avisoDelMando(r.success ? '' : 'el puente no pudo rearmar: ' + r.message);
+  } catch (error) {
+    avisoDelMando('no se pudo rearmar: ' + error.message);
+  }
+});
+
+async function leerVelocidadDelControl() {
+  try {
+    const r = await llamarServicio(
+      NODO_CONTROL + '/get_parameters', 'rcl_interfaces/srv/GetParameters',
+      { names: ['cruise_speed_mps'] });
+    const metros = leerValor(r.values[0]);
+    if (metros !== null) ponerVelocidad(Math.round(metros * 100));
+  } catch (error) { /* el control no está: lo avisa el estado de la decisión */ }
+}
+
+function mostrarHardware(msg) {
+  const estado = msg.esp32_state || '';
+  let texto;
+  let clase = 'suave';
+  if (!msg.link_up) {
+    texto = 'sin datos del ESP32';
+    clase = 'mal';
+  } else if (estado === 'FAULT' || msg.watchdog_tripped) {
+    texto = 'FALLA: frenado, hay que rearmar';
+    clase = 'mal';
+  } else if (msg.obstacle_stop) {
+    const cm = Number.isFinite(msg.obstacle_distance_m)
+      ? ' a ' + Math.round(msg.obstacle_distance_m * 100) + ' cm' : '';
+    texto = 'detenido por un obstáculo' + cm;
+    clase = 'mal';
+  } else if (estado === 'STOPPED') {
+    texto = 'detenido';
+  } else if (estado === 'RUNNING') {
+    texto = 'en marcha (si hay carril)';
+    clase = 'ok';
+  } else {
+    texto = estado ? estado.toLowerCase() : 'sin informar';
+  }
+  fijarEstado('a-auto', texto, clase);
+  fijarEstado('a-enlace', msg.link_up ? 'conectado' : 'caído', msg.link_up ? 'ok' : 'mal');
+}
+
+function mostrarDecision(msg) {
+  const nombre = NOMBRES_DECISION[msg.state] || String(msg.state);
+  const detalle = msg.reason ? ': ' + msg.reason : '';
+  fijarEstado('a-decision', nombre + detalle, msg.state === 3 ? 'mal' : 'suave');
 }
 
 $('conectar').addEventListener('click', conectar);

@@ -1,8 +1,8 @@
 # Visor de calibración
 
-Una página de un solo archivo (`index.html`) para **calibrar `bfmc_lane_detection` desde una computadora, viendo lo que ve la Jetson**. Muestra la imagen de la cámara, lo que el detector toma por línea, la vista desde arriba con las ventanas y las curvas, y los datos de `/perception/lane`. Y deja **cambiar los parámetros del detector en vivo**: el trapecio `warp_src`, el umbral de color y la región de interés. No es el dashboard del vehículo (ver [`../README.md`](../README.md)): es una herramienta provisoria de calibración.
+Una página de un solo archivo (`index.html`) para **calibrar `bfmc_lane_detection` desde una computadora, viendo lo que ve la Jetson**. Muestra la imagen de la cámara, lo que el detector toma por línea, la vista desde arriba con las ventanas y las curvas, y los datos de `/perception/lane`. Deja **cambiar los parámetros del detector en vivo** (el trapecio `warp_src`, el umbral de color y la región de interés) y **manejar el auto**: velocidad, Iniciar y Frenar. No es el dashboard del vehículo (ver [`../README.md`](../README.md)): es una herramienta provisoria de calibración y de mando.
 
-- **Lee y calibra.** Se suscribe a `/perception/lane`, pide imágenes y llama a los servicios `get_parameters` y `set_parameters` del nodo del detector. No publica ningún topic ni llama ningún otro servicio.
+- **Lee, calibra y manda.** Se suscribe a `/perception/lane`, `/hardware/status` y `/vehicle/state`, pide imágenes y llama a servicios: `get_parameters` y `set_parameters` del detector y del control, y `/hardware/stop` y `/hardware/arm` del puente. No publica ningún topic.
 - **Sin dependencias.** No usa librerías ni internet: habla el protocolo de `rosbridge` (JSON por WebSocket) directamente. Funciona en una red sin salida a internet.
 - **No es un paquete ROS.** `colcon` no la compila ni la testea.
 
@@ -14,6 +14,7 @@ Una página de un solo archivo (`index.html`) para **calibrar `bfmc_lane_detecti
 | **Lo que ve el detector** | La imagen de la cámara con lo que el detector toma por **blanco pintado de rojo**, el trapecio que usa (amarillo), el límite de la región de interés (cian), las líneas que encontró (verde la izquierda, azul la derecha) y el error lateral (magenta). Sirve para ver si está tomando por línea algo que no lo es. |
 | **Vista desde arriba** | Lo que el detector ve después de "aplanar" el piso: la máscara de blancos, las **ventanas deslizantes** que siguen cada línea, las curvas ajustadas, el auto (amarillo) y la fila donde mide (naranja). |
 | **Carril** | `detected`, `lateral_error_m`, `heading_error_rad`, `confidence` e `intersection_detected` de `/perception/lane`, y cuánto hace que llegó el último dato (rojo si pasó más de 1 s). |
+| **Mando del auto** | Estado del auto (detenido, en marcha, detenido por un obstáculo a N cm, falla), del enlace con el ESP32 y de la decisión. Un deslizador de **velocidad en cm/s** (0 a 50), **Iniciar**, **Frenar** y **Rearmar después de una falla**. El auto arranca detenido: Iniciar manda primero la velocidad del deslizador y después suelta el freno; Frenar lo detiene hasta el próximo Iniciar. Si el pedido no llega, avisa en rojo. |
 | **Ajustes en vivo** | Tres deslizadores (brillo mínimo y saturación máxima del blanco, y cuánto de arriba se descarta) y el texto con las cuatro líneas del `params.yaml`, listas para copiar. |
 
 ## Cómo usarlo
@@ -85,7 +86,7 @@ Con el auto apoyado sobre la pista y la cámara derecha:
 
 ## Seguridad: leer antes de abrir los puertos
 
-`rosbridge` **no autentica** y permite a cualquier cliente de la red publicar en cualquier topic (incluido `/cmd/drive`) y llamar servicios. `web_video_server` escucha en todas las interfaces (`0.0.0.0`) y tampoco autentica. Esta página solo cambia parámetros del detector de carril, pero **cualquiera con acceso a los puertos puede hacer lo mismo y mucho más**.
+`rosbridge` **no autentica** y permite a cualquier cliente de la red publicar en cualquier topic (incluido `/cmd/drive`) y llamar servicios. `web_video_server` escucha en todas las interfaces (`0.0.0.0`) y tampoco autentica. Esta página cambia parámetros del detector y la velocidad de crucero, e inicia y frena el auto, pero **cualquiera con acceso a los puertos puede hacer lo mismo y mucho más**.
 
 - Usá una **red solo del equipo**, con contraseña (un router o un hotspot propio), no una Wi-Fi compartida.
 - Limitá con **firewall** los puertos 8080 y 9090 de la Jetson a las IP de las computadoras del equipo.
@@ -116,5 +117,6 @@ Con el auto apoyado sobre la pista y la cámara derecha:
 
 - No cambia `lane_width_px`, `forward_range_m` ni el resto de los parámetros: solo el trapecio, el brillo, la saturación y la región.
 - No guarda los cambios en el `params.yaml`: hay que copiarlos.
-- No autentica ni controla el auto.
-- No muestra `sign_detection`, `/hardware/status` ni `/vehicle/state`.
+- No autentica: **cualquiera con acceso al puerto 9090 puede mover o frenar el auto**.
+- No mide la velocidad real: el deslizador fija la velocidad que el control pide, que el puente traduce a un duty sin medirla (el auto no tiene encoder).
+- No muestra `sign_detection`.
