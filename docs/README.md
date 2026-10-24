@@ -8,6 +8,7 @@ Documentación del proyecto AURA — Bosch Future Mobility Challenge.
 - [`adr/`](adr/): decisiones de arquitectura numeradas.
   - [ADR-0001](adr/0001-hardware-de-control-y-protocolo-serial.md): hardware de control y protocolo serial Jetson ↔ ESP32 (el protocolo quedó reemplazado por el ADR-0002).
   - [ADR-0002](adr/0002-protocolo-serial-del-firmware-embedded.md): el bridge usa el protocolo del firmware de `Bosch-Aura/embedded`.
+  - [ADR-0003](adr/0003-el-esp32-es-la-autoridad-ante-obstaculos.md): el ESP32 es la autoridad ante obstáculos y se elimina `bfmc_safety`.
 
 ## Qué va acá
 

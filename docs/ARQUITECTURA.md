@@ -19,7 +19,7 @@ Todo nodo nuevo los respeta. Los revisores los usan como criterio de review.
 
 1. **Un nodo, una responsabilidad.** Si un nodo necesita explicarse con "y", son dos nodos.
 2. **Los nodos se comunican solo por mensajes.** Ningún paquete importa código de otro. Lo que comparten son tipos de mensaje.
-3. **Los sensores no deciden.** Percepción y seguridad publican hechos. Solo `bfmc_decision` decide qué hace el auto.
+3. **Los sensores no deciden.** La percepción y el hardware publican hechos. Solo `bfmc_decision` decide qué hace el auto.
 4. **Un único escritor del puerto serial** (`bfmc_hardware_bridge`) y **un único publicador de `/cmd/drive`** (`bfmc_decision`).
 5. **Unidades SI dentro de ROS** (m/s, rad, m). La conversión al formato del ESP32 ocurre solo en el bridge.
 6. **Nada hardcodeado.** Umbrales, ganancias, tiempos y nombres de topics son parámetros de un YAML por paquete.
@@ -36,7 +36,6 @@ flowchart TB
     DEC["decision<br/>(máquina de estados)"]
     CTRL["control"]
     MAN["maneuvers"]
-    SAFE["safety"]
     BR["hardware_bridge"]
   end
   RS(["RealSense"]) --> CAM
@@ -47,10 +46,8 @@ flowchart TB
   LANE --> CTRL
   CTRL --> DEC
   DEC <--> MAN
-  SAFE --> DEC
-  DEC --> BR
-  BR --> SAFE
-  SAFE -.->|emergencia| BR
+  DEC -->|"/cmd/drive"| BR
+  BR -->|"/hardware/status<br/>(enlace, obstáculo)"| DEC
   BR <-->|"USB serie · CANAL:COMANDO:VALOR"| ESP(["ESP32"])
   ESP --> ACT(["Motores · Servo"])
   US(["Ultrasónico"]) --> ESP
@@ -69,9 +66,8 @@ Los nombres van sin el prefijo `bfmc_`: el paquete real de `camera` es `bfmc_cam
 | `bfmc_sign_detection` | Detecta señales con YOLO y estima su distancia. No ejecuta maniobras. | `/camera/color/image_raw`, `/camera/aligned_depth_to_color/image_raw` | `/perception/signs` |
 | `bfmc_control` | Estado del carril → ángulo de dirección (PID con filtro). | `/perception/lane` | `/control/lane_cmd` |
 | `bfmc_maneuvers` | Ejecuta una maniobra puntual (stop, intersección) cuando se la piden. Patrón Strategy: una clase por maniobra. | — | `/maneuver/cmd`, action `ManeuverExecute` |
-| `bfmc_safety` | Decide si el obstáculo exige parada. No frena por sí mismo. | `/hardware/ultrasonic` (hoy nadie lo publica, ver ADR-0002) | `/safety/status` |
-| `bfmc_decision` | Único nodo que decide. Arbitra por prioridad y publica el comando final. | `/perception/lane`, `/perception/signs`, `/safety/status`, `/control/lane_cmd`, `/maneuver/cmd`, `/hardware/status` | `/cmd/drive`, `/vehicle/state` |
-| `bfmc_hardware_bridge` | Único dueño del puerto serial. Traduce unidades, envía comandos y publica lo que reporta el ESP32. | `/cmd/drive`, `/safety/status` | `/hardware/status`, servicios `/hardware/arm` y `/hardware/stop` |
+| `bfmc_decision` | Único nodo que decide. Arbitra por prioridad y publica el comando final. | `/perception/lane`, `/perception/signs`, `/control/lane_cmd`, `/maneuver/cmd`, `/hardware/status` | `/cmd/drive`, `/vehicle/state` |
+| `bfmc_hardware_bridge` | Único dueño del puerto serial. Traduce unidades, envía comandos y publica lo que reporta el ESP32, incluido el obstáculo que lo detuvo. | `/cmd/drive` | `/hardware/status`, servicios `/hardware/arm` y `/hardware/stop` |
 | `bfmc_bringup` | Launch files y parámetros de todo el sistema. | — | — |
 
 El dashboard vive en `frontend/`. Se conecta por `rosbridge_websocket`, solo lee `/vehicle/state` y no arranca ni controla nodos.
@@ -87,9 +83,7 @@ El dashboard vive en `frontend/`. Se conecta por `rosbridge_websocket`, solo lee
 | `/control/lane_cmd` | `ackermann_msgs/AckermannDriveStamped` | control |
 | `/maneuver/cmd` | `ackermann_msgs/AckermannDriveStamped` | maneuvers (solo mientras hay una maniobra activa) |
 | `ManeuverExecute` | Action de `bfmc_interfaces` | server: maneuvers; cliente: decision |
-| `/safety/status` | `bfmc_interfaces/SafetyStatus` | safety |
-| `/hardware/ultrasonic` | `sensor_msgs/Range` | nadie por ahora: el firmware no informa distancias (ADR-0002) |
-| `/hardware/status` | `bfmc_interfaces/HardwareStatus` | hardware_bridge |
+| `/hardware/status` | `bfmc_interfaces/HardwareStatus` | hardware_bridge. Enlace con el ESP32, FAULT (`watchdog_tripped`) y obstáculo (`obstacle_stop`, `obstacle_distance_m`). Se publica a `status_rate_hz` y al instante cuando algo cambia |
 | `/hardware/arm` | Servicio `std_srvs/Trigger` | server: hardware_bridge. Rearma el ESP32 después de un FAULT |
 | `/hardware/stop` | Servicio `std_srvs/SetBool` | server: hardware_bridge. `true` detiene el auto (ESP32 en `STOPPED`, enganchado), `false` lo deja arrancar. Lo llama el nodo que decide detenerse (por ejemplo `bfmc_decision` en un pare) |
 | `/cmd/drive` | `ackermann_msgs/AckermannDriveStamped` | decision (único) |
@@ -104,7 +98,7 @@ Convenciones:
 
 En cada ciclo `bfmc_decision` elige una sola fuente para `/cmd/drive`, de mayor a menor prioridad:
 
-1. **Emergencia.** Obstáculo cercano, comunicación perdida con el ESP32 o `/safety/status` inválido: parada.
+1. **Emergencia.** El ESP32 se detuvo por un obstáculo (`obstacle_stop` en `/hardware/status`), se perdió la comunicación con el ESP32 o hay una entrada vencida: parada.
 2. **Maniobra activa.** Si hay una maniobra en curso, se usa `/maneuver/cmd` y se ignora el carril.
 3. **Evento de señal o intersección.** Se inicia la maniobra correspondiente.
 4. **Seguir carril.** Se reenvía `/control/lane_cmd`. Es el comportamiento por defecto.
@@ -114,8 +108,8 @@ Las dos detecciones de intersección (por señal y por geometría del carril) en
 ## 7. Seguridad
 
 - **Watchdog en el ESP32:** si pasan 300 ms sin un comando válido de la Jetson, frena, centra la dirección y queda en FAULT hasta que lo rearmen. Funciona aunque se caiga todo el software de la Jetson.
-- **Frenado por obstáculo en el ESP32:** si el ultrasónico detecta algo a menos de 30 cm, el firmware pasa a `STOPPED` (frena y congela la dirección) por su cuenta, y vuelve a `RUNNING` cuando se despeja. No es FAULT: no hay que rearmar.
-- **Defensa en profundidad:** `bfmc_hardware_bridge` también escucha `/safety/status` y frena si indica emergencia, sin pasar por `bfmc_decision`.
+- **Frenado por obstáculo en el ESP32:** si el ultrasónico detecta algo a menos de 30 cm (3 lecturas válidas), el firmware pasa a `STOPPED` (frena y congela la dirección) por su cuenta, y vuelve a `RUNNING` cuando se despeja (3 lecturas a 35 cm o más). No es FAULT: no hay que rearmar. **Es la única autoridad ante obstáculos**: no hay un segundo detector en la Jetson ([ADR-0003](adr/0003-el-esp32-es-la-autoridad-ante-obstaculos.md)). Los umbrales viven en el firmware, así que cambiarlos exige volver a flashear.
+- **La Jetson se entera, no frena:** `bfmc_hardware_bridge` informa el obstáculo en `/hardware/status` apenas cambia, y `bfmc_decision` lo trata como emergencia: el comando queda en cero y se cancela la maniobra en curso. Al despejarse, el firmware pide un `C:SET_SPEED` nuevo y el puente lo manda en cada ciclo, así que el auto retoma apenas `bfmc_decision` vuelve a seguir el carril.
 - La seguridad no depende del dashboard ni de ningún cliente de red.
 
 ## 8. Estructura de un paquete

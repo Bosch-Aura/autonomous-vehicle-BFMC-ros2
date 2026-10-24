@@ -90,7 +90,7 @@ Con el auto apoyado sobre la pista y la cámara derecha:
 - Usá una **red solo del equipo**, con contraseña (un router o un hotspot propio), no una Wi-Fi compartida.
 - Limitá con **firewall** los puertos 8080 y 9090 de la Jetson a las IP de las computadoras del equipo.
 - **Apagá todo** (Ctrl+C en el script) cuando no estés calibrando.
-- Con el auto en movimiento, la seguridad sigue en el watchdog del ESP32 y en `bfmc_safety`, que no dependen de esta página.
+- Con el auto en movimiento, la seguridad sigue en el watchdog del ESP32 y en su frenado por obstáculo (ver [`docs/adr/0003-el-esp32-es-la-autoridad-ante-obstaculos.md`](../../docs/adr/0003-el-esp32-es-la-autoridad-ante-obstaculos.md)), que no dependen de esta página.
 
 ## Qué está verificado y qué no
 
@@ -117,4 +117,4 @@ Con el auto apoyado sobre la pista y la cámara derecha:
 - No cambia `lane_width_px`, `forward_range_m` ni el resto de los parámetros: solo el trapecio, el brillo, la saturación y la región.
 - No guarda los cambios en el `params.yaml`: hay que copiarlos.
 - No autentica ni controla el auto.
-- No muestra `sign_detection`, `/safety/status` ni `/vehicle/state`.
+- No muestra `sign_detection`, `/hardware/status` ni `/vehicle/state`.

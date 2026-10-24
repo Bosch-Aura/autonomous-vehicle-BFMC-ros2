@@ -3,6 +3,7 @@
 - **Estado:** Propuesta (2026-10-17)
 - **Reemplaza:** las secciones 2 a 6 del [ADR-0001](0001-hardware-de-control-y-protocolo-serial.md) (formato, mensajes, watchdog y unidades). La sección 1 (hardware) sigue vigente.
 - **Ticket:** A2-146
+- **Ajustado por:** el [ADR-0003](0003-el-esp32-es-la-autoridad-ante-obstaculos.md), que decide qué hace el sistema con los eventos de obstáculo.
 
 ## Contexto
 
@@ -25,7 +26,7 @@ Una línea ASCII por comando: `CANAL:COMANDO:VALOR\n`.
 | `C:SET_SPEED` | duty 0–255, siempre ≥ 0 | En cada ciclo |
 | `C:SET_STEER` | servo 50 (izquierda) – 105 (centro) – 160 (derecha) | En cada ciclo |
 | `C:SET_DIR` | 1 adelante, 0 atrás | Solo cuando cambia el sentido. El firmware lo recuerda y hace la inversión con su tiempo muerto |
-| `E:BRAKE_NOW` | 0 | Al empezar una emergencia de `/safety/status`. Bloquea la tracción 5 s |
+| `E:BRAKE_NOW` | 0 | El bridge ya no lo manda (el firmware frena solo ante un obstáculo, ADR-0003). Sigue en el protocolo: bloquea la tracción 5 s |
 | `M:SYS_ARM` | 0 | Al abrir el puerto o si el ESP32 se reinicia, hasta que lo confirma. Y cuando se pide por servicio |
 | `M:SYS_DISARM` | 0 | Al cerrar el nodo, después de `C:SET_SPEED:0` |
 
@@ -75,7 +76,7 @@ Los topes y el umbral tienen que coincidir con `Brain-Aura/hardware.env`, de don
 ## Consecuencias
 
 - El bridge habla con el firmware que está flasheado hoy, sin tocar `embedded`.
-- **`/hardware/ultrasonic` deja de publicarse:** el firmware no informa distancias. El frenado por obstáculo lo hace el propio ESP32 (pasa a `STOPPED`). `bfmc_safety` va a necesitar otra fuente, o que el firmware publique la lectura.
+- **`/hardware/ultrasonic` deja de publicarse:** el firmware no manda lecturas continuas. El frenado por obstáculo lo hace el propio ESP32 (pasa a `STOPPED`) y avisa con `EVENT:OBSTACLE_DETECTED:<cm>` y `EVENT:OBSTACLE_CLEARED`. Qué se hace con esos eventos lo decide el [ADR-0003](0003-el-esp32-es-la-autoridad-ante-obstaculos.md): se elimina `bfmc_safety` y el bridge los informa en `/hardware/status`.
 - `HardwareStatus.firmware_version` queda vacío y `last_seq` en 0: el firmware no informa versión ni confirma secuencias.
 - Abrir el puerto reinicia el ESP32 en esta Jetson, aunque DTR y RTS queden en reposo. El bridge lo detecta por `SYSTEM_READY` y vuelve a configurar y armar.
 
