@@ -84,6 +84,15 @@ class ControlLogic:
         self._last_steer = None
         self._last_time = None
 
+    @property
+    def config(self) -> ControlConfig:
+        """Configuración en uso."""
+        return self._config
+
+    def set_config(self, config: ControlConfig) -> None:
+        """Cambia la configuración sin reiniciar el PID ni el filtro de la salida."""
+        self._config = config
+
     def _reset_pid(self):
         self._integral_rad = 0.0
         self._prev_error = None

@@ -13,6 +13,7 @@ from bfmc_interfaces.msg import LaneState
 import pytest
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
+from rclpy.parameter import Parameter
 import yaml
 
 PARAMS = Path(__file__).resolve().parents[1] / 'config' / 'params.yaml'
@@ -95,3 +96,22 @@ def test_un_carril_no_detectado_publica_direccion_al_centro_y_velocidad_reducida
                 * parametros_del_yaml['lost_speed_factor'])
     assert comando.drive.steering_angle == 0.0
     assert comando.drive.speed == pytest.approx(esperado)
+
+
+def _cambiar(entorno, nombre, valor):
+    nodo = entorno[0]
+    return nodo.set_parameters([Parameter(nombre, Parameter.Type.DOUBLE, valor)])[0]
+
+
+def test_la_velocidad_de_crucero_se_cambia_en_vivo(entorno):
+    assert _cambiar(entorno, 'cruise_speed_mps', 0.12).successful
+    comando = _enviar_y_esperar_comando(entorno, _estado(lateral=0.0))
+    assert comando.drive.speed == pytest.approx(0.12)
+
+
+def test_un_valor_invalido_se_rechaza_y_se_conserva_la_velocidad(entorno, parametros_del_yaml):
+    resultado = _cambiar(entorno, 'cruise_speed_mps', -1.0)
+    assert not resultado.successful
+    assert 'cruise_speed_mps' in resultado.reason
+    comando = _enviar_y_esperar_comando(entorno, _estado(lateral=0.0))
+    assert comando.drive.speed == pytest.approx(parametros_del_yaml['cruise_speed_mps'])

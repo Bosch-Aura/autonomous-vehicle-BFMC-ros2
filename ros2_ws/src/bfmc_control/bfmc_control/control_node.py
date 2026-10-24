@@ -1,9 +1,12 @@
 """Nodo ROS2 de bfmc_control: conecta el estado del carril con la lógica del PID."""
+from dataclasses import replace
+
 from ackermann_msgs.msg import AckermannDriveStamped
 from bfmc_control.control_logic import (
     ControlConfig, ControlLogic, LaneInput,
 )
 from bfmc_interfaces.msg import LaneState
+from rcl_interfaces.msg import SetParametersResult
 import rclpy
 from rclpy.node import Node
 from rclpy.parameter import Parameter
@@ -43,7 +46,20 @@ class ControlNode(Node):
         self._subscription = self.create_subscription(
             LaneState, self.get_parameter('lane_topic').value, self._on_lane, qos)
 
+        self.add_on_set_parameters_callback(self._al_cambiar_parametros)
         self.get_logger().info('control iniciado')
+
+    def _al_cambiar_parametros(self, parametros):
+        """Valida un cambio de parámetros de la lógica y, si es válido, lo aplica en vivo."""
+        cambios = {p.name: p.value for p in parametros if p.name in PARAMETROS_DE_LA_LOGICA}
+        if not cambios:
+            return SetParametersResult(successful=True)
+        try:
+            configuracion = replace(self._logic.config, **cambios)
+        except (TypeError, ValueError) as error:
+            return SetParametersResult(successful=False, reason=str(error))
+        self._logic.set_config(configuracion)
+        return SetParametersResult(successful=True)
 
     def _on_lane(self, msg: LaneState):
         now = self.get_clock().now()

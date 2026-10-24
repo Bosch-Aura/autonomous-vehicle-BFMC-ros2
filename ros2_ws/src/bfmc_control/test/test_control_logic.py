@@ -1,4 +1,6 @@
 """Tests de la lógica del control: sin ROS y con el tiempo simulado."""
+from dataclasses import replace
+
 from bfmc_control.control_logic import (
     ControlConfig, ControlLogic, LaneInput,
 )
@@ -172,3 +174,21 @@ def test_al_girar_al_maximo_la_velocidad_baja_segun_la_ganancia():
 def test_una_configuracion_invalida_se_rechaza(cambio):
     with pytest.raises(ValueError):
         ControlConfig(**{**BASE, **cambio})
+
+
+# --- configuración en vivo -------------------------------------------------------
+
+def test_cambiar_la_velocidad_de_crucero_se_nota_en_la_salida_siguiente():
+    control = logica(cruise_speed_mps=0.3)
+    assert control.update(carril(), now=0.0).speed_mps == pytest.approx(0.3)
+    control.set_config(replace(control.config, cruise_speed_mps=0.1))
+    assert control.update(carril(), now=0.1).speed_mps == pytest.approx(0.1)
+
+
+def test_cambiar_la_configuracion_no_reinicia_el_pid():
+    control = logica(kp=0.0, ki=1.0, integral_limit_rad=1.0)
+    control.update(carril(lateral=0.1), now=0.0)
+    antes = control.update(carril(lateral=0.1), now=0.1).steering_rad
+    control.set_config(replace(control.config, cruise_speed_mps=0.1))
+    despues = control.update(carril(lateral=0.1), now=0.2).steering_rad
+    assert despues > antes > 0.0

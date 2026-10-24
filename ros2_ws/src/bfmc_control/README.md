@@ -27,6 +27,8 @@ Si el nodo deja de recibir mensajes de carril, **no publica nada**: `bfmc_decisi
 
 ## Parámetros
 
+Los de la lógica (ganancias, velocidades, filtros) se pueden cambiar **en vivo** con `ros2 param set /control <nombre> <valor>` o con el servicio `set_parameters`: el nodo valida el valor, lo aplica en el ciclo siguiente y conserva el estado del PID. Un valor inválido (por ejemplo una velocidad negativa) se rechaza y queda el anterior. Es lo que usa el deslizador de velocidad del visor.
+
 Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores por defecto en el código: si falta uno, falla al arrancar.
 
 | Parámetro | Unidad | Descripción |
