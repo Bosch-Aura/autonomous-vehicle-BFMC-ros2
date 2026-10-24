@@ -9,7 +9,6 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/LaneState.msg"
   "msg/SignDetection.msg"
   "msg/SignDetectionArray.msg"
-  "msg/SafetyStatus.msg"
   "msg/HardwareStatus.msg"
   "msg/VehicleState.msg"
   "action/ManeuverExecute.action"

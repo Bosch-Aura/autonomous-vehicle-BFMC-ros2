@@ -7,8 +7,7 @@ import pytest
 
 from bfmc_interfaces.action import ManeuverExecute
 from bfmc_interfaces.msg import (
-    HardwareStatus, LaneState, SafetyStatus, SignDetection, SignDetectionArray,
-    VehicleState,
+    HardwareStatus, LaneState, SignDetection, SignDetectionArray, VehicleState,
 )
 
 
@@ -54,31 +53,20 @@ def test_sign_detection_array_por_defecto_esta_vacio():
     assert list(SignDetectionArray().detections) == []
 
 
-def test_safety_status_expone_emergencia_motivo_validez_y_distancia():
-    assert campos(SafetyStatus) == {
-        'header': 'std_msgs/Header',
-        'emergency': 'boolean',
-        'reason': 'uint8',
-        'sensor_valid': 'boolean',
-        'distance_m': 'float',
-    }
-
-
-def test_safety_status_define_los_motivos_de_emergencia():
-    assert SafetyStatus.REASON_NONE == 0
-    assert SafetyStatus.REASON_OBSTACLE == 1
-    assert SafetyStatus.REASON_SENSOR_INVALID == 2
-    assert SafetyStatus.REASON_SENSOR_STALE == 3
-
-
-def test_hardware_status_expone_enlace_watchdog_firmware_y_secuencia():
+def test_hardware_status_expone_enlace_watchdog_firmware_secuencia_y_obstaculo():
     assert campos(HardwareStatus) == {
         'header': 'std_msgs/Header',
         'link_up': 'boolean',
         'watchdog_tripped': 'boolean',
         'firmware_version': 'string',
         'last_seq': 'uint32',
+        'obstacle_stop': 'boolean',
+        'obstacle_distance_m': 'float',
     }
+
+
+def test_hardware_status_por_defecto_no_informa_ningun_obstaculo():
+    assert HardwareStatus().obstacle_stop is False
 
 
 def test_vehicle_state_define_los_estados_de_la_maquina():
@@ -116,8 +104,7 @@ def test_la_accion_informa_el_tiempo_transcurrido():
 
 
 @pytest.mark.parametrize('mensaje', [
-    LaneState, SignDetection, SignDetectionArray, SafetyStatus, HardwareStatus,
-    VehicleState,
+    LaneState, SignDetection, SignDetectionArray, HardwareStatus, VehicleState,
 ])
 def test_los_mensajes_se_pueden_crear_sin_argumentos(mensaje):
     assert mensaje() is not None

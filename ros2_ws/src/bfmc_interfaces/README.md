@@ -15,8 +15,7 @@ Mensajes y acción propios del sistema. Es el único paquete que define tipos: l
 | `LaneState` | `bfmc_lane_detection` | `bfmc_control`, `bfmc_decision` | Desvío lateral y de rumbo del carril, confianza e intersección detectada |
 | `SignDetection` | (parte de `SignDetectionArray`) | — | Una señal: tipo, confianza, distancia y caja en píxeles |
 | `SignDetectionArray` | `bfmc_sign_detection` | `bfmc_decision` | Señales detectadas en un cuadro |
-| `SafetyStatus` | `bfmc_safety` | `bfmc_decision`, `bfmc_hardware_bridge` | Si hay que detenerse, y por qué |
-| `HardwareStatus` | `bfmc_hardware_bridge` | `bfmc_decision` | Estado del enlace con el ESP32 y de su watchdog |
+| `HardwareStatus` | `bfmc_hardware_bridge` | `bfmc_decision` | Estado del enlace con el ESP32, de su watchdog y si está detenido por un obstáculo (y a qué distancia lo vio) |
 | `VehicleState` | `bfmc_decision` | dashboard | Estado de la máquina de estados y maniobra activa |
 
 ## Acción
