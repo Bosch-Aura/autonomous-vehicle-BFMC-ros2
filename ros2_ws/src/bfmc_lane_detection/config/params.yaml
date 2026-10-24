@@ -7,6 +7,9 @@ lane_detection:
   ros__parameters:
     image_topic: /camera/color/image_raw
     lane_topic: /perception/lane
+    # Imágenes de depuración: qué ve el detector. Solo se calculan si alguien está suscripto.
+    debug_overlay_topic: /perception/lane_debug/overlay      # cámara con lo detectado encima
+    debug_birdview_topic: /perception/lane_debug/birdview    # vista desde arriba con ventanas y curvas
 
     # 1. Umbral de color de las marcas blancas, en HSV de OpenCV (H 0-179, S y V 0-255).
     white_hsv_min: [0, 0, 200]       # [H, S, V] mínimos
@@ -41,3 +44,10 @@ lane_detection:
     intersection_band_top_fraction: 0.5   # solo se mira la mitad cercana al auto
     intersection_row_fraction: 0.6        # una fila cuenta si está blanca en al menos esta fracción
     intersection_min_rows: 8              # filas necesarias para dar la intersección por detectada
+
+    # Depuración: se puede apagar con publish_debug: false y se limita a debug_max_fps imágenes
+    # por segundo para no gastar CPU. Todos los parámetros de la visión de arriba (menos los
+    # topics) se pueden cambiar con el nodo andando, por ejemplo con `ros2 param set` o desde el
+    # visor de calibración; el cambio no se guarda en este archivo.
+    publish_debug: true
+    debug_max_fps: 10.0              # [Hz]

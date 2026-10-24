@@ -8,7 +8,9 @@ Escala: 100 px = 0,4 m en ambos ejes, es decir 0,004 m por píxel.
 """
 import math
 
-from bfmc_lane_detection.lane_detection_logic import LaneConfig, LaneDetector
+from bfmc_lane_detection.lane_detection_logic import (
+    cuadrilatero_valido, LaneConfig, LaneDetector,
+)
 import numpy as np
 import pytest
 from synthetic_lanes import carril_cenital, lienzo, linea
@@ -217,3 +219,66 @@ def test_la_matriz_de_perspectiva_se_calcula_una_sola_vez_por_tamano():
 def test_una_configuracion_invalida_se_rechaza(cambio):
     with pytest.raises(ValueError):
         configuracion(**cambio)
+
+
+# --- trapecio de la vista cenital ---------------------------------------------
+
+@pytest.mark.parametrize('warp_src', [
+    (0.0, 0.5, 1.0, 0.5, 1.0, 0.5, 0.0, 0.5),   # los cuatro puntos en una recta
+    (0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0),   # lados cruzados
+    (0.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0),   # orden invertido: abajo antes que arriba
+    (0.5, 0.0, 0.5, 0.0, 1.0, 1.0, 0.0, 1.0),   # dos puntos iguales
+])
+def test_un_trapecio_degenerado_o_cruzado_se_rechaza(warp_src):
+    assert cuadrilatero_valido(warp_src) is False
+    with pytest.raises(ValueError):
+        configuracion(warp_src=warp_src)
+
+
+def test_un_trapecio_normal_es_valido():
+    assert cuadrilatero_valido((0, 0, 1, 0, 1, 1, 0, 1)) is True
+    assert cuadrilatero_valido((0.30, 0.55, 0.70, 0.55, 1.00, 0.95, 0.00, 0.95)) is True
+
+
+# --- lo que el detector vio -----------------------------------------------------
+
+def test_analizar_da_el_mismo_resultado_que_detect():
+    detector = LaneDetector(configuracion())
+    imagenes = [
+        carril_cenital(ANCHO, ALTO, 50, 150),
+        carril_cenital(ANCHO, ALTO, 70, 170, desvio_arriba=20),
+        carril_cenital(ANCHO, ALTO, 50, None),
+        lienzo(ANCHO, ALTO),
+    ]
+    for imagen in imagenes:
+        assert detector.analizar(imagen).resultado == detector.detect(imagen)
+
+
+def test_analizar_registra_las_ventanas_de_cada_linea():
+    analisis = LaneDetector(configuracion()).analizar(carril_cenital(ANCHO, ALTO, 50, 150))
+    for lado in ('izq', 'der'):
+        assert len(analisis.trazas[lado]['ventanas']) == 8
+    assert analisis.trazas['izq']['base'] == pytest.approx(50, abs=5)
+    assert analisis.trazas['der']['base'] == pytest.approx(150, abs=5)
+
+
+def test_analizar_sin_la_linea_derecha_no_registra_ventanas_de_ese_lado():
+    analisis = LaneDetector(configuracion()).analizar(carril_cenital(ANCHO, ALTO, 50, None))
+    assert analisis.derecha is None
+    assert analisis.trazas['der'] == {'base': None, 'ventanas': []}
+
+
+def test_analizar_expone_la_mascara_de_blancos_y_la_vista_cenital():
+    imagen = carril_cenital(ANCHO, ALTO, 50, 150)
+    analisis = LaneDetector(configuracion()).analizar(imagen)
+    assert analisis.mascara.shape == imagen.shape[:2]
+    assert analisis.cenital.shape == (ALTO, ANCHO)
+    assert (analisis.mascara > 0).any()
+
+
+def test_analizar_indica_con_que_lineas_se_midio():
+    detector = LaneDetector(configuracion())
+    assert detector.analizar(carril_cenital(ANCHO, ALTO, 50, 150)).centro['modo'] == 'ambas'
+    assert detector.analizar(carril_cenital(ANCHO, ALTO, 50, None)).centro['modo'] == 'izquierda'
+    assert detector.analizar(carril_cenital(ANCHO, ALTO, None, 150)).centro['modo'] == 'derecha'
+    assert detector.analizar(lienzo(ANCHO, ALTO)).centro is None

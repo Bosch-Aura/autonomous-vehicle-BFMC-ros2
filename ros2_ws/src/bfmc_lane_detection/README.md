@@ -12,6 +12,8 @@ Medir el carril en cada imagen. **No calcula comandos**: no decide cuánto girar
 |---|---|---|---|
 | Se suscribe | `image_topic` | `/camera/color/image_raw` | `sensor_msgs/Image` (`bgr8` o `rgb8`; *best effort*, cola de 1) |
 | Publica | `lane_topic` | `/perception/lane` | `bfmc_interfaces/LaneState` |
+| Publica | `debug_overlay_topic` | `/perception/lane_debug/overlay` | `sensor_msgs/Image` (`bgr8`): la cámara con lo detectado encima |
+| Publica | `debug_birdview_topic` | `/perception/lane_debug/birdview` | `sensor_msgs/Image` (`bgr8`): la vista desde arriba con las ventanas y las curvas |
 
 El encabezado del resultado es el de la imagen, así quien lo consume sabe de qué instante es la medición. Una imagen con una codificación no soportada se descarta con una advertencia.
 
@@ -33,6 +35,24 @@ El encabezado del resultado es el de la imagen, así quien lo consume sabe de qu
 
 **Una sola línea visible:** el centro se estima sumando o restando medio ancho de carril. **Dos líneas demasiado juntas o separadas** (fuera de 0,5 a 1,5 veces el ancho esperado) se toman como ruido: se usa la que tiene más píxeles.
 
+## Imágenes de depuración y cambios en vivo
+
+**Qué ve el detector.** Si hay alguien suscripto a las dos imágenes de depuración, el nodo las dibuja y las publica (a lo sumo `debug_max_fps` por segundo). Si nadie las pide, no gasta CPU en dibujarlas. Se apagan del todo con `publish_debug: false`.
+
+- `/perception/lane_debug/overlay`: la imagen de la cámara con lo que el detector toma por **blanco pintado de rojo**, el trapecio de `warp_src` (amarillo), el límite de la región de interés (cian), las curvas encontradas (verde la izquierda, azul la derecha) y el error lateral (magenta). Sirve para ver si toma por línea algo que no lo es.
+- `/perception/lane_debug/birdview`: la vista desde arriba con la máscara de blancos, las ventanas deslizantes de cada línea (más gruesas las que encontraron píxeles suficientes), las curvas, el auto (amarillo) y la fila donde se mide (naranja).
+
+Se ven en el navegador con `web_video_server` (por ejemplo, `http://<IP>:8080/stream?type=mjpeg&topic=/perception/lane_debug/overlay`, con las barras del topic sin codificar) o con el visor de calibración (`frontend/visor-calibracion/`). Las imágenes se calculan a partir del mismo análisis que el resultado: **no cambian lo que se publica en `/perception/lane`**.
+
+**Cambiar parámetros con el nodo andando.** Todos los parámetros de la visión se pueden cambiar sin reiniciar, por ejemplo:
+
+```bash
+ros2 param set /lane_detection warp_src "[0.30, 0.55, 0.70, 0.55, 1.0, 0.95, 0.0, 1.0]"
+ros2 param set /lane_detection roi_top_fraction 0.45
+```
+
+El cambio **se valida antes de aplicarse**: un valor inválido (un trapecio cruzado o aplastado, un umbral fuera de rango) se rechaza con el motivo y el detector sigue como estaba. No se guarda en el YAML: al reiniciar el nodo vuelven los valores del archivo. Los topics y los nombres de las imágenes de depuración solo se eligen al arrancar. El nodo corre en un solo hilo, así que un cambio nunca se cruza con una imagen a medio procesar.
+
 ## Parámetros
 
 Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores por defecto en el código: si falta uno, falla al arrancar.
@@ -48,8 +68,11 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 | Líneas | `n_windows`, `window_margin_px`, `min_pixels` |
 | Medición | `reference_row_fraction`, `full_confidence_pixels` |
 | Intersección | `intersection_band_top_fraction`, `intersection_row_fraction`, `intersection_min_rows` |
+| Depuración | `publish_debug`, `debug_max_fps`, `debug_overlay_topic`, `debug_birdview_topic` |
 
 ## Cómo calibrarlo con la cámara real
+
+La forma más cómoda es el **visor de calibración** (`frontend/visor-calibracion/`): se arrastra el trapecio sobre la imagen de la cámara y el detector lo usa al instante, y se ve en la imagen de depuración qué toma por línea. Lo que sigue es el procedimiento a mano.
 
 1. **Guardá un cuadro** de la cámara con el auto en el carril, bien centrado y derecho.
 2. **`warp_src`:** en ese cuadro ubicá cuatro puntos del piso que formen un rectángulo en la realidad (por ejemplo, dos tramos de línea del carril, uno cerca y otro lejos). Anotá sus posiciones como fracción del ancho y del alto, en el orden arriba-izquierda, arriba-derecha, abajo-derecha, abajo-izquierda.
@@ -74,7 +97,8 @@ Que la configuración sea la correcta para la cámara y la iluminación reales s
 
 ## Estructura
 
-- `lane_detection_logic.py`: el pipeline, sin ROS. Cada imagen se procesa sola.
+- `lane_detection_logic.py`: el pipeline, sin ROS. Cada imagen se procesa sola. `detect` devuelve el resultado; `analizar` devuelve además lo que el detector vio (máscara, ventanas, curvas).
+- `lane_debug.py`: dibuja las dos imágenes de depuración a partir de ese análisis, sin ROS.
 - `image_utils.py`: convierte un mensaje de imagen a un arreglo BGR, sin `cv_bridge`.
 - `lane_detection_node.py`: conecta la imagen con la lógica.
 - `config/params.yaml`, `launch/lane_detection.launch.py` y `test/`.

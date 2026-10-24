@@ -15,6 +15,10 @@ Pipeline:
 
 Convenciones (las de bfmc_interfaces): unidades SI, y un desvío o ángulo positivo
 es hacia la izquierda del auto.
+
+`detect` devuelve solo el resultado. `analizar` hace lo mismo pero además devuelve lo
+que el detector vio por el camino (la máscara de blancos, las ventanas, las curvas),
+para dibujarlo en las imágenes de depuración.
 """
 from dataclasses import dataclass
 import math
@@ -22,6 +26,24 @@ from typing import Optional, Sequence
 
 import cv2
 import numpy as np
+
+# Un cuadrilátero de warp_src con un giro menor a esto (producto vectorial de dos lados
+# consecutivos, en fracciones de la imagen) se toma por degenerado o cruzado.
+GIRO_MINIMO_WARP = 1e-4
+
+
+def cuadrilatero_valido(warp_src: Sequence[float]) -> bool:
+    """Indica si los 4 puntos forman un cuadrilátero convexo en el orden esperado.
+
+    El orden es arriba-izquierda, arriba-derecha, abajo-derecha, abajo-izquierda: en la
+    imagen (con y hacia abajo) cada giro entre lados consecutivos es en el mismo sentido.
+    Un trapecio degenerado (puntos alineados) o cruzado no se puede usar como
+    transformación de perspectiva.
+    """
+    puntos = np.array(warp_src, dtype=np.float64).reshape(4, 2)
+    lados = np.roll(puntos, -1, axis=0) - puntos
+    giros = lados[:, 0] * np.roll(lados[:, 1], -1) - lados[:, 1] * np.roll(lados[:, 0], -1)
+    return bool(np.all(giros > GIRO_MINIMO_WARP))
 
 
 @dataclass(frozen=True)
@@ -58,6 +80,10 @@ class LaneConfig:
             raise ValueError('roi_top_fraction debe estar en [0, 1)')
         if len(self.warp_src) != 8 or not all(0.0 <= v <= 1.0 for v in self.warp_src):
             raise ValueError('warp_src debe tener 8 valores entre 0 y 1: x, y de 4 puntos')
+        if not cuadrilatero_valido(self.warp_src):
+            raise ValueError('warp_src no forma un cuadrilátero válido: los puntos van en el '
+                             'orden arriba-izquierda, arriba-derecha, abajo-derecha, '
+                             'abajo-izquierda, sin cruzarse ni quedar alineados')
         if self.warp_width < 2 or self.warp_height < 2:
             raise ValueError('warp_width y warp_height deben ser al menos 2')
         if min(self.lane_width_m, self.lane_width_px, self.forward_range_m) <= 0.0:
@@ -89,6 +115,25 @@ class LaneResult:
 NOT_DETECTED = LaneResult(False, 0.0, 0.0, 0.0, False)
 
 
+@dataclass
+class Analisis:
+    """Lo que el detector vio en una imagen, para dibujarlo.
+
+    `izquierda` y `derecha` son None o (coeficientes, píxeles) de la curva x(y) en la
+    vista cenital. `trazas` guarda, para cada lado ('izq' y 'der'), la columna donde
+    arranca la línea y las ventanas probadas: (x_ini, y_ini, x_fin, y_fin, píxeles).
+    `centro` es None o el diccionario con el que se midió el carril.
+    """
+
+    resultado: LaneResult
+    mascara: np.ndarray
+    cenital: np.ndarray
+    izquierda: Optional[tuple]
+    derecha: Optional[tuple]
+    trazas: dict
+    centro: Optional[dict]
+
+
 class LaneDetector:
     """Estima el estado del carril a partir de una imagen BGR."""
 
@@ -97,6 +142,11 @@ class LaneDetector:
         self._matrices = {}
         self._mpp_x = config.lane_width_m / config.lane_width_px
         self._mpp_y = config.forward_range_m / config.warp_height
+
+    @property
+    def config(self) -> LaneConfig:
+        """La configuración con la que se creó el detector."""
+        return self._config
 
     # --- geometría ----------------------------------------------------------------
     def warp_matrix(self, width: int, height: int):
@@ -115,18 +165,29 @@ class LaneDetector:
     # --- detección ------------------------------------------------------------------
     def detect(self, bgr: np.ndarray) -> LaneResult:
         """Devuelve el estado del carril. `bgr` es una imagen alto x ancho x 3 de uint8."""
+        return self._procesar(bgr, None).resultado
+
+    def analizar(self, bgr: np.ndarray) -> Analisis:
+        """Igual que `detect`, pero devuelve además lo que el detector vio."""
+        return self._procesar(bgr, {})
+
+    def _procesar(self, bgr, trazas):
         if bgr.ndim != 3 or bgr.shape[2] != 3:
             raise ValueError('se esperaba una imagen BGR de alto x ancho x 3')
         alto, ancho = bgr.shape[:2]
-        cenital = self._vista_cenital(self._mascara_blanca(bgr), ancho, alto)
+        mascara = self._mascara_blanca(bgr)
+        cenital = self._vista_cenital(mascara, ancho, alto)
 
-        izquierda, derecha = self._buscar_lineas(cenital)
+        izquierda, derecha = self._buscar_lineas(cenital, trazas)
         interseccion = self._hay_interseccion(cenital)
-        medicion = self._medir(izquierda, derecha)
-        if medicion is None:
-            return LaneResult(False, 0.0, 0.0, 0.0, interseccion)
-        lateral, rumbo, confianza = medicion
-        return LaneResult(True, lateral, rumbo, confianza, interseccion)
+        centro = self._centro(izquierda, derecha)
+        if centro is None:
+            resultado = LaneResult(False, 0.0, 0.0, 0.0, interseccion)
+        else:
+            lateral, rumbo, confianza = self._medir(centro)
+            resultado = LaneResult(True, lateral, rumbo, confianza, interseccion)
+        return Analisis(resultado, mascara, cenital, izquierda, derecha,
+                        trazas if trazas is not None else {}, centro)
 
     def _mascara_blanca(self, bgr):
         cfg = self._config
@@ -146,8 +207,12 @@ class LaneDetector:
             flags=cv2.INTER_NEAREST)
 
     # --- líneas ---------------------------------------------------------------------
-    def _buscar_lineas(self, cenital):
-        """Devuelve (ajuste izquierdo, ajuste derecho). Cada uno es None o (coef, píxeles)."""
+    def _buscar_lineas(self, cenital, trazas=None):
+        """Devuelve (ajuste izquierdo, ajuste derecho). Cada uno es None o (coef, píxeles).
+
+        Si `trazas` es un diccionario, se completa con la columna de arranque y las
+        ventanas de cada lado.
+        """
         cfg = self._config
         ancho = cenital.shape[1]
         histograma = (cenital[cenital.shape[0] // 2:] > 0).sum(axis=0)
@@ -156,8 +221,11 @@ class LaneDetector:
         base_izquierda = self._base(histograma[:medio], 0)
         base_derecha = self._base(histograma[medio:], medio)
         ajustes = []
-        for base in (base_izquierda, base_derecha):
-            ajustes.append(None if base is None else self._ajustar(cenital, base, cfg))
+        for lado, base in (('izq', base_izquierda), ('der', base_derecha)):
+            ventanas = [] if trazas is not None else None
+            ajustes.append(None if base is None else self._ajustar(cenital, base, cfg, ventanas))
+            if trazas is not None:
+                trazas[lado] = {'base': base, 'ventanas': ventanas}
         return ajustes[0], ajustes[1]
 
     def _base(self, histograma, desplazamiento):
@@ -166,7 +234,7 @@ class LaneDetector:
         return int(np.argmax(histograma)) + desplazamiento
 
     @staticmethod
-    def _ajustar(cenital, base, cfg):
+    def _ajustar(cenital, base, cfg, ventanas=None):
         alto, ancho = cenital.shape
         paso = alto // cfg.n_windows
         x_actual = base
@@ -177,6 +245,8 @@ class LaneDetector:
             x_ini = max(0, x_actual - cfg.window_margin_px)
             x_fin = min(ancho, x_actual + cfg.window_margin_px)
             fy, fx = np.nonzero(cenital[y_ini:y_fin, x_ini:x_fin])
+            if ventanas is not None:
+                ventanas.append((x_ini, y_ini, x_fin, y_fin, int(fy.size)))
             if fy.size >= cfg.min_pixels:
                 x_actual = int(fx.mean()) + x_ini
             xs.extend((fx + x_ini).tolist())
@@ -189,7 +259,14 @@ class LaneDetector:
         return coeficientes, len(ys)
 
     # --- medición -------------------------------------------------------------------
-    def _medir(self, izquierda, derecha) -> Optional[tuple]:
+    def _centro(self, izquierda, derecha) -> Optional[dict]:
+        """Decide dónde está el centro del carril en la fila de referencia.
+
+        Devuelve None si no hay ninguna línea. Si no, un diccionario con la columna del
+        centro (`centro_px`), la pendiente de la curva (`pendiente`), los píxeles que la
+        respaldan, la confianza base, la fila (`y_px`) y qué líneas se usaron (`modo`:
+        'ambas', 'izquierda' o 'derecha').
+        """
         cfg = self._config
         if izquierda is None and derecha is None:
             return None
@@ -214,6 +291,7 @@ class LaneDetector:
             pendiente = 0.5 * (pendiente_izq + pendiente_der)
             pixeles = izquierda[1] + derecha[1]
             base_confianza = 1.0
+            modo = 'ambas'
         else:
             candidatos = [(izquierda, +1.0), (derecha, -1.0)]
             ajuste, signo = max((c for c in candidatos if c[0] is not None),
@@ -222,10 +300,16 @@ class LaneDetector:
             centro = x_linea + signo * 0.5 * ancho_carril_px
             pixeles = ajuste[1]
             base_confianza = 0.5
+            modo = 'izquierda' if signo > 0 else 'derecha'
+        return {'centro_px': centro, 'pendiente': pendiente, 'pixeles': pixeles,
+                'base_confianza': base_confianza, 'y_px': y, 'modo': modo}
 
-        lateral = (cfg.warp_width / 2.0 - centro) * self._mpp_x
-        rumbo = math.atan(pendiente * self._mpp_x / self._mpp_y)
-        confianza = base_confianza * min(1.0, pixeles / cfg.full_confidence_pixels)
+    def _medir(self, centro: dict) -> tuple:
+        cfg = self._config
+        lateral = (cfg.warp_width / 2.0 - centro['centro_px']) * self._mpp_x
+        rumbo = math.atan(centro['pendiente'] * self._mpp_x / self._mpp_y)
+        confianza = centro['base_confianza'] * min(
+            1.0, centro['pixeles'] / cfg.full_confidence_pixels)
         return lateral, rumbo, confianza
 
     # --- intersección ---------------------------------------------------------------
