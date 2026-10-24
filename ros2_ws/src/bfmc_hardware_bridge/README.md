@@ -27,9 +27,9 @@ En cada ciclo (`send_rate_hz`, 20 Hz) el nodo lee el puerto, procesa los eventos
 | Empieza una emergencia de `bfmc_safety` | `E:BRAKE_NOW:0` una vez, y después velocidad 0 y dirección al centro |
 | Sin comandos, o el último tiene más de `cmd_timeout_s` | `C:SET_STEER:<centro>`, `C:SET_SPEED:0` |
 
-Reenviar velocidad y dirección en cada ciclo renueva el TTL de 200 ms del firmware y hace de **heartbeat** para su watchdog (300 ms en AUTO).
+Reenviar velocidad y dirección en cada ciclo renueva el TTL de 200 ms del firmware y hace de **heartbeat** para su watchdog (300 ms).
 
-**Arranque:** al abrir el puerto, o si el ESP32 se reinicia (`EVENT:SYSTEM_READY`), el nodo pide el modo `esp32_mode` y después arma, reintentando hasta que el firmware confirme. Envía como mucho un comando `M:` por ciclo, porque el firmware guarda uno solo. En esta Jetson, **abrir el puerto reinicia la placa**; el nodo lo detecta y la vuelve a configurar.
+**Arranque:** al abrir el puerto, o si el ESP32 se reinicia (`EVENT:SYSTEM_READY`), el nodo arma la placa solo, reintentando hasta que el firmware confirme. Envía como mucho un comando `M:` por ciclo, porque el firmware guarda uno solo. En esta Jetson, **abrir el puerto reinicia la placa**; el nodo lo detecta y la vuelve a armar. El firmware no tiene modos AUTO/MANUAL, así que no se configura ninguno.
 
 **FAULT:** el ESP32 entra en FAULT por watchdog, E-STOP u obstáculo, frena y no sale solo. El nodo lo publica en `watchdog_tripped` y lo registra como error, pero **nunca rearma solo**. Para seguir:
 
@@ -56,7 +56,6 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 |---|---|---|
 | `serial_port`, `baud_rate` | —, baudios | USB del ESP32: `/dev/ttyCH341USB0` a 115200 en esta Jetson |
 | `send_rate_hz` | Hz | Frecuencia del ciclo. Tiene que quedar por debajo del TTL de 200 ms del firmware |
-| `esp32_mode` | — | `AUTO` (watchdog de 300 ms) o `MANUAL` (1000 ms) |
 | `arm_retry_s` | s | Espera entre intentos de armar |
 | `reconnect_period_s` | s | Espera entre intentos de reabrir el puerto |
 | `cmd_timeout_s` | s | Antigüedad máxima de un comando. **Asumido** (0,25 s) |

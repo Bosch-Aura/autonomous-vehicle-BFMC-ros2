@@ -26,15 +26,16 @@ Una línea ASCII por comando: `CANAL:COMANDO:VALOR\n`.
 | `C:SET_STEER` | servo 50 (izquierda) – 105 (centro) – 160 (derecha) | En cada ciclo |
 | `C:SET_DIR` | 1 adelante, 0 atrás | Solo cuando cambia el sentido. El firmware lo recuerda y hace la inversión con su tiempo muerto |
 | `E:BRAKE_NOW` | 0 | Al empezar una emergencia de `/safety/status`. Bloquea la tracción 5 s |
-| `M:SYS_MODE` | 1 AUTO, 0 MANUAL | Al abrir el puerto o si el ESP32 se reinicia, hasta que lo confirma |
-| `M:SYS_ARM` | 0 | Después del modo, hasta que lo confirma. Y cuando se pide por servicio |
+| `M:SYS_ARM` | 0 | Al abrir el puerto o si el ESP32 se reinicia, hasta que lo confirma. Y cuando se pide por servicio |
 | `M:SYS_DISARM` | 0 | Al cerrar el nodo, después de `C:SET_SPEED:0` |
 
 Se envía **como mucho un comando `M:` por ciclo**: el firmware guarda un solo comando de gestión, y un segundo que llegue antes de que lo procese pisa al primero.
 
+El firmware **no tiene modos de manejo** (`embedded` PR #5 sacó `M:SYS_MODE` y `EVENT:MODE_CHANGED`): si el auto va solo o lo maneja una persona se decide en la Jetson. El bridge no manda ningún modo; arma directamente.
+
 ### 3. ESP32 → Jetson
 
-Solo las líneas `EVENT:<NOMBRE>[:<arg>...]` son protocolo; el resto es depuración y se descarta. El bridge usa `STATE_CHANGED`, `STATE_AUTO_TRANSITION`, `MODE_CHANGED`, `CMD_RECEIVED:SYS_MODE`, `CMD_EXECUTED:SYS_ARM`, `SYSTEM_READY`, `WATCHDOG_TIMEOUT`, `FAULT_TRIGGERED` y `ESTOP_TRIGGERED`.
+Solo las líneas `EVENT:<NOMBRE>[:<arg>...]` son protocolo; el resto es depuración y se descarta. El bridge usa `STATE_CHANGED`, `STATE_AUTO_TRANSITION`, `CMD_EXECUTED:SYS_ARM`, `SYSTEM_READY`, `WATCHDOG_TIMEOUT`, `FAULT_TRIGGERED` y `ESTOP_TRIGGERED`.
 
 Cualquier evento cuenta como señal de vida. El firmware responde `EVENT:CMD_RECEIVED:SET_SPEED:<v>` a cada velocidad, así que al enviarla en cada ciclo siempre hay tráfico de vuelta.
 
@@ -43,7 +44,7 @@ Cualquier evento cuenta como señal de vida. El firmware responde `EVENT:CMD_REC
 El bridge envía velocidad y dirección a 20 Hz aunque no cambien. La jerarquía del firmware queda así:
 
 ```
-período del bridge 50 ms  <  TTL de los comandos 200 ms  <  watchdog AUTO 300 ms
+período del bridge 50 ms  <  TTL de los comandos 200 ms  <  watchdog 300 ms
 ```
 
 Sin un comando vigente (más viejo que `cmd_timeout_s`), el bridge envía velocidad 0 y dirección al centro. No hace falta `M:PING`.
@@ -79,4 +80,4 @@ Los topes y el umbral tienen que coincidir con `Brain-Aura/hardware.env`, de don
 2. **`WATCHDOG_TIMEOUT` justo después de armar:** era una resta sin signo que daba la vuelta (`Heartbeat age: 4294967271 ms`). Corregido en `embedded` (commit `fa7b3b6`, rama `fix/plan-mejoras-fase0-fase2`).
 3. **Dos eventos pegados en una línea:** `Serial.println()` hace dos escrituras y varias tareas imprimían a la vez. Corregido en el mismo commit: cada línea se escribe entera bajo un mutex.
 
-Con esos arreglos, el bridge mantiene el ESP32 en RUNNING en modo AUTO, y el watchdog real sigue saltando a los ~300 ms si se corta el enlace.
+Con esos arreglos, el bridge mantiene el ESP32 en RUNNING, y el watchdog real sigue saltando a los ~300 ms si se corta el enlace.

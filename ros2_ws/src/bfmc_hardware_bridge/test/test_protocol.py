@@ -1,6 +1,6 @@
 """Tests del protocolo serial Jetson <-> ESP32 (ADR-0002), sin ROS ni puerto."""
 from bfmc_hardware_bridge.protocol import (
-    encode_arm, encode_brake_now, encode_direction, encode_disarm, encode_mode,
+    encode_arm, encode_brake_now, encode_direction, encode_disarm,
     encode_speed, encode_steer, Event, parse_line,
 )
 import pytest
@@ -17,8 +17,6 @@ import pytest
     (encode_brake_now(), b'E:BRAKE_NOW:0\n'),
     (encode_arm(), b'M:SYS_ARM:0\n'),
     (encode_disarm(), b'M:SYS_DISARM:0\n'),
-    (encode_mode(True), b'M:SYS_MODE:1\n'),
-    (encode_mode(False), b'M:SYS_MODE:0\n'),
 ])
 def test_cada_comando_tiene_el_formato_canal_comando_valor_del_firmware(trama, esperada):
     assert trama == esperada

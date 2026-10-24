@@ -11,8 +11,7 @@ hardware_bridge:
     send_rate_hz: 20.0                 # [Hz] velocidad y dirección por ciclo; renueva el TTL de 200 ms y hace de heartbeat
     reconnect_period_s: 1.0            # [s] espera entre intentos de reabrir el puerto
 
-    # Modo y armado del ESP32.
-    esp32_mode: AUTO                   # AUTO: watchdog de 300 ms. MANUAL: 1000 ms, pensado para un operador
+    # Armado del ESP32 (el firmware no tiene modos de manejo; su watchdog es de 300 ms).
     arm_retry_s: 0.5                   # [s] espera entre intentos de armar mientras el ESP32 no confirme
 
     # Topics y servicios.

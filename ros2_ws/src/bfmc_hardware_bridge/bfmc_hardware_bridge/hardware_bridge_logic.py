@@ -7,14 +7,15 @@ Reglas (ADR-0002):
 
 - En cada ciclo se envían velocidad y dirección, aunque no hayan cambiado. Eso
   renueva el TTL de 200 ms de los comandos y hace de heartbeat para el watchdog
-  del ESP32 (300 ms en modo AUTO).
+  del ESP32 (300 ms).
 - Si el último comando es viejo, se envía velocidad 0 y dirección al centro.
 - Si `bfmc_safety` indica emergencia, se envía un freno de emergencia al empezar
   y velocidad 0 mientras dure.
-- Al abrir el puerto, o si el ESP32 se reinicia, se configura el modo y se arma.
+- Al abrir el puerto, o si el ESP32 se reinicia, se lo arma. El ESP32 no tiene
+  modos de manejo: si el auto va solo o lo maneja una persona se decide acá.
   Un FAULT posterior (watchdog, E-STOP u obstáculo) **no** se rearma solo: hace
   falta pedirlo con `request_arm()`.
-- Se envía como mucho un comando de gestión (modo o armado) por ciclo: el
+- Se envía como mucho un comando de gestión por ciclo: el
   firmware guarda uno solo y un segundo, llegado antes de que lo procese,
   pisaría al primero.
 """
@@ -22,13 +23,12 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from bfmc_hardware_bridge.protocol import (
-    encode_arm, encode_brake_now, encode_direction, encode_disarm, encode_mode,
-    encode_speed, encode_steer, Event, parse_line,
+    encode_arm, encode_brake_now, encode_direction, encode_disarm, encode_speed,
+    encode_steer, Event, parse_line,
 )
 from bfmc_hardware_bridge.units import Esp32Limits, to_duty, to_servo
 
 ESTADOS = ('DISARMED', 'ARMED', 'RUNNING', 'FAULT')
-MODOS = ('AUTO', 'MANUAL')
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,6 @@ class BridgeConfig:
     link_timeout_s: float
     cmd_timeout_s: float
     arm_retry_s: float
-    auto_mode: bool
     limits: Esp32Limits
 
     def __post_init__(self):
@@ -52,7 +51,6 @@ class HardwareState:
 
     link_up: bool
     esp32_state: str
-    esp32_mode: str
 
     @property
     def fault(self) -> bool:
@@ -72,8 +70,6 @@ class BridgeLogic:
         self._emergency_sent = False
         self._last_rx = None
         self._state = ''
-        self._mode = ''
-        self._mode_confirmed = False
         self._direction = None
         self._want_arm = False
         self._last_arm = None
@@ -92,7 +88,7 @@ class BridgeLogic:
         self._emergency = emergency
 
     def on_port_opened(self) -> None:
-        """El puerto se acaba de abrir: no se sabe nada del ESP32, hay que configurarlo."""
+        """El puerto se acaba de abrir: no se sabe nada del ESP32, hay que armarlo."""
         self._olvidar_esp32()
         self._last_rx = None
 
@@ -156,26 +152,22 @@ class BridgeLogic:
         """Estado del enlace en el instante `now`."""
         link_up = (self._last_rx is not None
                    and (now - self._last_rx) <= self._config.link_timeout_s)
-        return HardwareState(link_up=link_up, esp32_state=self._state, esp32_mode=self._mode)
+        return HardwareState(link_up=link_up, esp32_state=self._state)
 
     # --- internos -------------------------------------------------------------------
     def _olvidar_esp32(self):
         self._state = ''
-        self._mode = ''
         self._nueva_sesion()
 
     def _nueva_sesion(self):
-        """Hay que volver a configurar el modo y a armar; el sentido recordado ya no vale."""
-        self._mode_confirmed = False
+        """Hay que volver a armar; el sentido recordado ya no vale."""
         self._direction = None
         self._emergency_sent = False
         self._want_arm = self._state not in ('ARMED', 'RUNNING')
         self._last_arm = None
 
     def _gestion(self, now):
-        """Como mucho un comando de gestión por ciclo: primero el modo, después armar."""
-        if not self._mode_confirmed:
-            return encode_mode(self._config.auto_mode)
+        """Como mucho un comando de gestión por ciclo: el armado, mientras haga falta."""
         if not self._want_arm:
             return None
         if self._last_arm is not None and (now - self._last_arm) < self._config.arm_retry_s:
@@ -186,8 +178,8 @@ class BridgeLogic:
     def _aplicar(self, evento: Event):
         nombre, args = evento.name, evento.args
         if nombre == 'SYSTEM_READY':
-            # El ESP32 se reinició y arrancó en su modo y sentido por defecto. El
-            # estado y el modo ya llegaron: el firmware los emite antes de este evento.
+            # El ESP32 se reinició y arrancó en su sentido por defecto. El estado
+            # ya llegó: el firmware lo emite antes de este evento.
             self._nueva_sesion()
         elif nombre == 'STATE_CHANGED' and args and args[0] in ESTADOS:
             self._cambiar_estado(args[0])
@@ -199,20 +191,9 @@ class BridgeLogic:
             # Si ya estaba armado, el firmware confirma sin emitir STATE_CHANGED.
             if self._state != 'RUNNING':
                 self._cambiar_estado('ARMED')
-        elif nombre == 'MODE_CHANGED' and args and args[0] in MODOS:
-            self._actualizar_modo(args[0])
-        elif nombre == 'CMD_RECEIVED' and len(args) >= 2 and args[0] == 'SYS_MODE':
-            # Confirma aunque el modo ya fuera ese: en ese caso el firmware no
-            # emite MODE_CHANGED.
-            if args[1] in MODOS:
-                self._actualizar_modo(args[1])
 
     def _cambiar_estado(self, estado):
         self._state = estado
         # Armado conseguido: a partir de acá un FAULT no se rearma solo.
         if estado in ('ARMED', 'RUNNING'):
             self._want_arm = False
-
-    def _actualizar_modo(self, modo):
-        self._mode = modo
-        self._mode_confirmed = (modo == 'AUTO') == self._config.auto_mode

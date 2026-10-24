@@ -8,7 +8,7 @@ una línea de texto ASCII por mensaje, terminada en '\n'.
                       C:SET_STEER:<50-160>  servo: 50 izquierda, 105 centro, 160 derecha
                       C:SET_DIR:<0|1>       sentido: 1 adelante, 0 atrás
                       E:BRAKE_NOW:0         freno de emergencia (5 s de bloqueo)
-                      M:SYS_ARM:0 / M:SYS_DISARM:0 / M:SYS_MODE:<0|1>
+                      M:SYS_ARM:0 / M:SYS_DISARM:0
 
     ESP32 -> Jetson   EVENT:<NOMBRE>[:<arg>...]
                       EVENT:STATE_CHANGED:RUNNING, EVENT:CMD_RECEIVED:SET_SPEED:150, ...
@@ -65,11 +65,6 @@ def encode_arm() -> bytes:
 def encode_disarm() -> bytes:
     """Desarma el sistema: frena y centra la dirección."""
     return _comando('M', 'SYS_DISARM', 0)
-
-
-def encode_mode(auto: bool) -> bytes:
-    """Modo del sistema. AUTO tiene un watchdog de 300 ms; MANUAL, de 1000 ms."""
-    return _comando('M', 'SYS_MODE', 1 if auto else 0)
 
 
 def parse_line(linea: str) -> Optional[Event]:

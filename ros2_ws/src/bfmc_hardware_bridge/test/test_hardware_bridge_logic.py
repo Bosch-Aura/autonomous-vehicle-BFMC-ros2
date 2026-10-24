@@ -13,14 +13,13 @@ LIMITES = Esp32Limits(max_speed_mps=0.5, max_steer_rad=math.radians(25.0), duty_
 
 ARRANQUE_DEL_ESP32 = [
     'EVENT:STATE_CHANGED:DISARMED',
-    'EVENT:MODE_CHANGED:MANUAL',
     'EVENT:SYSTEM_READY',
 ]
 
 
 def logica(**cambios):
     base = {'link_timeout_s': 0.5, 'cmd_timeout_s': 0.25, 'arm_retry_s': 0.5,
-            'auto_mode': True, 'limits': LIMITES}
+            'limits': LIMITES}
     return BridgeLogic(BridgeConfig(**{**base, **cambios}))
 
 
@@ -34,10 +33,10 @@ def recibir(logic, now, *eventos):
 
 
 def lista_para_andar(**cambios):
-    """Un puente con el ESP32 ya configurado en AUTO y en RUNNING."""
+    """Un puente con el ESP32 ya armado y en RUNNING."""
     logic = logica(**cambios)
     logic.on_port_opened()
-    recibir(logic, 0.0, 'EVENT:CMD_RECEIVED:SYS_MODE:AUTO', 'EVENT:STATE_CHANGED:RUNNING')
+    recibir(logic, 0.0, 'EVENT:STATE_CHANGED:RUNNING')
     return logic
 
 
@@ -123,33 +122,19 @@ def test_una_emergencia_nueva_vuelve_a_enviar_el_freno_de_emergencia():
     assert lineas(logic, now=10.1)[0] == 'E:BRAKE_NOW:0'
 
 
-# --- modo y armado ---------------------------------------------------------------------------
+# --- armado ---------------------------------------------------------------------------------
 
-def test_al_abrir_el_puerto_primero_se_configura_el_modo():
+def test_al_abrir_el_puerto_se_arma_sin_configurar_ningun_modo():
+    # El firmware no tiene modos: M:SYS_MODE no existe y lo descartaría sin responder.
     logic = logica()
     logic.on_port_opened()
-    assert lineas(logic, now=0.0)[0] == 'M:SYS_MODE:1'
+    assert lineas(logic, now=0.0)[0] == 'M:SYS_ARM:0'
+    assert not any('SYS_MODE' in linea for linea in lineas(logic, now=1.0))
 
 
-def test_el_modo_se_reintenta_hasta_que_el_esp32_lo_confirma():
-    logic = logica()
-    logic.on_port_opened()
-    assert lineas(logic, now=0.0)[0] == 'M:SYS_MODE:1'
-    assert lineas(logic, now=0.05)[0] == 'M:SYS_MODE:1'
-    recibir(logic, 0.06, 'EVENT:CMD_RECEIVED:SYS_MODE:AUTO')
-    assert lineas(logic, now=0.1)[0] == 'M:SYS_ARM:0'
-
-
-def test_en_modo_manual_se_pide_manual():
-    logic = logica(auto_mode=False)
-    logic.on_port_opened()
-    assert lineas(logic, now=0.0)[0] == 'M:SYS_MODE:0'
-
-
-def test_con_el_modo_confirmado_se_arma_y_se_reintenta_hasta_la_confirmacion():
+def test_se_arma_y_se_reintenta_hasta_la_confirmacion():
     logic = logica(arm_retry_s=0.5)
     logic.on_port_opened()
-    recibir(logic, 0.0, 'EVENT:MODE_CHANGED:AUTO')
     assert lineas(logic, now=0.0)[0] == 'M:SYS_ARM:0'
     assert 'M:SYS_ARM:0' not in lineas(logic, now=0.25)
     assert lineas(logic, now=0.5)[0] == 'M:SYS_ARM:0'
@@ -166,13 +151,13 @@ def test_nunca_se_envian_dos_comandos_de_gestion_en_el_mismo_ciclo():
         gestion = [linea for linea in lineas(logic, now) if linea.startswith('M:')]
         assert len(gestion) <= 1
         if paso == 3:
-            recibir(logic, now, 'EVENT:CMD_RECEIVED:SYS_MODE:AUTO')
+            recibir(logic, now, 'EVENT:CMD_REJECTED:SYS_ARM:ESTOP_ACTIVE')
 
 
 def test_si_el_esp32_ya_estaba_andando_no_se_lo_arma_de_nuevo():
     logic = logica()
     logic.on_port_opened()
-    recibir(logic, 0.0, 'EVENT:CMD_RECEIVED:SYS_MODE:AUTO', 'EVENT:STATE_CHANGED:RUNNING')
+    recibir(logic, 0.0, 'EVENT:STATE_CHANGED:RUNNING')
     assert not any(linea.startswith('M:') for linea in lineas(logic, now=0.0))
 
 
@@ -209,31 +194,26 @@ def test_pedir_armado_saca_al_esp32_del_fault():
 def test_un_armado_rechazado_por_el_e_stop_se_sigue_reintentando():
     logic = logica(arm_retry_s=0.5)
     logic.on_port_opened()
-    recibir(logic, 0.0, 'EVENT:MODE_CHANGED:AUTO')
     lineas(logic, now=0.0)
     recibir(logic, 0.1, 'EVENT:CMD_REJECTED:SYS_ARM:ESTOP_ACTIVE')
     assert lineas(logic, now=0.5)[0] == 'M:SYS_ARM:0'
 
 
-def test_si_el_esp32_se_reinicia_se_vuelve_a_configurar_y_a_armar():
+def test_si_el_esp32_se_reinicia_se_vuelve_a_armar():
     logic = lista_para_andar()
     logic.on_drive_command(-0.5, 0.0, now=1.0)
     lineas(logic, now=1.0)
     recibir(logic, 2.0, *ARRANQUE_DEL_ESP32)
-    assert lineas(logic, now=2.0)[0] == 'M:SYS_MODE:1'
-    recibir(logic, 2.05, 'EVENT:CMD_RECEIVED:SYS_MODE:AUTO')
-    assert lineas(logic, now=2.1)[0] == 'M:SYS_ARM:0'
+    assert lineas(logic, now=2.0)[0] == 'M:SYS_ARM:0'
 
 
 def test_si_el_esp32_arranca_armado_no_se_lo_vuelve_a_armar():
     # Con -DBOOT_ARMED el firmware arranca ARMED y lo informa antes de SYSTEM_READY.
     logic = lista_para_andar()
-    recibir(logic, 1.0, 'EVENT:STATE_CHANGED:ARMED', 'EVENT:MODE_CHANGED:MANUAL',
+    recibir(logic, 1.0, 'EVENT:STATE_CHANGED:ARMED',
             'EVENT:STATE_AUTO_TRANSITION:ARMED->RUNNING', 'EVENT:SYSTEM_READY')
     assert logic.state(now=1.0).esp32_state == 'RUNNING'
-    assert lineas(logic, now=1.0)[0] == 'M:SYS_MODE:1'
-    recibir(logic, 1.05, 'EVENT:CMD_RECEIVED:SYS_MODE:AUTO')
-    assert not any(linea.startswith('M:') for linea in lineas(logic, now=1.1))
+    assert not any(linea.startswith('M:') for linea in lineas(logic, now=1.0))
 
 
 def test_despues_de_un_reinicio_se_reenvia_el_sentido():
@@ -242,7 +222,7 @@ def test_despues_de_un_reinicio_se_reenvia_el_sentido():
     logic.on_drive_command(-0.5, 0.0, now=1.0)
     lineas(logic, now=1.0)
     recibir(logic, 1.05, *ARRANQUE_DEL_ESP32)
-    recibir(logic, 1.05, 'EVENT:CMD_RECEIVED:SYS_MODE:AUTO', 'EVENT:STATE_CHANGED:RUNNING')
+    recibir(logic, 1.05, 'EVENT:STATE_CHANGED:RUNNING')
     logic.on_drive_command(-0.5, 0.0, now=1.1)
     assert 'C:SET_DIR:0' in lineas(logic, now=1.1)
 
@@ -279,19 +259,18 @@ def test_la_depuracion_y_el_ruido_no_cuentan_como_senal_de_vida(linea):
     assert logic.state(now=1.0).link_up is False
 
 
-def test_el_estado_y_el_modo_del_esp32_se_reflejan_en_el_estado():
+def test_el_estado_del_esp32_se_refleja_en_el_estado():
     logic = logica()
-    recibir(logic, 1.0, 'EVENT:STATE_CHANGED:ARMED', 'EVENT:MODE_CHANGED:AUTO',
+    recibir(logic, 1.0, 'EVENT:STATE_CHANGED:ARMED',
             'EVENT:STATE_AUTO_TRANSITION:ARMED->RUNNING')
-    estado = logic.state(now=1.0)
-    assert (estado.esp32_state, estado.esp32_mode) == ('RUNNING', 'AUTO')
+    assert logic.state(now=1.0).esp32_state == 'RUNNING'
 
 
 def test_al_reabrir_el_puerto_se_olvida_lo_que_se_sabia_del_esp32():
     logic = lista_para_andar()
     logic.on_port_opened()
     estado = logic.state(now=0.0)
-    assert (estado.link_up, estado.esp32_state, estado.esp32_mode) == (False, '', '')
+    assert (estado.link_up, estado.esp32_state) == (False, '')
 
 
 # --- configuración ---------------------------------------------------------------------------

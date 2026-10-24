@@ -137,16 +137,9 @@ def test_el_nodo_abre_el_puerto_y_la_velocidad_con_los_valores_del_yaml(
                                     parametros_del_yaml['baud_rate'])
 
 
-def test_al_abrir_el_puerto_configura_el_modo_del_yaml(entorno, parametros_del_yaml):
-    esperada = 'M:SYS_MODE:%d' % (1 if parametros_del_yaml['esp32_mode'] == 'AUTO' else 0)
-    assert entorno.esperar(lambda: esperada in entorno.puerto.tramas())
-
-
-def test_con_el_modo_confirmado_arma_el_esp32(entorno):
-    def responder():
-        entorno.puerto.por_leer += b'EVENT:CMD_RECEIVED:SYS_MODE:AUTO\n'
-
-    assert entorno.esperar(lambda: 'M:SYS_ARM:0' in entorno.puerto.tramas(), responder)
+def test_al_abrir_el_puerto_arma_el_esp32_sin_pedir_modo(entorno):
+    assert entorno.esperar(lambda: 'M:SYS_ARM:0' in entorno.puerto.tramas())
+    assert not any('SYS_MODE' in trama for trama in entorno.puerto.tramas())
 
 
 def test_sin_comandos_envia_velocidad_cero_como_heartbeat(entorno):
@@ -192,8 +185,7 @@ def test_un_fault_del_esp32_se_publica_como_watchdog_tripped(entorno):
 
 
 def test_el_servicio_de_armado_rearma_despues_de_un_fault(entorno):
-    entorno.puerto.por_leer += (b'EVENT:CMD_RECEIVED:SYS_MODE:AUTO\n'
-                                b'EVENT:STATE_CHANGED:RUNNING\n')
+    entorno.puerto.por_leer += b'EVENT:STATE_CHANGED:RUNNING\n'
     assert entorno.esperar(lambda: entorno.puerto.tramas().count('C:SET_SPEED:0') >= 2)
     entorno.puerto.por_leer += b'EVENT:STATE_CHANGED:FAULT\n'
     assert entorno.esperar(lambda: entorno.puerto.tramas().count('C:SET_SPEED:0') >= 4)

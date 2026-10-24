@@ -19,10 +19,9 @@ PARAMETROS_ENTEROS = (
     'baud_rate', 'duty_start', 'duty_max', 'servo_left', 'servo_center', 'servo_right',
 )
 PARAMETROS_TEXTO = (
-    'serial_port', 'esp32_mode', 'cmd_topic', 'safety_topic', 'status_topic',
+    'serial_port', 'cmd_topic', 'safety_topic', 'status_topic',
     'status_frame_id', 'arm_service',
 )
-MODOS_ESP32 = ('AUTO', 'MANUAL')
 
 
 def abrir_puerto_real(ruta, baud_rate):
@@ -56,14 +55,10 @@ class HardwareBridgeNode(Node):
         for nombre in PARAMETROS_DECIMALES:
             self.declare_parameter(nombre, Parameter.Type.DOUBLE)
 
-        modo = self._param('esp32_mode')
-        if modo not in MODOS_ESP32:
-            raise ValueError('esp32_mode debe ser AUTO o MANUAL, no %r' % modo)
         self._logic = BridgeLogic(BridgeConfig(
             link_timeout_s=self._param('link_timeout_s'),
             cmd_timeout_s=self._param('cmd_timeout_s'),
             arm_retry_s=self._param('arm_retry_s'),
-            auto_mode=(modo == 'AUTO'),
             limits=Esp32Limits(
                 max_speed_mps=self._param('max_speed_mps'),
                 max_steer_rad=self._param('max_steer_rad'),
@@ -158,12 +153,10 @@ class HardwareBridgeNode(Node):
     # --- publicaciones --------------------------------------------------------
     def _informar_cambio_de_estado(self, now):
         estado = self._logic.state(now)
-        clave = (estado.esp32_state, estado.esp32_mode)
-        if clave == self._estado_informado:
+        if estado.esp32_state == self._estado_informado:
             return
-        self._estado_informado = clave
-        texto = 'ESP32 en estado %s, modo %s' % (
-            estado.esp32_state or '?', estado.esp32_mode or '?')
+        self._estado_informado = estado.esp32_state
+        texto = 'ESP32 en estado %s' % (estado.esp32_state or '?')
         if estado.fault:
             self.get_logger().error(
                 texto + ': frenado; para rearmarlo, llamar a %s' % self._param('arm_service'))
