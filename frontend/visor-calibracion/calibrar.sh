@@ -5,6 +5,9 @@
 # Uso (desde cualquier carpeta):
 #   frontend/visor-calibracion/calibrar.sh              # compila si hace falta y lanza
 #   frontend/visor-calibracion/calibrar.sh --compilar   # fuerza recompilar (por ejemplo, tras cambiar de rama)
+#   frontend/visor-calibracion/calibrar.sh --auto       # además del visor, arranca TODO el sistema
+#                                                       # (control, decisión, puente con el ESP32): el auto SE MUEVE
+#   frontend/visor-calibracion/calibrar.sh --auto --puerto /dev/ttyACM0   # otro puerto serial
 #
 # Ctrl+C detiene todo. Los logs de cada proceso quedan en /tmp/visor-calibracion/.
 # Sin `-u`: el setup.bash de ROS usa variables sin definir.
@@ -20,10 +23,19 @@ LOGS="${TMPDIR:-/tmp}/visor-calibracion"
 ESPERA_TOPICS_S=20
 
 compilar=false
-for arg in "$@"; do
+auto=false
+puerto=""
+while [ "$#" -gt 0 ]; do
+  arg=$1
+  shift
   case "$arg" in
     --compilar) compilar=true ;;
-    -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
+    --auto) auto=true ;;
+    --puerto)
+      [ "$#" -gt 0 ] || { echo "--puerto necesita un valor" >&2; exit 2; }
+      puerto=$1
+      shift ;;
+    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
     *) echo "Opción desconocida: $arg" >&2; exit 2 ;;
   esac
 done
@@ -80,8 +92,16 @@ trap detener EXIT
 trap 'exit 130' INT TERM
 
 echo "== Lanzando"
-lanzar camara ros2 launch bfmc_camera camera.launch.py
-lanzar carril ros2 launch bfmc_lane_detection lane_detection.launch.py
+if $auto; then
+  if [ -n "$puerto" ]; then
+    lanzar sistema ros2 launch bfmc_bringup system.launch.py serial_port:="$puerto"
+  else
+    lanzar sistema ros2 launch bfmc_bringup system.launch.py
+  fi
+else
+  lanzar camara ros2 launch bfmc_camera camera.launch.py
+  lanzar carril ros2 launch bfmc_lane_detection lane_detection.launch.py
+fi
 lanzar video ros2 run web_video_server web_video_server
 lanzar rosbridge ros2 launch rosbridge_server rosbridge_websocket_launch.xml
 
@@ -97,6 +117,12 @@ done
 
 echo "== Calidad de servicio de la imagen (si 'web_video_server' no muestra imagen, mirá esto)"
 ros2 topic info -v /camera/color/image_raw 2> /dev/null | grep -E "Node name|Reliability" || echo "  (sin datos: el topic no tiene publicador)"
+
+if $auto; then
+  echo
+  echo "MODO AUTO: el sistema completo está corriendo y el auto va a moverse. Ruedas en el aire la primera vez."
+  echo "Para detenerlo: Ctrl+C, o en otra terminal  ros2 service call /hardware/stop std_srvs/srv/SetBool \"{data: true}\""
+fi
 
 ip="$(hostname -I 2> /dev/null | awk '{print $1}')"
 echo
