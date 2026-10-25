@@ -1,0 +1,42 @@
+# Parámetros de bfmc_decision. Toda constante del nodo vive acá, no en el código.
+# La clave de primer nivel es el nombre del nodo.
+# Los valores marcados [asumido] son una primera propuesta y se ajustan en el auto.
+decision:
+  ros__parameters:
+    rate_hz: 20.0                      # [Hz] frecuencia del ciclo de decisión
+
+    # Topics.
+    lane_topic: /perception/lane
+    signs_topic: /perception/signs
+    safety_topic: /safety/status
+    hardware_topic: /hardware/status
+    lane_cmd_topic: /control/lane_cmd
+    maneuver_cmd_topic: /maneuver/cmd
+    drive_topic: /cmd/drive            # comando final: este nodo es el único que publica acá
+    state_topic: /vehicle/state
+    maneuver_action_name: /maneuver/execute
+    frame_id: base_link
+
+    # Entradas vencidas: una entrada que deja de llegar cuenta como emergencia.
+    safety_timeout_s: 0.5              # [s] el estado de seguridad llega a 20 Hz [asumido]
+    hardware_timeout_s: 1.5            # [s] el estado del hardware llega a 2 Hz [asumido]
+    lane_cmd_timeout_s: 0.5            # [s] sin comando de carril hay emergencia (no rige en maniobras) [asumido]
+    maneuver_cmd_timeout_s: 0.5        # [s] una maniobra sin comando vigente deja el auto detenido [asumido]
+    signs_timeout_s: 0.5               # [s] las detecciones más viejas que esto se ignoran [asumido]
+    lane_lost_timeout_s: 2.0           # [s] carril sin detectar por más tiempo que esto hay emergencia [asumido]
+
+    # Maniobras.
+    maneuver_request_timeout_s: 1.0    # [s] espera máxima a que el servidor responda [asumido]
+    maneuver_timeout_s: 15.0           # [s] duración máxima de una maniobra [asumido]
+    maneuver_cooldown_s: 5.0           # [s] espera tras una maniobra antes de aceptar otra [asumido]
+
+    # Eventos de señal.
+    min_sign_confidence: 0.6           # [0, 1] confianza mínima de una detección [asumido]
+    stop_distance_m: 1.0               # [m] el stop se activa a esta distancia o menos [asumido]
+    intersection_distance_m: 1.5       # [m] la intersección se activa a esta distancia o menos [asumido]
+    stop_labels: [stop]                # etiquetas de señal que piden un stop
+    intersection_labels: [priority, roundabout]  # etiquetas que piden una intersección
+
+    # Intersección.
+    intersection_direction: straight   # left, right o straight. Hasta que haya un planificador de ruta [asumido]
+    intersection_min_frames: 3         # cuadros seguidos con intersección en el carril para activarla [asumido]

@@ -1,0 +1,42 @@
+# Parámetros de bfmc_sign_detection. Toda constante del nodo vive acá, no en el código.
+# La clave de primer nivel es el nombre del nodo.
+# Los valores marcados [asumido] son una primera propuesta y se ajustan en el auto.
+sign_detection:
+  ros__parameters:
+    # Topics.
+    color_topic: /camera/color/image_raw
+    depth_topic: /camera/aligned_depth_to_color/image_raw   # profundidad ALINEADA al color
+    signs_topic: /perception/signs
+
+    # Modelo. Se baja con el comando `descargar_modelo`.
+    model_path: ~/.cache/bfmc/senales/best.pt
+    device: ""                     # "cuda", "cpu" o vacío para que Ultralytics elija
+    yolo_confidence: 0.25          # [0, 1] umbral con el que el modelo propone detecciones [asumido]
+
+    # Clases del modelo (13 clases del best.pt de noviembre) a tipos de señal del sistema.
+    # Formato "clase:etiqueta". Una clase que no figura acá se descarta. Las etiquetas
+    # "stop", "priority" y "roundabout" son las que usa bfmc_decision.
+    class_map:
+      - "stop:stop"
+      - "priority:priority"
+      - "roundabout:roundabout"
+      - "crosswalk:crosswalk"
+      - "parking:parking"
+      - "onewayroad:one_way"
+      - "no_entry:no_entry"
+      - "highway_entry:highway_entry"
+      - "highway_exit:highway_exit"
+      - "trafficlight:traffic_light"
+      - "lightred:light_red"
+      - "lightyellow:light_yellow"
+      - "lightgreen:light_green"
+
+    min_confidence: 0.5            # [0, 1] debajo de esto la detección no se publica [asumido]
+
+    # Distancia: mediana de la profundidad válida en una ventana centrada en la caja.
+    depth_window_fraction: 0.5     # (0, 1] fracción de la caja que se usa [asumido]
+    min_depth_m: 0.2               # [m] profundidades menores se consideran inválidas [asumido]
+    max_depth_m: 6.0               # [m] profundidades mayores se consideran inválidas [asumido]
+    min_depth_pixels: 20           # píxeles válidos mínimos para dar una distancia [asumido]
+    depth_unit_m: 0.001            # [m] valor de un paso de la profundidad 16UC1 (0,001 = milímetros)
+    max_depth_age_s: 0.5           # [s] una profundidad más vieja que esto no se usa [asumido]

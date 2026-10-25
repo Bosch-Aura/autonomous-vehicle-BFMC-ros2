@@ -1,0 +1,30 @@
+# Parámetros de bfmc_control. Toda constante del nodo vive acá, no en el código.
+# La clave de primer nivel es el nombre del nodo.
+# Los valores marcados [asumido] son una primera propuesta y se afinan en el auto.
+control:
+  ros__parameters:
+    lane_topic: /perception/lane       # topic del que lee el estado del carril
+    cmd_topic: /control/lane_cmd       # topic en el que publica el comando
+    frame_id: base_link                # frame del encabezado del comando
+
+    # PID sobre el error = desvío lateral + heading_weight * error de rumbo.
+    kp: 1.5                            # [rad/m] [asumido]
+    ki: 0.1                            # [rad/(m*s)] [asumido]
+    kd: 0.2                            # [rad*s/m] [asumido]
+    heading_weight_m_per_rad: 0.5      # [m/rad] cuánto pesa el rumbo frente al desvío [asumido]
+    deadband_m: 0.01                   # [m] errores menores se ignoran [asumido]
+    integral_limit_rad: 0.15           # [rad] tope del término integral (anti-windup) [asumido]
+
+    # Forma de la salida.
+    max_steer_rad: 0.436               # [rad] 25 grados, el máximo del ADR-0001
+    max_steer_rate_rad_s: 3.0          # [rad/s] límite de velocidad de giro [asumido]
+    filter_alpha: 0.6                  # (0, 1] 1 = sin filtro; menor = más suave [asumido]
+
+    # Velocidad.
+    cruise_speed_mps: 0.3              # [m/s] velocidad de crucero [asumido]
+    slowdown_gain: 0.4                 # [0, 1) cuánto baja la velocidad al girar al máximo [asumido]
+
+    # Carril no detectado o poco confiable.
+    min_confidence: 0.3                # [0, 1] debajo de esto se trata como carril perdido [asumido]
+    lost_speed_factor: 0.5             # [0, 1] fracción de la velocidad de crucero [asumido]
+    max_dt_s: 0.5                      # [s] una pausa mayor entre mediciones reinicia el PID [asumido]

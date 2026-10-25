@@ -1,0 +1,32 @@
+# Parámetros de bfmc_hardware_bridge. Toda constante del nodo vive acá, no en el código.
+# La clave de primer nivel es el nombre del nodo.
+# Los valores marcados [asumido] o [por-verificar] se confirman en el auto.
+hardware_bridge:
+  ros__parameters:
+    # Enlace serial con el ESP32.
+    serial_port: /dev/ttyUSB0          # [por-verificar] el puerto depende de cómo se conecte el ESP32
+    baud_rate: 115200                  # [asumido] ADR-0001; debe coincidir con el firmware
+    send_rate_hz: 20.0                 # [Hz] frecuencia de las tramas; hace de heartbeat
+    reconnect_period_s: 1.0            # [s] espera entre intentos de reabrir el puerto
+
+    # Topics.
+    cmd_topic: /cmd/drive              # comando final (ackermann_msgs/AckermannDriveStamped)
+    safety_topic: /safety/status       # si indica emergencia, el puente frena
+    ultrasonic_topic: /hardware/ultrasonic
+    status_topic: /hardware/status
+    ultrasonic_frame_id: ultrasonic_front
+    status_frame_id: base_link
+    status_rate_hz: 2.0                # [Hz] frecuencia de /hardware/status
+
+    # Seguridad.
+    link_timeout_s: 0.5                # [s] sin mensajes del ESP32 más tiempo que esto, el enlace se da por caído [asumido]
+    cmd_timeout_s: 0.25                # [s] un comando más viejo que esto se descarta y se frena [asumido]
+
+    # Límites de los comandos (ADR-0001). El firmware aplica los mismos.
+    max_speed_mps: 0.5                 # [m/s] [asumido]
+    max_steer_rad: 0.436332            # [rad] 25 grados [asumido]
+
+    # Sensor ultrasónico (HC-SR04). Para sensor_msgs/Range.
+    ultrasonic_min_range_m: 0.02       # [m] [asumido]
+    ultrasonic_max_range_m: 4.0        # [m] [asumido]
+    ultrasonic_fov_rad: 0.26           # [rad] ángulo de apertura [asumido]

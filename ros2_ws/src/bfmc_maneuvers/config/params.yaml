@@ -1,0 +1,30 @@
+# Parámetros de bfmc_maneuvers. Toda constante del nodo vive acá, no en el código.
+# La clave de primer nivel es el nombre del nodo.
+# Los tiempos, velocidades y ángulos de las maniobras son una primera propuesta
+# [asumido]: son secuencias en lazo abierto y se calibran en el auto.
+maneuvers:
+  ros__parameters:
+    action_name: /maneuver/execute   # nombre de la acción ManeuverExecute
+    cmd_topic: /maneuver/cmd         # topic en el que publica el comando mientras hay una maniobra
+    frame_id: base_link
+    rate_hz: 20.0                    # [Hz] frecuencia del comando
+
+    # Stop: frenar, esperar y avanzar derecho para pasar la señal.
+    stop:
+      hold_s: 3.0                    # [s] tiempo detenido [asumido]
+      exit_s: 1.5                    # [s] avance derecho al terminar la espera; 0 = sin avance [asumido]
+      exit_speed_mps: 0.3            # [m/s] [asumido]
+
+    # Intersección en lazo abierto. Todos los ángulos son magnitudes positivas:
+    # el sentido (izquierda o derecha) lo da la dirección pedida.
+    intersection:
+      speed_mps: 0.2                 # [m/s] [asumido]
+      straight_s: 3.0                # [s] duración de cruzar derecho [asumido]
+      left:
+        approach_s: 1.0              # [s] avance derecho antes de girar [asumido]
+        turn_s: 2.0                  # [s] duración del giro [asumido]
+        steer_rad: 0.38              # [rad] magnitud de la dirección en el giro [asumido]
+      right:
+        approach_s: 1.5              # [s] [asumido]
+        turn_s: 3.5                  # [s] [asumido]
+        steer_rad: 0.40              # [rad] [asumido]

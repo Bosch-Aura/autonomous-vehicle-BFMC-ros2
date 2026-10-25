@@ -1,0 +1,43 @@
+# Parámetros de bfmc_lane_detection. Toda constante del nodo vive acá, no en el código.
+# La clave de primer nivel es el nombre del nodo.
+# TODOS los valores de visión y de geometría son una primera propuesta [asumido]:
+# dependen de la cámara, de su montaje y de la iluminación, y se calibran con
+# imágenes reales de la pista.
+lane_detection:
+  ros__parameters:
+    image_topic: /camera/color/image_raw
+    lane_topic: /perception/lane
+
+    # 1. Umbral de color de las marcas blancas, en HSV de OpenCV (H 0-179, S y V 0-255).
+    white_hsv_min: [0, 0, 200]       # [H, S, V] mínimos
+    white_hsv_max: [179, 60, 255]    # [H, S, V] máximos
+    morph_kernel_px: 3               # [px] apertura morfológica que quita el ruido; 1 = sin apertura
+
+    # 2. Región de interés: se descarta esta fracción de arriba de la imagen.
+    roi_top_fraction: 0.5
+
+    # 3. Vista cenital. Cuatro puntos del piso en la imagen de cámara, como fracción
+    # del ancho y del alto, en este orden: arriba-izquierda, arriba-derecha,
+    # abajo-derecha, abajo-izquierda (x, y de cada uno).
+    warp_src: [0.30, 0.55, 0.70, 0.55, 1.00, 0.95, 0.00, 0.95]
+    warp_width: 400                  # [px] tamaño de la vista cenital
+    warp_height: 400                 # [px]
+
+    # Escala de la vista cenital.
+    lane_width_m: 0.37               # [m] ancho real del carril
+    lane_width_px: 200.0             # [px] ancho del carril en la vista cenital
+    forward_range_m: 0.8             # [m] distancia hacia adelante que cubre la vista cenital
+
+    # 4. Búsqueda de las líneas con ventanas deslizantes.
+    n_windows: 9                     # cantidad de ventanas, de abajo hacia arriba
+    window_margin_px: 40             # [px] mitad del ancho de cada ventana
+    min_pixels: 50                   # píxeles mínimos para dar por válida una línea
+
+    # 5. Medición.
+    reference_row_fraction: 0.25     # fila donde se mide, como fracción hacia adelante (0 = pegado al auto)
+    full_confidence_pixels: 1500     # píxeles de línea con los que la confianza llega a 1
+
+    # Intersección: una franja horizontal blanca que cruza la vista cenital.
+    intersection_band_top_fraction: 0.5   # solo se mira la mitad cercana al auto
+    intersection_row_fraction: 0.6        # una fila cuenta si está blanca en al menos esta fracción
+    intersection_min_rows: 8              # filas necesarias para dar la intersección por detectada
