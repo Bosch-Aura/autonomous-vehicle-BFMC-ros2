@@ -109,18 +109,20 @@
       <table>
         <tr><td>Auto</td><td id="a-auto">--</td></tr>
         <tr><td>Enlace con el ESP32</td><td id="a-enlace">--</td></tr>
+        <tr><td>Ultrasónico</td><td id="a-sensor">--</td></tr>
         <tr><td>Decisión</td><td id="a-decision">--</td></tr>
       </table>
       <label class="deslizador"><span>Velocidad <b><output id="valor-velocidad">10</output> cm/s</b></span>
         <input type="range" id="velocidad" min="0" max="50" step="1" value="10"></label>
-      <small>Es la velocidad que el auto pide, no la medida: el auto no tiene encoder. Con carril perdido va a la mitad.</small>
+      <small>Es la velocidad que el auto pide, no la medida: el auto no tiene encoder. Con carril perdido sigue derecho a la misma velocidad.</small>
       <div class="mando">
         <button id="iniciar" class="iniciar">Iniciar</button>
         <button id="frenar" class="frenar">Frenar</button>
       </div>
       <div class="fila"><button id="rearmar" class="sec">Rearmar después de una falla</button></div>
+      <div class="fila"><button id="destrabar" class="sec">Destrabar obstáculo</button></div>
       <p class="aviso-mando" id="aviso-mando" hidden></p>
-      <small>El auto arranca detenido. "Iniciar" lo suelta y "Frenar" lo detiene hasta el próximo "Iniciar". Un obstáculo lo frena solo.</small>
+      <small>El auto arranca detenido. "Iniciar" lo suelta y "Frenar" lo detiene hasta el próximo "Iniciar". Un obstáculo lo frena solo y, si deja de verlo, sigue. Si el ultrasónico se queda sin lecturas, el puente lo destraba solo una vez; "Destrabar obstáculo" lo hace a mano (si el obstáculo sigue ahí, vuelve a frenar).</small>
     </div>
 
     <div class="tarjeta">
@@ -187,6 +189,7 @@ const ENVIO_CADA_MS = 100;
 const NODO_CONTROL = '/control';
 const SERVICIO_STOP = '/hardware/stop';
 const SERVICIO_ARMAR = '/hardware/arm';
+const SERVICIO_DESTRABAR = '/hardware/obstacle_reset';
 const TOPIC_HARDWARE = '/hardware/status';
 const TOPIC_ESTADO = '/vehicle/state';
 const NOMBRES_DECISION = ['arrancando', 'siguiendo el carril', 'en maniobra', 'EMERGENCIA'];
@@ -701,6 +704,15 @@ $('rearmar').addEventListener('click', async () => {
   }
 });
 
+$('destrabar').addEventListener('click', async () => {
+  try {
+    const r = await llamarServicio(SERVICIO_DESTRABAR, 'std_srvs/srv/Trigger', {});
+    avisoDelMando(r.success ? '' : 'el puente no pudo destrabar: ' + r.message);
+  } catch (error) {
+    avisoDelMando('no se pudo destrabar: ' + error.message);
+  }
+});
+
 async function leerVelocidadDelControl() {
   try {
     const r = await llamarServicio(
@@ -736,6 +748,9 @@ function mostrarHardware(msg) {
   }
   fijarEstado('a-auto', texto, clase);
   fijarEstado('a-enlace', msg.link_up ? 'conectado' : 'caído', msg.link_up ? 'ok' : 'mal');
+  // Sin lecturas puede ser espacio abierto (normal) o el sensor desconectado.
+  fijarEstado('a-sensor', msg.ultrasonic_silent ? 'sin lecturas (nada cerca o desconectado)'
+    : 'midiendo', msg.ultrasonic_silent ? 'suave' : 'ok');
 }
 
 function mostrarDecision(msg) {

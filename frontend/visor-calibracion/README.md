@@ -2,7 +2,7 @@
 
 Una página de un solo archivo (`index.html`) para **calibrar `bfmc_lane_detection` desde una computadora, viendo lo que ve la Jetson**. Muestra la imagen de la cámara, lo que el detector toma por línea, la vista desde arriba con las ventanas y las curvas, y los datos de `/perception/lane`. Deja **cambiar los parámetros del detector en vivo** (el trapecio `warp_src`, el umbral de color y la región de interés) y **manejar el auto**: velocidad, Iniciar y Frenar. No es el dashboard del vehículo (ver [`../README.md`](../README.md)): es una herramienta provisoria de calibración y de mando.
 
-- **Lee, calibra y manda.** Se suscribe a `/perception/lane`, `/hardware/status` y `/vehicle/state`, pide imágenes y llama a servicios: `get_parameters` y `set_parameters` del detector y del control, y `/hardware/stop` y `/hardware/arm` del puente. No publica ningún topic.
+- **Lee, calibra y manda.** Se suscribe a `/perception/lane`, `/hardware/status` y `/vehicle/state`, pide imágenes y llama a servicios: `get_parameters` y `set_parameters` del detector y del control, y `/hardware/stop`, `/hardware/arm` y `/hardware/obstacle_reset` del puente. No publica ningún topic.
 - **Sin dependencias.** No usa librerías ni internet: habla el protocolo de `rosbridge` (JSON por WebSocket) directamente. Funciona en una red sin salida a internet.
 - **No es un paquete ROS.** `colcon` no la compila ni la testea.
 
@@ -14,7 +14,7 @@ Una página de un solo archivo (`index.html`) para **calibrar `bfmc_lane_detecti
 | **Lo que ve el detector** | La imagen de la cámara con lo que el detector toma por **blanco pintado de rojo**, el trapecio que usa (amarillo), el límite de la región de interés (cian), las líneas que encontró (verde la izquierda, azul la derecha) y el error lateral (magenta). Sirve para ver si está tomando por línea algo que no lo es. |
 | **Vista desde arriba** | Lo que el detector ve después de "aplanar" el piso: la máscara de blancos, las **ventanas deslizantes** que siguen cada línea, las curvas ajustadas, el auto (amarillo) y la fila donde mide (naranja). |
 | **Carril** | `detected`, `lateral_error_m`, `heading_error_rad`, `confidence` e `intersection_detected` de `/perception/lane`, y cuánto hace que llegó el último dato (rojo si pasó más de 1 s). |
-| **Mando del auto** | Estado del auto (detenido, en marcha, detenido por un obstáculo a N cm, falla), del enlace con el ESP32 y de la decisión. Un deslizador de **velocidad en cm/s** (0 a 50), **Iniciar**, **Frenar** y **Rearmar después de una falla**. El auto arranca detenido: Iniciar manda primero la velocidad del deslizador y después suelta el freno; Frenar lo detiene hasta el próximo Iniciar. Si el pedido no llega, avisa en rojo. |
+| **Mando del auto** | Estado del auto (detenido, en marcha, detenido por un obstáculo a N cm, falla), del enlace con el ESP32, del ultrasónico (midiendo o sin lecturas) y de la decisión. Un deslizador de **velocidad en cm/s** (0 a 50), **Iniciar**, **Frenar**, **Rearmar después de una falla** y **Destrabar obstáculo** (suelta a mano el bloqueo del ultrasónico; si el obstáculo sigue, el ESP32 vuelve a frenar). El auto arranca detenido: Iniciar manda primero la velocidad del deslizador y después suelta el freno; Frenar lo detiene hasta el próximo Iniciar. Si el pedido no llega, avisa en rojo. |
 | **Ajustes en vivo** | Tres deslizadores (brillo mínimo y saturación máxima del blanco, y cuánto de arriba se descarta) y el texto con las cuatro líneas del `params.yaml`, listas para copiar. |
 
 ## Cómo usarlo
