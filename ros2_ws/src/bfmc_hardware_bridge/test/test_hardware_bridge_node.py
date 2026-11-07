@@ -84,6 +84,8 @@ class Entorno:
             HardwareStatus, param('status_topic').value, self.estados.append, RELIABLE)
         self.cliente_armado = auxiliar.create_client(Trigger, param('arm_service').value)
         self.cliente_stop = auxiliar.create_client(SetBool, param('stop_service').value)
+        self.cliente_destrabe = auxiliar.create_client(
+            Trigger, param('obstacle_reset_service').value)
 
     def esperar(self, condicion, publicar=None):
         limite = time.monotonic() + TIMEOUT_S
@@ -136,9 +138,28 @@ def test_al_abrir_el_puerto_arma_el_esp32_sin_pedir_modo(entorno):
     assert not any('SYS_MODE' in trama for trama in entorno.puerto.tramas())
 
 
-def test_el_auto_arranca_detenido_y_el_arranque_lo_suelta(entorno):
-    assert entorno.esperar(lambda: 'M:SYS_STOP:0' in entorno.puerto.tramas())
+def test_el_auto_arranca_detenido_y_el_latido_no_lo_suelta(entorno):
+    def confirmar():
+        if 'M:SYS_STOP:0' in entorno.puerto.tramas():
+            entorno.puerto.por_leer += b'EVENT:CMD_EXECUTED:SYS_STOP\n'
+
+    assert entorno.esperar(
+        lambda: entorno.puerto.tramas().count('M:SYS_STOP:0') >= 3, confirmar)
     assert 'M:SYS_RESUME:0' not in entorno.puerto.tramas()
+
+
+def test_el_latido_mantiene_el_enlace_aunque_el_esp32_no_hable_de_otra_cosa(entorno):
+    # El ESP32 solo contesta las confirmaciones del latido: el enlace sigue arriba.
+    def confirmar():
+        if entorno.puerto.tramas().count('M:SYS_STOP:0') > entorno.confirmados:
+            entorno.confirmados += 1
+            entorno.puerto.por_leer += b'EVENT:CMD_EXECUTED:SYS_STOP\n'
+
+    entorno.confirmados = 0
+    assert entorno.esperar(lambda: entorno.confirmados >= 6, confirmar)
+    arriba = [e.link_up for e in entorno.estados]
+    assert True in arriba
+    assert arriba[arriba.index(True):].count(False) == 0
 
 
 def test_sin_comandos_envia_velocidad_cero_como_heartbeat(entorno):
@@ -156,7 +177,7 @@ def test_un_comando_se_envia_al_esp32_en_sus_unidades(entorno):
 
 def test_el_estado_del_esp32_se_publica_tal_como_lo_reporta(entorno):
     def avisar():
-        entorno.puerto.por_leer += b'EVENT:STATE_AUTO_TRANSITION:RUNNING->STOPPED:SYS_STOP\n'
+        entorno.puerto.por_leer += b'EVENT:CMD_EXECUTED:SYS_STOP\nEVENT:STATE_CHANGED:STOPPED\n'
 
     assert entorno.esperar(
         lambda: any(e.esp32_state == 'STOPPED' for e in entorno.estados), avisar)
@@ -166,7 +187,7 @@ def test_el_estado_del_esp32_se_publica_tal_como_lo_reporta(entorno):
 def test_un_obstaculo_del_esp32_se_publica_con_su_distancia_y_se_despeja(entorno):
     def avisar():
         entorno.puerto.por_leer += (
-            b'EVENT:OBSTACLE_DETECTED:22\nEVENT:STATE_AUTO_TRANSITION:RUNNING->STOPPED:OBSTACLE\n')
+            b'EVENT:OBSTACLE_DETECTED:22\nEVENT:STATE_CHANGED:STOPPED\n')
 
     assert entorno.esperar(
         lambda: any(e.obstacle_stop for e in entorno.estados), avisar)
@@ -176,7 +197,7 @@ def test_un_obstaculo_del_esp32_se_publica_con_su_distancia_y_se_despeja(entorno
 
     def despejar():
         entorno.puerto.por_leer += (
-            b'EVENT:OBSTACLE_CLEARED\nEVENT:STATE_AUTO_TRANSITION:STOPPED->RUNNING\n')
+            b'EVENT:OBSTACLE_CLEARED\nEVENT:STATE_CHANGED:RUNNING\n')
 
     entorno.estados.clear()
     assert entorno.esperar(
@@ -196,7 +217,7 @@ def test_un_obstaculo_no_hace_que_el_puente_mande_un_freno(entorno):
 
 def test_un_evento_del_esp32_levanta_el_enlace(entorno):
     def responder():
-        entorno.puerto.por_leer += b'EVENT:CMD_RECEIVED:SET_SPEED:0\n'
+        entorno.puerto.por_leer += b'EVENT:CMD_EXECUTED:SYS_STOP\n'
 
     assert entorno.esperar(lambda: any(e.link_up for e in entorno.estados), responder)
 
@@ -235,9 +256,29 @@ def test_el_servicio_de_stop_detiene_y_arranca_el_esp32(entorno):
 
     pedir(True)
     assert entorno.esperar(lambda: 'M:SYS_STOP:0' in entorno.puerto.tramas())
-    entorno.puerto.por_leer += b'EVENT:CMD_RECEIVED:SYS_STOP\n'
+    entorno.puerto.por_leer += b'EVENT:CMD_EXECUTED:SYS_STOP\n'
     pedir(False)
     assert entorno.esperar(lambda: 'M:SYS_RESUME:0' in entorno.puerto.tramas())
+
+
+def test_frenado_por_obstaculo_y_sin_lecturas_se_destraba_solo(entorno):
+    def avisar():
+        entorno.puerto.por_leer += b'EVENT:OBSTACLE_DETECTED:22\nEVENT:ULTRASONIC_SILENT\n'
+
+    assert entorno.esperar(lambda: 'M:OBSTACLE_RESET:0' in entorno.puerto.tramas(), avisar)
+    assert any(e.ultrasonic_silent for e in entorno.estados)
+
+
+def test_el_servicio_de_destrabe_suelta_el_obstaculo(entorno):
+    entorno.puerto.por_leer += b'EVENT:OBSTACLE_DETECTED:22\n'
+    assert entorno.esperar(lambda: any(e.obstacle_stop for e in entorno.estados))
+    assert 'M:OBSTACLE_RESET:0' not in entorno.puerto.tramas()
+
+    assert entorno.cliente_destrabe.wait_for_service(timeout_sec=TIMEOUT_S)
+    respuesta = entorno.cliente_destrabe.call_async(Trigger.Request())
+    assert entorno.esperar(respuesta.done)
+    assert respuesta.result().success is True
+    assert entorno.esperar(lambda: 'M:OBSTACLE_RESET:0' in entorno.puerto.tramas())
 
 
 def test_sin_mensajes_del_esp32_el_enlace_se_publica_caido(entorno):
@@ -246,7 +287,7 @@ def test_sin_mensajes_del_esp32_el_enlace_se_publica_caido(entorno):
 
 
 def test_la_depuracion_del_esp32_no_levanta_el_enlace(entorno):
-    entorno.puerto.por_leer += b'[MotorTask] Motor task started\n'
+    entorno.puerto.por_leer += b'[Control] started\n'
     assert entorno.esperar(lambda: len(entorno.estados) >= 2)
     assert all(e.link_up is False for e in entorno.estados)
 

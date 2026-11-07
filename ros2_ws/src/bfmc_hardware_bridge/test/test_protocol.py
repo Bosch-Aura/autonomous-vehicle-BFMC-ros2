@@ -1,7 +1,7 @@
 """Tests del protocolo serial Jetson <-> ESP32 (ADR-0002), sin ROS ni puerto."""
 from bfmc_hardware_bridge.protocol import (
-    encode_arm, encode_brake_now, encode_direction, encode_disarm, encode_resume,
-    encode_speed, encode_steer, encode_stop, Event, parse_line,
+    encode_arm, encode_brake_now, encode_direction, encode_disarm, encode_obstacle_reset,
+    encode_resume, encode_speed, encode_steer, encode_stop, Event, parse_line,
 )
 import pytest
 
@@ -19,6 +19,7 @@ import pytest
     (encode_disarm(), b'M:SYS_DISARM:0\n'),
     (encode_stop(), b'M:SYS_STOP:0\n'),
     (encode_resume(), b'M:SYS_RESUME:0\n'),
+    (encode_obstacle_reset(), b'M:OBSTACLE_RESET:0\n'),
 ])
 def test_cada_comando_tiene_el_formato_canal_comando_valor_del_firmware(trama, esperada):
     assert trama == esperada
@@ -37,17 +38,17 @@ def test_un_evento_sin_argumentos_se_interpreta():
 
 
 def test_un_evento_con_argumentos_los_separa():
-    assert parse_line('EVENT:CMD_RECEIVED:SET_SPEED:150') == Event(
-        'CMD_RECEIVED', ('SET_SPEED', '150'))
+    assert parse_line('EVENT:CMD_EXECUTED:SET_SPEED:150') == Event(
+        'CMD_EXECUTED', ('SET_SPEED', '150'))
 
 
-def test_los_argumentos_con_flecha_se_conservan():
-    assert parse_line('EVENT:STATE_AUTO_TRANSITION:ARMED->RUNNING') == Event(
-        'STATE_AUTO_TRANSITION', ('ARMED->RUNNING',))
+def test_un_rechazo_conserva_el_motivo():
+    assert parse_line('EVENT:CMD_REJECTED:SET_SPEED:OBSTACLE') == Event(
+        'CMD_REJECTED', ('SET_SPEED', 'OBSTACLE'))
 
 
 @pytest.mark.parametrize('linea', [
-    '[MotorTask] Motor task started',
+    '[Control] started',
     '========================================',
     'ESP32 RC Car FreeRTOS System Starting...',
     'EVENT:',

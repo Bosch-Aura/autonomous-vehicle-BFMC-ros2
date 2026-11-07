@@ -7,14 +7,16 @@ una línea de texto ASCII por mensaje, terminada en '\n'.
                       C:SET_SPEED:<0-255>   duty de tracción, siempre >= 0
                       C:SET_STEER:<50-160>  servo: 50 izquierda, 105 centro, 160 derecha
                       C:SET_DIR:<0|1>       sentido: 1 adelante, 0 atrás
-                      E:BRAKE_NOW:0         freno de emergencia (5 s de bloqueo)
+                      E:BRAKE_NOW:0         freno de un solo uso (no lo usa el puente)
                       M:SYS_ARM:0 / M:SYS_DISARM:0
                       M:SYS_STOP:0 / M:SYS_RESUME:0  STOPPED enganchado / soltarlo
+                      M:OBSTACLE_RESET:0    suelta el bloqueo por obstáculo
 
     ESP32 -> Jetson   EVENT:<NOMBRE>[:<arg>...]
-                      EVENT:STATE_CHANGED:RUNNING, EVENT:CMD_RECEIVED:SET_SPEED:150, ...
+                      EVENT:STATE_CHANGED:RUNNING, EVENT:CMD_EXECUTED:SYS_STOP, ...
 
-Cualquier otra línea del ESP32 (por ejemplo "[MotorTask] ...") es depuración
+Los eventos salen solo cuando algo cambia, o como confirmación de un comando M:.
+Cualquier otra línea del ESP32 (por ejemplo "[Control] started") es depuración
 para humanos y no forma parte del protocolo.
 """
 from dataclasses import dataclass
@@ -27,7 +29,7 @@ PREFIJO_EVENTO = 'EVENT:'
 class Event:
     """Un evento del ESP32.
 
-    `EVENT:CMD_RECEIVED:SET_SPEED:150` -> name `CMD_RECEIVED`, args `('SET_SPEED', '150')`.
+    `EVENT:CMD_EXECUTED:SET_SPEED:150` -> name `CMD_EXECUTED`, args `('SET_SPEED', '150')`.
     """
 
     name: str
@@ -54,7 +56,7 @@ def encode_direction(forward: bool) -> bytes:
 
 
 def encode_brake_now() -> bytes:
-    """Freno de emergencia. El firmware ignora la tracción durante 5 s después."""
+    """Freno de un solo uso: el próximo C:SET_SPEED vuelve a mover el auto."""
     return _comando('E', 'BRAKE_NOW', 0)
 
 
@@ -76,6 +78,11 @@ def encode_stop() -> bytes:
 def encode_resume() -> bytes:
     """Suelta el SYS_STOP. Con un obstáculo delante el ESP32 sigue en STOPPED."""
     return _comando('M', 'SYS_RESUME', 0)
+
+
+def encode_obstacle_reset() -> bytes:
+    """Suelta el bloqueo por obstáculo. Si sigue ahí, el ESP32 vuelve a bloquear en ~150 ms."""
+    return _comando('M', 'OBSTACLE_RESET', 0)
 
 
 def parse_line(linea: str) -> Optional[Event]:

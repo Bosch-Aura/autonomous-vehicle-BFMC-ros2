@@ -13,15 +13,16 @@ from std_srvs.srv import SetBool, Trigger
 
 PARAMETROS_DECIMALES = (
     'send_rate_hz', 'status_rate_hz', 'reconnect_period_s', 'link_timeout_s',
-    'cmd_timeout_s', 'arm_retry_s', 'max_speed_mps', 'max_steer_rad',
+    'cmd_timeout_s', 'arm_retry_s', 'heartbeat_period_s', 'obstacle_reblock_window_s',
+    'max_speed_mps', 'max_steer_rad',
 )
 PARAMETROS_ENTEROS = (
     'baud_rate', 'duty_start', 'duty_max', 'servo_left', 'servo_center', 'servo_right',
 )
-PARAMETROS_BOOLEANOS = ('start_stopped',)
+PARAMETROS_BOOLEANOS = ('start_stopped', 'auto_obstacle_reset')
 PARAMETROS_TEXTO = (
     'serial_port', 'cmd_topic', 'status_topic', 'status_frame_id', 'arm_service',
-    'stop_service',
+    'stop_service', 'obstacle_reset_service',
 )
 
 
@@ -34,7 +35,8 @@ class HardwareBridgeNode(Node):
 
     En cada ciclo lee el puerto, procesa lo recibido y envía velocidad y
     dirección: las del último comando, o 0 y centro si el comando es viejo.
-    Reenviar en cada ciclo hace de heartbeat para el watchdog del ESP32. Si el
+    Eso alimenta el watchdog del ESP32. Además reenvía el pedido de stop vigente
+    como latido, para que el ESP32 conteste y se sepa que sigue vivo. Si el
     ESP32 se detiene por un obstáculo, el nodo lo informa en /hardware/status.
 
     Todos los parámetros se declaran sin valor por defecto: los valores viven en
@@ -62,6 +64,9 @@ class HardwareBridgeNode(Node):
             link_timeout_s=self._param('link_timeout_s'),
             cmd_timeout_s=self._param('cmd_timeout_s'),
             arm_retry_s=self._param('arm_retry_s'),
+            heartbeat_period_s=self._param('heartbeat_period_s'),
+            auto_obstacle_reset=self._param('auto_obstacle_reset'),
+            obstacle_reblock_window_s=self._param('obstacle_reblock_window_s'),
             limits=Esp32Limits(
                 max_speed_mps=self._param('max_speed_mps'),
                 max_steer_rad=self._param('max_steer_rad'),
@@ -81,6 +86,8 @@ class HardwareBridgeNode(Node):
         self._ultimo_estado = None
         self._estado_informado = None
         self._obstaculo_informado = False
+        self._enlace_informado = None
+        self._silencio_informado = False
 
         reliable = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
         self._pub_estado = self.create_publisher(
@@ -89,6 +96,8 @@ class HardwareBridgeNode(Node):
             AckermannDriveStamped, self._param('cmd_topic'), self._on_cmd, reliable)
         self.create_service(Trigger, self._param('arm_service'), self._on_arm)
         self.create_service(SetBool, self._param('stop_service'), self._on_stop)
+        self.create_service(
+            Trigger, self._param('obstacle_reset_service'), self._on_obstacle_reset)
 
         self._timer = self.create_timer(1.0 / self._param('send_rate_hz'), self._ciclo)
         self.get_logger().info('hardware_bridge iniciado')
@@ -119,6 +128,14 @@ class HardwareBridgeNode(Node):
         response.success = True
         response.message = '%s pedido; el ESP32 lo confirma con STOPPED/RUNNING' % accion
         self.get_logger().info('%s el auto pedido por servicio' % accion)
+        return response
+
+    def _on_obstacle_reset(self, _request, response):
+        # Suelta el bloqueo del ultrasónico; si el obstáculo sigue ahí, el ESP32 vuelve a frenar.
+        self._logic.request_obstacle_reset()
+        response.success = True
+        response.message = 'destrabe pedido; si el obstáculo sigue, el ESP32 vuelve a frenar'
+        self.get_logger().info('destrabe del obstáculo pedido por servicio')
         return response
 
     # --- puerto serial ------------------------------------------------------
@@ -166,10 +183,25 @@ class HardwareBridgeNode(Node):
 
     # --- publicaciones --------------------------------------------------------
     def _informar_cambio_de_estado(self, now):
-        """Registra en el log los cambios de estado o de obstáculo; True si hubo alguno."""
+        """Registra los cambios de estado, enlace, obstáculo o sensor; True si hubo alguno."""
         estado = self._logic.state(now)
         cambio = (estado.esp32_state != self._estado_informado
-                  or estado.obstacle != self._obstaculo_informado)
+                  or estado.obstacle != self._obstaculo_informado
+                  or estado.link_up != self._enlace_informado
+                  or estado.ultrasonic_silent != self._silencio_informado)
+        if estado.link_up != self._enlace_informado:
+            self._enlace_informado = estado.link_up
+            if estado.link_up:
+                self.get_logger().info('enlace con el ESP32 arriba')
+            else:
+                self.get_logger().warning('enlace con el ESP32 caído: no llegan eventos')
+        if estado.ultrasonic_silent != self._silencio_informado:
+            self._silencio_informado = estado.ultrasonic_silent
+            if estado.ultrasonic_silent:
+                self.get_logger().info(
+                    'ultrasónico sin lecturas válidas (espacio abierto o sensor desconectado)')
+            else:
+                self.get_logger().info('ultrasónico con lecturas válidas otra vez')
         if estado.esp32_state != self._estado_informado:
             self._estado_informado = estado.esp32_state
             texto = 'ESP32 en estado %s' % (estado.esp32_state or '?')
@@ -183,7 +215,7 @@ class HardwareBridgeNode(Node):
             if estado.obstacle:
                 distancia = '?' if estado.obstacle_cm is None else str(estado.obstacle_cm)
                 self.get_logger().warning(
-                    'obstáculo a %s cm: el ESP32 se detuvo por su cuenta' % distancia)
+                    'obstáculo a %s cm: el ESP32 bloqueó el avance' % distancia)
             else:
                 self.get_logger().info('obstáculo despejado')
         return cambio
@@ -203,6 +235,7 @@ class HardwareBridgeNode(Node):
         # casos frenó y espera que lo rearmen. Un obstáculo no es FAULT: va aparte.
         msg.watchdog_tripped = estado.fault
         msg.obstacle_stop = estado.obstacle
+        msg.ultrasonic_silent = estado.ultrasonic_silent
         msg.esp32_state = estado.esp32_state
         msg.obstacle_distance_m = (
             estado.obstacle_cm / 100.0

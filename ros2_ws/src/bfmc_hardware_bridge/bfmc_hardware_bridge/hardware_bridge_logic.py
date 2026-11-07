@@ -3,41 +3,47 @@
 No importa ROS, no toca el puerto serial y no lee el reloj: recibe el instante
 actual como argumento.
 
-Reglas (ADR-0002):
+Reglas (ADR-0002 y ADR-0003), para el firmware actual de Bosch-Aura/embedded:
 
-- En cada ciclo se envían velocidad y dirección, aunque no hayan cambiado. Eso
-  renueva el TTL de 200 ms de los comandos y hace de heartbeat para el watchdog
-  del ESP32 (300 ms).
-- Si el último comando es viejo, se envía velocidad 0 y dirección al centro.
-- Ante un obstáculo el ESP32 frena solo (pasa a STOPPED, sin FAULT) y avisa con
-  OBSTACLE_DETECTED:<cm> y OBSTACLE_CLEARED. El puente lo registra y lo informa
-  (`HardwareState.obstacle`), pero no manda ningún freno por su cuenta: el que
-  frena es el firmware, y quien decide qué hacer con eso es `bfmc_decision`.
-- Al abrir el puerto, o si el ESP32 se reinicia, se lo arma. El ESP32 no tiene
-  modos de manejo: si el auto va solo o lo maneja una persona se decide acá.
-  Un FAULT posterior (watchdog, E-STOP u obstáculo) **no** se rearma solo: hace
-  falta pedirlo con `request_arm()`.
+- En cada ciclo se envían dirección y velocidad, aunque no hayan cambiado. Eso
+  alimenta el watchdog del ESP32 (300 ms). El firmware deja la velocidad
+  latcheada; si el último comando de ROS es viejo, se envía velocidad 0 y
+  dirección al centro.
+- El firmware solo emite eventos cuando algo cambia: andando a velocidad
+  constante no dice nada. Para saber que sigue vivo, el puente reenvía cada
+  `heartbeat_period_s` el pedido de stop vigente (M:SYS_STOP o M:SYS_RESUME).
+  Como el ESP32 ya está así, no cambia nada, pero siempre lo confirma con
+  EVENT:CMD_EXECUTED, y esa respuesta mantiene `link_up`.
+- Al abrir el puerto, o si el ESP32 se reinicia, se lo arma. Un FAULT posterior
+  (watchdog o E-STOP) **no** se rearma solo: hace falta `request_arm()`.
 - Otro nodo puede pedir detener el auto (`request_stop(True)`) o que vuelva a
-  arrancar (`request_stop(False)`). Se envía M:SYS_STOP o M:SYS_RESUME y se
-  reintenta hasta que el ESP32 lo confirme. El ESP32 olvida el stop al
-  reiniciarse, así que se le vuelve a enviar en cada sesión nueva.
-- Se envía como mucho un comando de gestión por ciclo: el
-  firmware guarda uno solo y un segundo, llegado antes de que lo procese,
-  pisaría al primero.
+  arrancar (`request_stop(False)`). Se reintenta hasta que el ESP32 lo confirme.
+  El ESP32 olvida el stop al reiniciarse, así que se le vuelve a enviar.
+- Ante un obstáculo frena el firmware (bloquea el avance) y avisa con
+  OBSTACLE_DETECTED:<cm> y OBSTACLE_CLEARED. El puente lo informa y no manda
+  ningún freno por su cuenta.
+- Si el obstáculo se va y adelante no queda nada al alcance del ultrasónico, el
+  firmware no recibe lecturas lejanas válidas y no suelta el bloqueo. Avisa con
+  ULTRASONIC_SILENT a los 2 s sin lecturas. Con `auto_obstacle_reset`, el
+  puente manda entonces M:OBSTACLE_RESET una sola vez por frenada: si el ESP32
+  vuelve a bloquear enseguida, ya no insiste y hace falta
+  `request_obstacle_reset()` (ADR-0003).
+- Se envía como mucho un comando de gestión (M:) por ciclo, con esta prioridad:
+  stop sin confirmar, armado, reset de obstáculo y latido.
 """
 from dataclasses import dataclass
 from typing import List, Optional
 
 from bfmc_hardware_bridge.protocol import (
-    encode_arm, encode_direction, encode_disarm, encode_resume, encode_speed, encode_steer,
-    encode_stop, Event, parse_line,
+    encode_arm, encode_direction, encode_disarm, encode_obstacle_reset, encode_resume,
+    encode_speed, encode_steer, encode_stop, Event, parse_line,
 )
 from bfmc_hardware_bridge.units import Esp32Limits, to_duty, to_servo
 
-ESTADOS = ('DISARMED', 'ARMED', 'RUNNING', 'STOPPED', 'FAULT')
+ESTADOS = ('DISARMED', 'RUNNING', 'STOPPED', 'FAULT')
 # Armado: el ESP32 obedece o, en STOPPED, está armado pero quieto (obstáculo o
 # M:SYS_STOP). En ninguno de estos hace falta armar.
-ARMADOS = ('ARMED', 'RUNNING', 'STOPPED')
+ARMADOS = ('RUNNING', 'STOPPED')
 
 
 @dataclass(frozen=True)
@@ -47,25 +53,35 @@ class BridgeConfig:
     link_timeout_s: float
     cmd_timeout_s: float
     arm_retry_s: float
+    heartbeat_period_s: float
+    auto_obstacle_reset: bool
+    obstacle_reblock_window_s: float
     limits: Esp32Limits
 
     def __post_init__(self):
-        if min(self.link_timeout_s, self.cmd_timeout_s, self.arm_retry_s) <= 0.0:
-            raise ValueError('link_timeout_s, cmd_timeout_s y arm_retry_s deben ser positivos')
+        tiempos = (self.link_timeout_s, self.cmd_timeout_s, self.arm_retry_s,
+                   self.heartbeat_period_s, self.obstacle_reblock_window_s)
+        if min(tiempos) <= 0.0:
+            raise ValueError('todos los tiempos deben ser positivos')
+        if self.heartbeat_period_s >= self.link_timeout_s:
+            raise ValueError('heartbeat_period_s debe ser menor que link_timeout_s')
 
 
 @dataclass(frozen=True)
 class HardwareState:
     """Estado del enlace con el ESP32.
 
-    `obstacle` es verdadero mientras el ESP32 está detenido por el ultrasónico;
-    `obstacle_cm` es la distancia a la que lo vio, o None si no la informó.
+    `obstacle` es verdadero mientras el ESP32 bloquea el avance por el
+    ultrasónico; `obstacle_cm` es la distancia a la que lo vio, o None si no la
+    informó. `ultrasonic_silent` indica que el sensor lleva 2 s sin ninguna
+    lectura válida (espacio abierto o sensor desconectado).
     """
 
     link_up: bool
     esp32_state: str
     obstacle: bool = False
     obstacle_cm: Optional[int] = None
+    ultrasonic_silent: bool = False
 
     @property
     def fault(self) -> bool:
@@ -90,6 +106,7 @@ class BridgeLogic:
         self._state = ''
         self._obstacle = False
         self._obstacle_cm = None
+        self._silent = False
         self._direction = None
         self._want_arm = False
         self._last_arm = None
@@ -97,6 +114,13 @@ class BridgeLogic:
         self._stop_wanted = None
         self._stop_confirmed = True
         self._last_stop = None
+        # Reset del obstáculo: pendiente hasta que el ESP32 lo confirme.
+        self._reset_pending = False
+        self._last_reset = None
+        # Destrabe automático: cuándo se hizo el último y si quedó agotado
+        # porque el ESP32 volvió a bloquear enseguida.
+        self._auto_reset_time = None
+        self._auto_reset_exhausted = False
 
     # --- entradas -------------------------------------------------------------
     def on_drive_command(self, speed_mps: float, steering_rad: float, now: float) -> None:
@@ -107,7 +131,8 @@ class BridgeLogic:
 
     def on_port_opened(self) -> None:
         """El puerto se acaba de abrir: no se sabe nada del ESP32, hay que armarlo."""
-        self._olvidar_esp32()
+        self._state = ''
+        self._nueva_sesion()
         self._last_rx = None
 
     def request_arm(self) -> None:
@@ -118,14 +143,26 @@ class BridgeLogic:
     def request_stop(self, stop: bool) -> None:
         """Pide detener el auto (True: M:SYS_STOP) o que vuelva a arrancar (False: M:SYS_RESUME).
 
-        El pedido queda guardado y se reenvía hasta que el ESP32 lo confirme.
-        Volver a arrancar solo suelta el stop: el auto se mueve con el próximo
-        comando de /cmd/drive, y si hay un obstáculo delante sigue detenido.
+        El pedido queda guardado y se reenvía hasta que el ESP32 lo confirme;
+        después se sigue reenviando como latido. Volver a arrancar solo suelta
+        el stop: el auto se mueve con el próximo comando de /cmd/drive, y si hay
+        un obstáculo delante sigue detenido.
         """
         if stop != self._stop_wanted:
             self._stop_wanted = stop
             self._stop_confirmed = False
             self._last_stop = None
+
+    def request_obstacle_reset(self) -> None:
+        """Pide soltar a mano el bloqueo por obstáculo (M:OBSTACLE_RESET).
+
+        Si el obstáculo sigue ahí, el ESP32 vuelve a bloquear en unos 150 ms.
+        También rehabilita el destrabe automático si se había agotado.
+        """
+        self._reset_pending = True
+        self._last_reset = None
+        self._auto_reset_exhausted = False
+        self._auto_reset_time = None
 
     def on_serial_line(self, line: str, now: float) -> Optional[Event]:
         """Procesa una línea que llegó del ESP32.
@@ -140,7 +177,7 @@ class BridgeLogic:
         if evento is None:
             return None
         self._last_rx = now
-        self._aplicar(evento)
+        self._aplicar(evento, now)
         return evento
 
     # --- salida -------------------------------------------------------------------
@@ -178,87 +215,126 @@ class BridgeLogic:
         link_up = (self._last_rx is not None
                    and (now - self._last_rx) <= self._config.link_timeout_s)
         return HardwareState(link_up=link_up, esp32_state=self._state,
-                             obstacle=self._obstacle, obstacle_cm=self._obstacle_cm)
+                             obstacle=self._obstacle, obstacle_cm=self._obstacle_cm,
+                             ultrasonic_silent=self._silent)
 
     def stop_requested(self) -> Optional[bool]:
         """Último pedido de stop: True detener, False arrancar, None si nadie pidió nada."""
         return self._stop_wanted
 
     # --- internos -------------------------------------------------------------------
-    def _olvidar_esp32(self):
-        self._state = ''
-        self._nueva_sesion()
-
-    def _despejar_obstaculo(self):
-        self._obstacle = False
-        self._obstacle_cm = None
-
     def _nueva_sesion(self):
-        """Hay que volver a armar; el sentido recordado ya no vale.
+        """El ESP32 arrancó de cero: DISARMED, sin stop ni obstáculo, hacia adelante.
 
-        El ESP32 arranca sin stop enganchado: si se pidió detener, hay que
-        volver a enviarlo. Un pedido de arrancar ya está cumplido.
+        Si se pidió detener, hay que volver a enviarlo antes de armar. Un pedido
+        de arrancar ya está cumplido.
         """
         self._stop_confirmed = self._stop_wanted is not True
         self._last_stop = None
         self._direction = None
-        self._despejar_obstaculo()
+        self._obstacle = False
+        self._obstacle_cm = None
+        self._silent = False
+        self._reset_pending = False
+        self._last_reset = None
+        self._auto_reset_time = None
+        self._auto_reset_exhausted = False
         self._want_arm = self._state not in ARMADOS
         self._last_arm = None
 
-    def _gestion(self, now):
-        """Como mucho un comando de gestión por ciclo: primero el stop, después el armado."""
-        if not self._stop_confirmed:
-            if self._last_stop is None or (now - self._last_stop) >= self._config.arm_retry_s:
-                self._last_stop = now
-                return encode_stop() if self._stop_wanted else encode_resume()
-            # Mientras se espera la confirmación del stop, el armado puede seguir.
-        if not self._want_arm:
-            return None
-        if self._last_arm is not None and (now - self._last_arm) < self._config.arm_retry_s:
-            return None
-        self._last_arm = now
-        return encode_arm()
+    def _encode_stop_vigente(self):
+        # Sin pedido todavía, el ESP32 no tiene ningún stop: el latido lo confirma con RESUME.
+        return encode_stop() if self._stop_wanted else encode_resume()
 
-    def _aplicar(self, evento: Event):
+    def _gestion(self, now):
+        """Como mucho un comando de gestión por ciclo, por orden de prioridad."""
+        cfg = self._config
+
+        # 1. Un pedido de stop o de arranque sin confirmar.
+        if not self._stop_confirmed and (
+                self._last_stop is None or (now - self._last_stop) >= cfg.arm_retry_s):
+            self._last_stop = now
+            return self._encode_stop_vigente()
+
+        # 2. Armar.
+        if self._want_arm and (
+                self._last_arm is None or (now - self._last_arm) >= cfg.arm_retry_s):
+            self._last_arm = now
+            return encode_arm()
+
+        # 3. Soltar el obstáculo (a mano o automático).
+        if self._debe_destrabar_solo():
+            self._reset_pending = True
+            self._last_reset = None
+            self._auto_reset_time = now
+        if self._reset_pending and (
+                self._last_reset is None or (now - self._last_reset) >= cfg.arm_retry_s):
+            self._last_reset = now
+            return encode_obstacle_reset()
+
+        # 4. Latido: el mismo pedido de stop, que el ESP32 siempre confirma.
+        if self._stop_confirmed and (
+                self._last_stop is None or (now - self._last_stop) >= cfg.heartbeat_period_s):
+            self._last_stop = now
+            return self._encode_stop_vigente()
+        return None
+
+    def _debe_destrabar_solo(self):
+        return (self._config.auto_obstacle_reset and self._obstacle and self._silent
+                and not self._reset_pending and not self._auto_reset_exhausted
+                and self._auto_reset_time is None)
+
+    def _aplicar(self, evento: Event, now: float):
         nombre, args = evento.name, evento.args
         if nombre == 'SYSTEM_READY':
-            # El ESP32 se reinició y arrancó en su sentido por defecto. El estado
-            # ya llegó: el firmware lo emite antes de este evento.
+            # El ESP32 se reinició. El estado inicial ya llegó: el firmware lo
+            # emite antes de este evento.
             self._nueva_sesion()
         elif nombre == 'STATE_CHANGED' and args and args[0] in ESTADOS:
             self._cambiar_estado(args[0])
-        elif nombre == 'STATE_AUTO_TRANSITION' and args:
-            # 'ARMED->RUNNING', 'RUNNING->STOPPED' (con la causa en args[1]) o
-            # 'STOPPED->RUNNING': el estado nuevo va después de la flecha.
-            destino = args[0].rpartition('->')[2]
-            if destino in ESTADOS:
-                self._cambiar_estado(destino)
-                # 'RUNNING->STOPPED:OBSTACLE': la causa va después. Con SYS_STOP no hay obstáculo.
-                if destino == 'STOPPED' and len(args) > 1 and args[1] == 'OBSTACLE':
-                    self._obstacle = True
-        elif nombre == 'OBSTACLE_DETECTED':
-            self._obstacle = True
-            self._obstacle_cm = int(args[0]) if args and args[0].isdigit() else None
-        elif nombre == 'OBSTACLE_CLEARED':
-            self._despejar_obstaculo()
-        elif nombre in ('WATCHDOG_TIMEOUT', 'FAULT_TRIGGERED', 'ESTOP_TRIGGERED'):
+        elif nombre in ('WATCHDOG_TIMEOUT', 'ESTOP_TRIGGERED'):
             self._cambiar_estado('FAULT')
-        elif nombre == 'CMD_RECEIVED' and args and args[0] in ('SYS_STOP', 'SYS_RESUME'):
-            # El firmware responde CMD_RECEIVED siempre, aunque el stop ya
-            # estuviera así: es la confirmación de que llegó.
-            if (args[0] == 'SYS_STOP') == bool(self._stop_wanted):
+        elif nombre == 'OBSTACLE_DETECTED':
+            self._al_detectar_obstaculo(args, now)
+        elif nombre == 'OBSTACLE_CLEARED':
+            self._obstacle = False
+            self._obstacle_cm = None
+            # Mientras está agotado no hay destrabes automáticos: este despeje lo
+            # hizo el propio firmware o una persona, y la próxima frenada es otra.
+            self._auto_reset_exhausted = False
+        elif nombre == 'ULTRASONIC_SILENT':
+            self._silent = True
+        elif nombre == 'ULTRASONIC_OK':
+            self._silent = False
+        elif nombre == 'CMD_EXECUTED' and args:
+            self._confirmado(args[0])
+
+    def _al_detectar_obstaculo(self, args, now):
+        self._obstacle = True
+        self._obstacle_cm = int(args[0]) if args and args[0].isdigit() else None
+        # Detectar un obstáculo exige lecturas válidas: el sensor no está en silencio.
+        self._silent = False
+        if self._auto_reset_time is not None:
+            # Volvió a bloquear justo después de un destrabe automático: es la
+            # misma frenada y no se insiste. Si pasó más tiempo, es otra frenada.
+            if (now - self._auto_reset_time) <= self._config.obstacle_reblock_window_s:
+                self._auto_reset_exhausted = True
+            self._auto_reset_time = None
+
+    def _confirmado(self, comando):
+        if comando in ('SYS_STOP', 'SYS_RESUME'):
+            # El firmware confirma siempre, aunque el stop ya estuviera así. Una
+            # confirmación del pedido anterior no cuenta para el nuevo.
+            if (comando == 'SYS_STOP') == bool(self._stop_wanted):
                 self._stop_confirmed = True
-        elif nombre == 'CMD_EXECUTED' and args and args[0] == 'SYS_ARM':
+        elif comando == 'SYS_ARM':
             # Si ya estaba armado, el firmware confirma sin emitir STATE_CHANGED.
-            if self._state not in ('RUNNING', 'STOPPED'):
-                self._cambiar_estado('ARMED')
+            self._want_arm = False
+        elif comando == 'OBSTACLE_RESET':
+            self._reset_pending = False
 
     def _cambiar_estado(self, estado):
         self._state = estado
-        # Un obstáculo solo existe mientras el ESP32 está en STOPPED.
-        if estado != 'STOPPED':
-            self._despejar_obstaculo()
         # Armado conseguido: a partir de acá un FAULT no se rearma solo.
         if estado in ARMADOS:
             self._want_arm = False
