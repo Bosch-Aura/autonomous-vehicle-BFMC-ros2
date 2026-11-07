@@ -105,7 +105,7 @@ def dibujar_cenital(detector: LaneDetector, analisis: Analisis) -> np.ndarray:
         cv2.circle(imagen, (int(round(centro['centro_px'])), y), 6, MAGENTA, -1)
 
     _escribir(imagen, _resumen(analisis), 8, 8)
-    _escribir(imagen, ['amarillo=auto  naranja=fila de medicion'], 8, alto - 24)
+    _escribir(imagen, ['amarillo=eje del auto  naranja=fila de medicion'], 8, alto - 24)
     return imagen
 
 

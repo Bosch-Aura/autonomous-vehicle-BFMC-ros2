@@ -18,7 +18,7 @@ def detector():
     return LaneDetector(LaneConfig(
         white_hsv_min=(0, 0, 200), white_hsv_max=(179, 60, 255), morph_kernel_px=1,
         roi_top_fraction=0.0, warp_src=(0, 0, 1, 0, 1, 1, 0, 1), warp_width=ANCHO,
-        warp_height=ALTO, lane_width_m=0.4, lane_width_px=100.0, forward_range_m=0.8,
+        warp_height=ALTO, lane_width_m=0.4, view_width_m=0.8, view_length_m=0.8,
         n_windows=8, window_margin_px=20, min_pixels=30, reference_row_fraction=0.0,
         full_confidence_pixels=1000, intersection_band_top_fraction=0.5,
         intersection_row_fraction=0.6, intersection_min_rows=5))

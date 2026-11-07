@@ -10,7 +10,8 @@ se sabe con imágenes de la pista.
 """
 from pathlib import Path
 
-from bfmc_lane_detection.lane_detection_logic import LaneConfig, LaneDetector
+from bfmc_lane_detection.ground_calibration import lane_config_desde_parametros
+from bfmc_lane_detection.lane_detection_logic import LaneDetector
 import pytest
 from synthetic_lanes import a_vista_de_camara, carril_cenital, lienzo, linea
 import yaml
@@ -29,13 +30,14 @@ def parametros():
 
 @pytest.fixture(scope='module')
 def detector(parametros):
-    claves = list(LaneConfig.__dataclass_fields__)
-    return LaneDetector(LaneConfig(**{k: parametros[k] for k in claves}))
+    # La misma función con la que el nodo arma el detector: la geometría sale de la pose,
+    # los intrínsecos y el rectángulo del YAML.
+    return LaneDetector(lane_config_desde_parametros(parametros))
 
 
 @pytest.fixture(scope='module')
-def geometria(parametros):
-    return parametros['warp_width'], parametros['warp_height'], parametros['lane_width_px']
+def geometria(parametros, detector):
+    return parametros['warp_width'], parametros['warp_height'], detector.lane_width_px
 
 
 def lineas(centro, carril):

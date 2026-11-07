@@ -1,5 +1,5 @@
 """Tests de la conversión de mensajes de imagen a arreglos BGR."""
-from bfmc_lane_detection.image_utils import imagen_a_bgr
+from bfmc_lane_detection.image_utils import imagen_a_bgr, profundidad_a_metros
 import numpy as np
 import pytest
 
@@ -53,3 +53,34 @@ def test_datos_insuficientes_se_rechazan():
 def test_un_paso_menor_al_ancho_de_la_fila_se_rechaza():
     with pytest.raises(ValueError):
         imagen_a_bgr(4, 6, 'bgr8', 10, bytes(4 * 18))
+
+
+# --- profundidad --------------------------------------------------------------------------
+
+def test_la_profundidad_16uc1_se_pasa_de_milimetros_a_metros():
+    mm = np.array([[0, 1000], [450, 1500]], dtype='<u2')
+    metros = profundidad_a_metros(2, 2, '16UC1', 4, mm.tobytes())
+    assert metros == pytest.approx(np.array([[0.0, 1.0], [0.45, 1.5]]))
+
+
+def test_la_profundidad_32fc1_ya_viene_en_metros():
+    m = np.array([[0.5, 0.75]], dtype='<f4')
+    assert profundidad_a_metros(1, 2, '32FC1', 8, m.tobytes()) == pytest.approx(
+        np.array([[0.5, 0.75]]))
+
+
+def test_la_profundidad_respeta_el_relleno_de_cada_fila():
+    filas = np.array([[100, 200, 9999], [300, 400, 9999]], dtype='<u2')
+    metros = profundidad_a_metros(2, 2, '16UC1', 6, filas.tobytes())
+    assert metros == pytest.approx(np.array([[0.1, 0.2], [0.3, 0.4]]))
+
+
+def test_la_profundidad_big_endian_se_lee_bien():
+    mm = np.array([[1234]], dtype='>u2')
+    metros = profundidad_a_metros(1, 1, '16UC1', 2, mm.tobytes(), big_endian=True)
+    assert metros == pytest.approx(np.array([[1.234]]))
+
+
+def test_una_profundidad_con_codificacion_no_soportada_se_rechaza():
+    with pytest.raises(ValueError, match='no soportada'):
+        profundidad_a_metros(1, 1, 'mono8', 1, b'\x00')

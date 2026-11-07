@@ -62,7 +62,7 @@ Los nombres van sin el prefijo `bfmc_`: el paquete real de `camera` es `bfmc_cam
 |---|---|---|---|
 | `bfmc_interfaces` | Mensajes y acciones propios del proyecto. | — | — |
 | `bfmc_camera` | Entrega color y profundidad (alineada al color) de la RealSense, con el driver oficial. | — | `/camera/color/image_raw`, `/camera/aligned_depth_to_color/image_raw` |
-| `bfmc_lane_detection` | Imagen → estado del carril. No calcula comandos. | `/camera/color/image_raw` | `/perception/lane` |
+| `bfmc_lane_detection` | Imagen → estado del carril. No calcula comandos. | `/camera/color/image_raw`, `/hardware/status` (solo para no calibrar con el auto andando) | `/perception/lane`, servicios `/lane_detection/calibrate_ground` y `/lane_detection/save_params` |
 | `bfmc_sign_detection` | Detecta señales con YOLO y estima su distancia. No ejecuta maniobras. | `/camera/color/image_raw`, `/camera/aligned_depth_to_color/image_raw` | `/perception/signs` |
 | `bfmc_control` | Estado del carril → ángulo de dirección (PID con filtro). | `/perception/lane` | `/control/lane_cmd` |
 | `bfmc_maneuvers` | Ejecuta una maniobra puntual (stop, intersección) cuando se la piden. Patrón Strategy: una clase por maniobra. | — | `/maneuver/cmd`, action `ManeuverExecute` |
@@ -87,6 +87,8 @@ El dashboard vive en `frontend/`. Se conecta por `rosbridge_websocket`, solo lee
 | `/hardware/arm` | Servicio `std_srvs/Trigger` | server: hardware_bridge. Rearma el ESP32 después de un FAULT |
 | `/hardware/stop` | Servicio `std_srvs/SetBool` | server: hardware_bridge. `true` detiene el auto (ESP32 en `STOPPED`, enganchado), `false` lo deja arrancar. Hoy lo llama el visor (Iniciar y Frenar) |
 | `/hardware/obstacle_reset` | Servicio `std_srvs/Trigger` | server: hardware_bridge. Suelta a mano el bloqueo por obstáculo del ESP32. Hoy lo llama el visor |
+| `/lane_detection/calibrate_ground` | Servicio `std_srvs/Trigger` | server: lane_detection. Mide la pose de la cámara con la profundidad alineada (solo mientras calibra) y la aplica en vivo; de ella salen el trapecio y la escala. Se rechaza con el ESP32 en `RUNNING`. Lo llama el botón Calibrar del visor o la terminal |
+| `/lane_detection/save_params` | Servicio `std_srvs/Trigger` | server: lane_detection. Guarda las medidas y la geometría en `~/.config/bfmc/lane_detection.yaml`, fuera del repo; los launch lo cargan después del `params.yaml` |
 | `/cmd/drive` | `ackermann_msgs/AckermannDriveStamped` | decision (único) |
 | `/vehicle/state` | `bfmc_interfaces/VehicleState` | decision |
 

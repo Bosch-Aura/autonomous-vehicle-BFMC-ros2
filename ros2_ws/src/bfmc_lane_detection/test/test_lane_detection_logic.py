@@ -24,8 +24,8 @@ def configuracion(**cambios):
     base = {
         'white_hsv_min': (0, 0, 200), 'white_hsv_max': (179, 60, 255), 'morph_kernel_px': 1,
         'roi_top_fraction': 0.0, 'warp_src': (0, 0, 1, 0, 1, 1, 0, 1),
-        'warp_width': ANCHO, 'warp_height': ALTO, 'lane_width_m': 0.4, 'lane_width_px': 100.0,
-        'forward_range_m': 0.8, 'n_windows': 8, 'window_margin_px': 20, 'min_pixels': 30,
+        'warp_width': ANCHO, 'warp_height': ALTO, 'lane_width_m': 0.4, 'view_width_m': 0.8,
+        'view_length_m': 0.8, 'n_windows': 8, 'window_margin_px': 20, 'min_pixels': 30,
         'reference_row_fraction': 0.0, 'full_confidence_pixels': 1000,
         'intersection_band_top_fraction': 0.5, 'intersection_row_fraction': 0.6,
         'intersection_min_rows': 5,
@@ -54,6 +54,18 @@ def test_si_el_centro_del_carril_queda_a_la_derecha_el_desvio_es_negativo():
 def test_si_el_centro_del_carril_queda_a_la_izquierda_el_desvio_es_positivo():
     resultado = detectar(carril_cenital(ANCHO, ALTO, 30, 130))
     assert resultado.lateral_error_m == pytest.approx(20 * M_POR_PX, abs=0.01)
+
+
+def test_el_ancho_del_carril_no_cambia_la_escala():
+    # La escala es de la cámara (view_width_m). Corregir el ancho medido del carril no
+    # tiene que mover el desvío medido con las dos líneas a la vista.
+    imagen = carril_cenital(ANCHO, ALTO, 70, 170)
+    assert detectar(imagen, lane_width_m=0.38).lateral_error_m == pytest.approx(
+        detectar(imagen, lane_width_m=0.42).lateral_error_m)
+
+
+def test_el_ancho_del_carril_en_pixeles_se_calcula_con_la_escala():
+    assert LaneDetector(configuracion(lane_width_m=0.4)).lane_width_px == pytest.approx(100.0)
 
 
 # --- rumbo ------------------------------------------------------------------
@@ -208,7 +220,8 @@ def test_la_matriz_de_perspectiva_se_calcula_una_sola_vez_por_tamano():
     {'warp_src': (0, 0, 1, 0, 1, 1, 0, 2)},
     {'warp_width': 1},
     {'lane_width_m': 0.0},
-    {'forward_range_m': -1.0},
+    {'view_length_m': -1.0},
+    {'view_width_m': 0.4},          # el carril no entra en la vista
     {'n_windows': 0},
     {'min_pixels': 0},
     {'reference_row_fraction': 1.0},

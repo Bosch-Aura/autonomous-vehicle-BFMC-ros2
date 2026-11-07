@@ -14,6 +14,9 @@ Medir el carril en cada imagen. **No calcula comandos**: no decide cuánto girar
 | Publica | `lane_topic` | `/perception/lane` | `bfmc_interfaces/LaneState` |
 | Publica | `debug_overlay_topic` | `/perception/lane_debug/overlay` | `sensor_msgs/Image` (`bgr8`): la cámara con lo detectado encima |
 | Publica | `debug_birdview_topic` | `/perception/lane_debug/birdview` | `sensor_msgs/Image` (`bgr8`): la vista desde arriba con las ventanas y las curvas |
+| Servicio | `calibrate_service` | `/lane_detection/calibrate_ground` | `std_srvs/Trigger`: calibra la vista cenital con la profundidad (ver "Cómo calibrarlo") |
+| Se suscribe (solo al calibrar) | `depth_topic` | `/camera/aligned_depth_to_color/image_raw` | `sensor_msgs/Image` (`16UC1` en mm o `32FC1` en m; *best effort*) |
+| Se suscribe (solo al calibrar) | `depth_info_topic` | `/camera/aligned_depth_to_color/camera_info` | `sensor_msgs/CameraInfo`: los intrínsecos de esa profundidad |
 
 El encabezado del resultado es el de la imagen, así quien lo consume sabe de qué instante es la medición. Una imagen con una codificación no soportada se descarta con una advertencia.
 
@@ -39,7 +42,7 @@ El encabezado del resultado es el de la imagen, así quien lo consume sabe de qu
 
 **Qué ve el detector.** Si hay alguien suscripto a las dos imágenes de depuración, el nodo las dibuja y las publica (a lo sumo `debug_max_fps` por segundo). Si nadie las pide, no gasta CPU en dibujarlas. Se apagan del todo con `publish_debug: false`.
 
-- `/perception/lane_debug/overlay`: la imagen de la cámara con lo que el detector toma por **blanco pintado de rojo**, el trapecio de `warp_src` (amarillo), el límite de la región de interés (cian), las curvas encontradas (verde la izquierda, azul la derecha) y el error lateral (magenta). Sirve para ver si toma por línea algo que no lo es.
+- `/perception/lane_debug/overlay`: la imagen de la cámara con lo que el detector toma por **blanco pintado de rojo**, el trapecio de la vista cenital (amarillo), el límite de la región de interés (cian), las curvas encontradas (verde la izquierda, azul la derecha) y el error lateral (magenta). Sirve para ver si toma por línea algo que no lo es.
 - `/perception/lane_debug/birdview`: la vista desde arriba con la máscara de blancos, las ventanas deslizantes de cada línea (más gruesas las que encontraron píxeles suficientes), las curvas, el auto (amarillo) y la fila donde se mide (naranja).
 
 Se ven en el navegador con `web_video_server` (por ejemplo, `http://<IP>:8080/stream?type=mjpeg&topic=/perception/lane_debug/overlay`, con las barras del topic sin codificar) o con el visor de calibración (`frontend/visor-calibracion/`). Las imágenes se calculan a partir del mismo análisis que el resultado: **no cambian lo que se publica en `/perception/lane`**.
@@ -47,11 +50,13 @@ Se ven en el navegador con `web_video_server` (por ejemplo, `http://<IP>:8080/st
 **Cambiar parámetros con el nodo andando.** Todos los parámetros de la visión se pueden cambiar sin reiniciar, por ejemplo:
 
 ```bash
-ros2 param set /lane_detection warp_src "[0.30, 0.55, 0.70, 0.55, 1.0, 0.95, 0.0, 1.0]"
-ros2 param set /lane_detection roi_top_fraction 0.45
+ros2 param set /lane_detection calib_forward_near_m 0.50
+ros2 param set /lane_detection roi_top_fraction 0.25
 ```
 
-El cambio **se valida antes de aplicarse**: un valor inválido (un trapecio cruzado o aplastado, un umbral fuera de rango) se rechaza con el motivo y el detector sigue como estaba. No se guarda en el YAML: al reiniciar el nodo vuelven los valores del archivo. Los topics y los nombres de las imágenes de depuración solo se eligen al arrancar. El nodo corre en un solo hilo, así que un cambio nunca se cruza con una imagen a medio procesar.
+El cambio **se valida antes de aplicarse**: un valor inválido (un rectángulo que no entra en la imagen, un umbral fuera de rango) se rechaza con el motivo y el detector sigue como estaba. **Con el auto andando** (ESP32 en `RUNNING` según `/hardware/status`) se rechazan los cambios de geometría y la calibración: cambiarían la escala en plena marcha. El ancho del carril sí se puede cambiar. Sin el puente lanzado no hay estado y el auto no se puede mover, así que se permiten. Lo cambiado vale hasta reiniciar; para que quede, **Guardar** (ver abajo). Los topics, el nombre del servicio y los de las imágenes de depuración solo se eligen al arrancar. Un cambio arma un detector nuevo y lo reemplaza de una vez: la imagen que se está procesando termina con el detector con el que empezó, nunca con una mezcla.
+
+**Hilos.** El nodo corre con un `MultiThreadedExecutor`: el servicio de calibración espera los cuadros de profundidad, y con un solo hilo esa espera trabaría al propio callback que los recibe. Las imágenes de color y los cambios de parámetros siguen en el grupo por defecto, de a uno; la profundidad y la calibración tienen sus propios grupos.
 
 ## Parámetros
 
@@ -63,23 +68,86 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 |---|---|
 | Topics | `image_topic`, `lane_topic` |
 | Color | `white_hsv_min`, `white_hsv_max`, `morph_kernel_px` |
-| Imagen | `roi_top_fraction`, `warp_src`, `warp_width`, `warp_height` |
-| Escala | `lane_width_m`, `lane_width_px`, `forward_range_m` |
+| Imagen | `roi_top_fraction`, `warp_width`, `warp_height` |
+| Pista | `lane_width_m` (no cambia la escala) |
+| Geometría | `calib_height_m`, `calib_pitch_deg`, `calib_roll_deg`, `camera_intrinsics`, `calib_forward_near_m`, `calib_forward_far_m`, `calib_half_width_m` |
+| Guardar | `save_service`, `persist_file` |
+| Estado del auto | `hardware_status_topic` |
 | Líneas | `n_windows`, `window_margin_px`, `min_pixels` |
 | Medición | `reference_row_fraction`, `full_confidence_pixels` |
 | Intersección | `intersection_band_top_fraction`, `intersection_row_fraction`, `intersection_min_rows` |
 | Depuración | `publish_debug`, `debug_max_fps`, `debug_overlay_topic`, `debug_birdview_topic` |
+| Calibración | `calibrate_service`, `depth_topic`, `depth_info_topic`, `calib_frames`, `calib_timeout_s` |
+| Puntos del piso | `calib_depth_min_m`, `calib_depth_max_m`, `calib_subsample`, `calib_min_points` |
+| Plano (RANSAC) | `calib_ransac_iters`, `calib_ransac_seed`, `calib_inlier_m`, `calib_min_inlier_fraction`, `calib_height_range_m`, `calib_pitch_range_deg` |
+| Chequeo al arrancar | `calib_check_on_start`, `calib_check_frames`, `calib_check_height_tol_m`, `calib_check_pitch_tol_deg` |
 
 ## Cómo calibrarlo con la cámara real
 
-La forma más cómoda es el **visor de calibración** (`frontend/visor-calibracion/`): se arrastra el trapecio sobre la imagen de la cámara y el detector lo usa al instante, y se ve en la imagen de depuración qué toma por línea. Lo que sigue es el procedimiento a mano.
+El **visor de calibración** (`frontend/visor-calibracion/`) muestra en vivo qué toma el detector por línea.
 
-1. **Guardá un cuadro** de la cámara con el auto en el carril, bien centrado y derecho.
-2. **`warp_src`:** en ese cuadro ubicá cuatro puntos del piso que formen un rectángulo en la realidad (por ejemplo, dos tramos de línea del carril, uno cerca y otro lejos). Anotá sus posiciones como fracción del ancho y del alto, en el orden arriba-izquierda, arriba-derecha, abajo-derecha, abajo-izquierda.
-3. **`lane_width_px`:** medí en la vista cenital resultante el ancho en píxeles entre las dos líneas, y poné el ancho real en `lane_width_m`.
-4. **`forward_range_m`:** la distancia real hacia adelante que cubre la vista cenital.
-5. **Color:** si las líneas no se aíslan, ajustá `white_hsv_min` y `white_hsv_max` con un cuadro de la pista.
-6. **Verificá el signo:** con el auto corrido a la izquierda del carril, `lateral_error_m` debe dar **negativo**.
+### Geometría: calibración con la profundidad
+
+**El trapecio y la escala no son parámetros: se calculan.** Salen de tres datos independientes:
+
+| Dato | Qué describe | De dónde sale |
+|---|---|---|
+| Pose de la cámara (`calib_height_m`, `calib_pitch_deg`, `calib_roll_deg`) | dónde está la cámara | la calibración con la profundidad |
+| `camera_intrinsics` | la lente | el `camera_info`, lo copia la calibración |
+| Rectángulo del piso (`calib_forward_near_m`, `calib_forward_far_m`, `calib_half_width_m`) | qué parte del piso mostrar | se elige (en metros) |
+
+El trapecio es ese rectángulo visto por la cámara, y la escala es la del rectángulo (0,50 m en 400 px: 1 px = 1,25 mm). Como no hay un número de escala aparte, **no se puede desincronizar del trapecio**. Cambiar el rectángulo vuelve a proyectar el trapecio al instante, sin medir de nuevo: es lo que reemplaza a arrastrar el trapecio a mano.
+
+`lane_width_m` es un dato **de la pista**, no de la cámara: no cambia la escala. Lo usan el chequeo de separación entre líneas y el modo "una sola línea" (el carril en píxeles se calcula como `lane_width_m` / escala). Corregirlo nunca exige recalibrar.
+
+La calibración mide la pose:
+
+1. Con la profundidad alineada al color (promedio de `calib_frames` cuadros) arma los puntos 3D de la mitad de abajo de la imagen, entre `calib_depth_min_m` y `calib_depth_max_m`.
+2. Encuentra el plano del piso con RANSAC (semilla fija) y lo reajusta con los inliers. De ahí salen la **altura** de la cámara, su **pitch** y su **roll**.
+3. Aplica la pose y los intrínsecos medidos: el nodo vuelve a proyectar el rectángulo y arma el detector.
+
+**Cómo se hace.** Una vez, con el auto **quieto**, la cámara montada y la zona delante del auto **despejada** (sin objetos ni paredes a menos de 1,5 m). Se repite solo si la cámara se mueve.
+
+```bash
+ros2 service call /lane_detection/calibrate_ground std_srvs/srv/Trigger
+```
+
+O con el botón **Calibrar** del visor (A2-157). Tarda menos de un segundo después de recibir los cuadros (espera hasta `calib_timeout_s`).
+
+- **Si sale bien:** el detector la usa al instante y la respuesta dice lo que midió (`altura 0.205 m, pitch 20.1°, roll 0.4°, inliers 93%, 1 px = 1.25 mm`). Para que quede al reiniciar, **Guardar**.
+- **Si falla, no cambia nada** y la respuesta dice por qué y qué hacer: no llegó la profundidad (¿`align_depth` activado?), hay algo delante de la cámara (pocos inliers), la altura o la inclinación no tienen sentido (una pared tomada por piso), o el rectángulo no entra en la imagen (achicá `calib_half_width_m` o subí `calib_forward_near_m`).
+- Si el trapecio empieza más arriba que `roi_top_fraction`, la respuesta lo avisa: esa parte de la vista quedaría tapada.
+
+**Chequeo al arrancar.** Con `calib_check_on_start`, el nodo mide la cámara con `calib_check_frames` cuadros y, si la altura o el pitch difieren de `calib_height_m` y `calib_pitch_deg` más que la tolerancia (1 cm o 1°), loguea un WARN: la cámara se movió y hay que recalibrar. No corrige nada solo y no frena el arranque.
+
+**Lo que la calibración asume y no puede medir:**
+
+- **Que la cámara mira hacia adelante del auto y está centrada en él.** La profundidad no ve el giro alrededor del eje vertical (yaw) ni un corrimiento lateral de la cámara. Si la cámara está girada 2°, a 0,5 m el desvío sale corrido unos 2 cm.
+- **El borde de abajo de la vista cenital está a `calib_forward_near_m` (0,45 m) del pie de la cámara, no pegado al auto.** La fila de medición (`reference_row_fraction: 0.25`) queda entonces a 0,45 + 0,25 × 0,5 = **0,575 m** delante de la cámara: `lateral_error_m` es el desvío del carril a esa distancia, no a la altura del auto. En la vista desde arriba, la línea amarilla es el **eje** del auto, no su posición.
+- **`lane_width_m` es un valor a medir con cinta:** de centro a centro de las dos líneas, en una recta, en 3 lugares, y promediar.
+
+**Seguridad.** El servicio no pide autenticación: cualquiera en la red de ROS (incluido el visor por rosbridge) lo puede llamar. Con el ESP32 en `RUNNING` el nodo la rechaza, y las validaciones rechazan una calibración absurda (pared, obstáculo, altura o inclinación imposibles). Lo que queda: sin el puente lanzado el nodo no sabe si el auto se mueve (aunque sin puente no se mueve), y la red sigue abierta. Calibrá con el auto quieto y en una red solo del equipo.
+
+### Guardar: que quede al reiniciar
+
+```bash
+ros2 service call /lane_detection/save_params std_srvs/srv/Trigger
+```
+
+O el botón **Guardar** del visor. Escribe en `persist_file` (`~/.config/bfmc/lane_detection.yaml`) **solo** estas medidas y ajustes: `lane_width_m`, la geometría (pose, intrínsecos y rectángulo) y el color y la región (`white_hsv_min`, `white_hsv_max`, `roi_top_fraction`). Los launch (`lane_detection.launch.py` y `bfmc_bringup/system.launch.py`) cargan ese archivo **después** del `params.yaml`, así le gana.
+
+- **Por qué fuera del repo:** con `--symlink-install`, el `params.yaml` instalado es un enlace al del repo. Escribirlo dejaría cambios sin commitear en la Jetson y conflictos en cada `git pull`.
+- **Escritura atómica:** se escribe un temporal y se lo renombra. Un corte de luz deja el archivo anterior entero, nunca uno a medias.
+- **Para volver a los valores del repo:** borrá `~/.config/bfmc/lane_detection.yaml`.
+- **Cuidado:** si se cambia el `params.yaml` del repo (por ejemplo, otro `lane_width_m` medido por el equipo), lo guardado en la Jetson le sigue ganando hasta que se borre o se vuelva a guardar.
+
+**Cerca del auto la cámara ve poco de ancho.** Con la cámara nominal (0,20 m, 20°), las esquinas cercanas del rectángulo de ±0,25 m a 0,45 m caen a 1 % del borde de la imagen. Si la cámara real está más baja o menos inclinada, la calibración se va a rechazar por "no entra en la imagen".
+
+### Color y verificación
+
+1. **Color:** si las líneas no se aíslan, ajustá `white_hsv_min` y `white_hsv_max` con un cuadro de la pista.
+2. **Verificá el signo:** con el auto corrido a la izquierda del carril, `lateral_error_m` debe dar **negativo**.
+3. **Verificá la escala:** con el auto corrido una distancia conocida (por ejemplo 5 cm) del centro del carril, `lateral_error_m` debe dar esa distancia.
 
 ## Cómo probarlo
 
@@ -91,7 +159,9 @@ Los tests no necesitan la cámara ni la pista:
 
 - **Carriles sintéticos de posición conocida** con una vista cenital identidad: miden desvío y rumbo con el signo correcto, una sola línea, confianza, ausencia de carril, ruido, líneas no blancas y la intersección.
 - **Con la geometría real del YAML:** se dibuja un carril en vista cenital, se lo proyecta a la imagen de la cámara con la inversa de la misma transformación y se comprueba que el pipeline recupere el desvío y el rumbo. Si alguien rompe la geometría del YAML, estos tests fallan.
-- **El nodo**, con imágenes publicadas por un nodo auxiliar.
+- **La geometría:** cambiar el ancho del carril no cambia la escala ni la medición; cambiar el rectángulo reproyecta el trapecio y un punto del piso sigue cayendo donde corresponde; pitch y roll reconstruyen el mismo plano.
+- **La calibración**, con la profundidad sintética de un piso de altura e inclinación conocidas (`test/synthetic_depth.py`), con 3 mm de ruido y un 20 % de puntos de un obstáculo: recupera la altura con error menor a 5 mm y el pitch con error menor a 0,5°; un punto del piso conocido cae en la vista cenital donde predice la escala; el detector calibrado mide el desvío real; y una pared, un piso tapado o un rectángulo que no entra se rechazan con su motivo.
+- **El nodo**, con imágenes publicadas por un nodo auxiliar; el servicio de calibración con profundidad publicada (aplica la pose; con el piso tapado no cambia nada); el bloqueo con el auto andando; y Guardar (solo la lista fija, fuera del repo, escritura atómica).
 
 Que la configuración sea la correcta para la cámara y la iluminación reales solo se sabe con imágenes de la pista.
 
@@ -99,6 +169,8 @@ Que la configuración sea la correcta para la cámara y la iluminación reales s
 
 - `lane_detection_logic.py`: el pipeline, sin ROS. Cada imagen se procesa sola. `detect` devuelve el resultado; `analizar` devuelve además lo que el detector vio (máscara, ventanas, curvas).
 - `lane_debug.py`: dibuja las dos imágenes de depuración a partir de ese análisis, sin ROS.
-- `image_utils.py`: convierte un mensaje de imagen a un arreglo BGR, sin `cv_bridge`.
+- `image_utils.py`: convierte un mensaje de imagen a un arreglo BGR, y una profundidad a metros, sin `cv_bridge`.
+- `ground_calibration.py`: mide la pose de la cámara con la profundidad (plano del piso con RANSAC) y calcula el trapecio y la escala con la pose, los intrínsecos y el rectángulo, sin ROS.
+- `param_store.py`: guarda y lee los parámetros guardados fuera del repo, sin ROS.
 - `lane_detection_node.py`: conecta la imagen con la lógica.
 - `config/params.yaml`, `launch/lane_detection.launch.py` y `test/`.

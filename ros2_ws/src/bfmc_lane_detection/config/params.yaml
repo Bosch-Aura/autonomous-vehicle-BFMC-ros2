@@ -16,20 +16,19 @@ lane_detection:
     white_hsv_max: [179, 60, 255]    # [H, S, V] máximos
     morph_kernel_px: 3               # [px] apertura morfológica que quita el ruido; 1 = sin apertura
 
-    # 2. Región de interés: se descarta esta fracción de arriba de la imagen.
-    roi_top_fraction: 0.5
+    # 2. Región de interés: se descarta esta fracción de arriba de la imagen. Tiene que quedar
+    # por encima del trapecio (su borde lejano); si no, tapa la parte lejana de la vista.
+    roi_top_fraction: 0.3            # [asumido]
 
-    # 3. Vista cenital. Cuatro puntos del piso en la imagen de cámara, como fracción
-    # del ancho y del alto, en este orden: arriba-izquierda, arriba-derecha,
-    # abajo-derecha, abajo-izquierda (x, y de cada uno).
-    warp_src: [0.30, 0.55, 0.70, 0.55, 1.00, 0.95, 0.00, 0.95]
+    # 3. Vista cenital. El trapecio de la imagen (warp_src) y la escala NO se cargan: el nodo
+    # los calcula con la pose de la cámara, sus intrínsecos y el rectángulo del piso que se
+    # quiere ver (más abajo, "Geometría"). Así la escala no se puede desatar del trapecio.
     warp_width: 400                  # [px] tamaño de la vista cenital
     warp_height: 400                 # [px]
 
-    # Escala de la vista cenital.
-    lane_width_m: 0.37               # [m] ancho real del carril
-    lane_width_px: 200.0             # [px] ancho del carril en la vista cenital
-    forward_range_m: 0.8             # [m] distancia hacia adelante que cubre la vista cenital
+    # Dato de la pista (no de la cámara): no cambia la escala. Lo usan el chequeo de
+    # separación entre líneas y el modo "una sola línea".
+    lane_width_m: 0.37               # [m] centro a centro de las dos líneas, en una recta [asumido: medir con cinta]
 
     # 4. Búsqueda de las líneas con ventanas deslizantes.
     n_windows: 9                     # cantidad de ventanas, de abajo hacia arriba
@@ -44,6 +43,55 @@ lane_detection:
     intersection_band_top_fraction: 0.5   # solo se mira la mitad cercana al auto
     intersection_row_fraction: 0.6        # una fila cuenta si está blanca en al menos esta fracción
     intersection_min_rows: 8              # filas necesarias para dar la intersección por detectada
+
+    # Geometría de la vista cenital. De acá salen warp_src y la escala.
+    # Pose de la cámara: la mide la calibración [sin calibrar: valores de una cámara nominal].
+    calib_height_m: 0.200            # [m] altura del centro óptico sobre el piso
+    calib_pitch_deg: 20.0            # [°] inclinación hacia abajo
+    calib_roll_deg: 0.0              # [°] giro alrededor del eje óptico; + = lado derecho más alto
+    # Intrínsecos del color (los de su camera_info): fx, fy, cx, cy, ancho, alto. Los copia la
+    # calibración [sin calibrar: valores típicos de la D435 a 640 x 480].
+    camera_intrinsics: [615.0, 615.0, 320.0, 240.0, 640.0, 480.0]
+    # Rectángulo del piso que muestra la vista cenital, medido desde el pie de la cámara.
+    calib_forward_near_m: 0.45       # [m] borde de abajo de la vista cenital
+    calib_forward_far_m: 0.95        # [m] borde de arriba
+    calib_half_width_m: 0.25         # [m] mitad del ancho
+
+    # Calibración con la profundidad de la D435 (ver README, "Cómo calibrarlo"). Con el auto
+    # quieto y la zona despejada: ros2 service call /lane_detection/calibrate_ground std_srvs/srv/Trigger
+    # Mide la pose y los intrínsecos y los aplica en vivo; para que queden, Guardar.
+    calibrate_service: ~/calibrate_ground
+    depth_topic: /camera/aligned_depth_to_color/image_raw      # alineada al color (align_depth en bfmc_camera)
+    depth_info_topic: /camera/aligned_depth_to_color/camera_info
+    calib_frames: 10                 # cuadros que se promedian por píxel para bajar el ruido
+    calib_timeout_s: 5.0             # [s] espera máxima de esos cuadros (el visor espera 20 s)
+    # Puntos candidatos a piso: mitad de abajo de la imagen, con profundidad en este rango.
+    calib_depth_min_m: 0.3           # [m]
+    calib_depth_max_m: 1.5           # [m]
+    calib_subsample: 4               # se usa 1 de cada N píxeles en cada dirección
+    calib_min_points: 500            # menos puntos válidos que esto: el piso no se ve
+    # Plano con RANSAC.
+    calib_ransac_iters: 200
+    calib_ransac_seed: 0             # semilla fija: el mismo cuadro da siempre el mismo resultado
+    calib_inlier_m: 0.01             # [m] distancia al plano para contar como piso
+    calib_min_inlier_fraction: 0.6   # menos que esto: hay algo delante de la cámara
+    calib_height_range_m: [0.05, 0.50]      # [m] alturas de cámara con sentido
+    calib_pitch_range_deg: [0.0, 60.0]      # [°] inclinaciones con sentido; descarta una pared tomada por piso
+    # Chequeo al arrancar: si la cámara se movió desde la última calibración, avisa (no corrige).
+    calib_check_on_start: true
+    calib_check_frames: 3            # compara contra calib_height_m y calib_pitch_deg
+    calib_check_height_tol_m: 0.01   # [m]
+    calib_check_pitch_tol_deg: 1.0   # [°]
+
+    # Con el auto andando (ESP32 en RUNNING) se rechazan la calibración y los cambios de
+    # geometría. Sin estado del ESP32 (sin el puente), el auto no se mueve y se permiten.
+    hardware_status_topic: /hardware/status
+
+    # Guardar: escribe las medidas (lane_width_m), la geometría y los ajustes de color y región
+    # en este archivo, FUERA del repo. Los launch lo cargan después de este params.yaml, así
+    # le gana. Para volver a los valores del repo, borralo.
+    save_service: ~/save_params
+    persist_file: ~/.config/bfmc/lane_detection.yaml
 
     # Depuración: se puede apagar con publish_debug: false y se limita a debug_max_fps imágenes
     # por segundo para no gastar CPU. Todos los parámetros de la visión de arriba (menos los

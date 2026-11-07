@@ -57,9 +57,9 @@ class LaneConfig:
     warp_src: Sequence[float]
     warp_width: int
     warp_height: int
-    lane_width_m: float
-    lane_width_px: float
-    forward_range_m: float
+    lane_width_m: float       # ancho real del carril (dato de la pista)
+    view_width_m: float       # ancho del piso que cubre la vista cenital (dato de la cámara)
+    view_length_m: float      # largo hacia adelante que cubre la vista cenital
     n_windows: int
     window_margin_px: int
     min_pixels: int
@@ -86,8 +86,12 @@ class LaneConfig:
                              'abajo-izquierda, sin cruzarse ni quedar alineados')
         if self.warp_width < 2 or self.warp_height < 2:
             raise ValueError('warp_width y warp_height deben ser al menos 2')
-        if min(self.lane_width_m, self.lane_width_px, self.forward_range_m) <= 0.0:
-            raise ValueError('lane_width_m, lane_width_px y forward_range_m deben ser positivos')
+        if min(self.lane_width_m, self.view_width_m, self.view_length_m) <= 0.0:
+            raise ValueError('lane_width_m, view_width_m y view_length_m deben ser positivos')
+        if self.lane_width_m >= self.view_width_m:
+            raise ValueError('el carril (%.2f m) no entra en la vista cenital (%.2f m de ancho): '
+                             'las dos líneas tienen que verse' % (
+                                 self.lane_width_m, self.view_width_m))
         if self.n_windows < 1 or self.window_margin_px < 1 or self.min_pixels < 1:
             raise ValueError('n_windows, window_margin_px y min_pixels deben ser positivos')
         if not 0.0 <= self.reference_row_fraction < 1.0:
@@ -140,13 +144,21 @@ class LaneDetector:
     def __init__(self, config: LaneConfig):
         self._config = config
         self._matrices = {}
-        self._mpp_x = config.lane_width_m / config.lane_width_px
-        self._mpp_y = config.forward_range_m / config.warp_height
+        # La escala es solo de la cámara: qué parte del piso cubre la vista. El ancho del
+        # carril es un dato de la pista y no la cambia.
+        self._mpp_x = config.view_width_m / config.warp_width
+        self._mpp_y = config.view_length_m / config.warp_height
+        self._ancho_carril_px = config.lane_width_m / self._mpp_x
 
     @property
     def config(self) -> LaneConfig:
         """La configuración con la que se creó el detector."""
         return self._config
+
+    @property
+    def lane_width_px(self) -> float:
+        """Ancho del carril en píxeles de la vista cenital (calculado, no un parámetro)."""
+        return self._ancho_carril_px
 
     # --- geometría ----------------------------------------------------------------
     def warp_matrix(self, width: int, height: int):
@@ -272,7 +284,7 @@ class LaneDetector:
             return None
 
         y = cfg.warp_height * (1.0 - cfg.reference_row_fraction)
-        ancho_carril_px = cfg.lane_width_px
+        ancho_carril_px = self._ancho_carril_px
 
         def evaluar(ajuste):
             a, b, c = ajuste[0]
