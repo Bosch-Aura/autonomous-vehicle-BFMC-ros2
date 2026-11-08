@@ -1,8 +1,10 @@
 # Visor de calibración
 
-Una página de un solo archivo (`index.html`) para **calibrar `bfmc_lane_detection` desde una computadora, viendo lo que ve la Jetson**. Muestra la imagen de la cámara, lo que el detector toma por línea, la vista desde arriba con las ventanas y las curvas, y los datos de `/perception/lane`. Deja **cambiar los parámetros del detector en vivo** (el trapecio `warp_src`, el umbral de color y la región de interés) y **manejar el auto**: velocidad, Iniciar y Frenar. No es el dashboard del vehículo (ver [`../README.md`](../README.md)): es una herramienta provisoria de calibración y de mando.
+Una página de un solo archivo (`index.html`) para **calibrar `bfmc_lane_detection` desde una computadora, viendo lo que ve la Jetson**. Muestra la imagen de la cámara, lo que el detector toma por línea, la vista desde arriba con las ventanas y las curvas, y los datos de `/perception/lane`. Deja **calibrar la vista desde arriba** con un botón, **cambiar los parámetros del detector en vivo** (el rectángulo del piso que se ve, el ancho del carril, el umbral de color y la región de interés), **guardarlos en la Jetson** y **manejar el auto**: velocidad, Iniciar y Frenar. No es el dashboard del vehículo (ver [`../README.md`](../README.md)): es una herramienta provisoria de calibración y de mando.
 
-- **Lee, calibra y manda.** Se suscribe a `/perception/lane`, `/hardware/status` y `/vehicle/state`, pide imágenes y llama a servicios: `get_parameters` y `set_parameters` del detector y del control, y `/hardware/stop`, `/hardware/arm` y `/hardware/obstacle_reset` del puente. No publica ningún topic.
+- **Lee, calibra y manda.** Se suscribe a `/perception/lane`, `/hardware/status` y `/vehicle/state`, pide imágenes y llama a servicios: `get_parameters`, `set_parameters`, `set_parameters_atomically`, `calibrate_ground` y `save_params` del detector; `get_parameters` y `set_parameters` del control; y `/hardware/stop`, `/hardware/arm` y `/hardware/obstacle_reset` del puente. No publica ningún topic.
+
+**Distribución (A2-157).** Encabezado de una línea (título, IP, Conectar, Desconectar y el estado de la conexión; puertos, topics y nodo plegados en "Conexión avanzada"). A la izquierda, una grilla de 2 × 2: Cámara, Lo que ve el detector, Vista desde arriba y Calibración. A la derecha, un panel de 340 px con el Mando del auto y el Carril. Desde 1000 × 600 px la página entra en la pantalla sin scroll: las imágenes se achican para entrar en su celda y mantienen la proporción (container queries). En pantallas chicas todo se apila en una columna.
 - **Sin dependencias.** No usa librerías ni internet: habla el protocolo de `rosbridge` (JSON por WebSocket) directamente. Funciona en una red sin salida a internet.
 - **No es un paquete ROS.** `colcon` no la compila ni la testea.
 
@@ -10,12 +12,12 @@ Una página de un solo archivo (`index.html`) para **calibrar `bfmc_lane_detecti
 
 | Zona | Qué es |
 |---|---|
-| **Cámara y trapecio** | La imagen de la cámara con el trapecio de `warp_src` encima. Se arrastran los cuatro puntos y, con "Aplicar en vivo", el detector usa el trapecio mientras se mueve. |
-| **Lo que ve el detector** | La imagen de la cámara con lo que el detector toma por **blanco pintado de rojo**, el trapecio que usa (amarillo), el límite de la región de interés (cian), las líneas que encontró (verde la izquierda, azul la derecha) y el error lateral (magenta). Sirve para ver si está tomando por línea algo que no lo es. |
-| **Vista desde arriba** | Lo que el detector ve después de "aplanar" el piso: la máscara de blancos, las **ventanas deslizantes** que siguen cada línea, las curvas ajustadas, el auto (amarillo) y la fila donde mide (naranja). |
-| **Carril** | `detected`, `lateral_error_m`, `heading_error_rad`, `confidence` e `intersection_detected` de `/perception/lane`, y cuánto hace que llegó el último dato (rojo si pasó más de 1 s). |
-| **Mando del auto** | Estado del auto (detenido, en marcha, detenido por un obstáculo a N cm, falla), del enlace con el ESP32, del ultrasónico (midiendo o sin lecturas) y de la decisión. Un deslizador de **velocidad en cm/s** (0 a 50), **Iniciar**, **Frenar**, **Rearmar después de una falla** y **Destrabar obstáculo** (suelta a mano el bloqueo del ultrasónico; si el obstáculo sigue, el ESP32 vuelve a frenar). El auto arranca detenido: Iniciar manda primero la velocidad del deslizador y después suelta el freno; Frenar lo detiene hasta el próximo Iniciar. Si el pedido no llega, avisa en rojo. |
-| **Ajustes en vivo** | Tres deslizadores (brillo mínimo y saturación máxima del blanco, y cuánto de arriba se descarta) y el texto con las cuatro líneas del `params.yaml`, listas para copiar. |
+| **Cámara** | La imagen de la cámara, sin nada encima. |
+| **Lo que ve el detector** | La imagen con lo que el detector toma por **blanco pintado de rojo**, el trapecio que usa (amarillo, lo calcula el detector), el límite de la región de interés (cian), las líneas que encontró (verde y azul), el desvío medido (magenta) y, con el Kalman activo, el filtrado (blanco). Arriba: el modo, el chequeo que falló y cómo se buscó cada línea. |
+| **Vista desde arriba** | El piso "aplanado": la máscara de blancos, las ventanas que siguen cada línea, las curvas, el eje del auto (amarillo) y la fila donde mide (naranja). El borde de abajo de esta vista **no** es el auto: está `calib_forward_near_m` delante de la cámara. |
+| **Calibración** | **Calibrar**, **Deshacer** y **Guardar**; el resultado de la calibración; tres deslizadores en metros con la parte del piso que se ve (desde, hasta y medio ancho); las medidas con cinta (ancho del carril, distancia entre ejes y de la cámara al eje trasero), cada una con cómo medirla; el color y la región; y, plegado, el texto para copiar a los `params.yaml` del repo. |
+| **Mando del auto** | Estado del auto, del enlace con el ESP32, del ultrasónico y de la decisión. **Velocidad en cm/s** (0 a 50), **Iniciar**, **Frenar**, **Rearmar tras una falla** y **Destrabar obstáculo**. La explicación larga está plegada en "Cómo funciona". |
+| **Carril** | De `/perception/lane`: el **modo** (dos líneas, una línea, predicho o PERDIDO), si cada línea es válida, desvío, rumbo, curvatura, confianza, intersección y cuánto hace que llegó el último dato. Con el carril perdido, desvío y rumbo se muestran como `--`. |
 
 ## Cómo usarlo
 
@@ -74,15 +76,26 @@ Si la imagen se queda en "conectando…" y el panel del carril sí funciona, el 
 
 ### 3. Calibrar
 
-Con el auto apoyado sobre la pista y la cámara derecha:
+Con el auto **quieto** sobre la pista, la cámara montada y el piso delante del auto **despejado**:
 
-1. **Trapecio.** Arrastrá los cuatro puntos hasta que el trapecio calce con el carril. El detector lo usa al instante: en "Lo que ve el detector" el trapecio amarillo se mueve, y en la vista desde arriba las dos líneas tienen que quedar **paralelas y verticales**. Si el trapecio es inválido (los puntos se cruzan o quedan alineados), se pone en rojo, no se envía y el detector sigue con el último válido.
-2. **Color.** Mirá qué pinta de rojo en "Lo que ve el detector". Si toma por blanco cosas que no son línea (una pared, una hoja), subí el brillo mínimo o bajá la saturación máxima hasta que solo queden las líneas.
-3. **Región.** Subí "descartar de arriba" para ignorar el fondo; el límite es la línea cian.
-4. **Escala.** Cuando cambia el trapecio también cambian `lane_width_px` y `forward_range_m` (cuántos píxeles de la vista desde arriba son el ancho del carril y la distancia hacia adelante). Se miden en la vista desde arriba y se escriben en el `params.yaml`; la página todavía no los cambia.
-5. **Dejarlo fijo.** Lo que se cambia en vivo vale **mientras el nodo siga andando**: no se guarda. Apretá **Copiar**, pegá las cuatro líneas en `ros2_ws/src/bfmc_lane_detection/config/params.yaml` (ya vienen con la sangría que usa el archivo) y reiniciá el script.
+1. **Calibrar.** Mide con la profundidad la altura, la inclinación y el giro de la cámara (A2-151). El trapecio y la escala de la vista desde arriba salen de ahí: **no se arrastran a mano**, así la escala nunca queda desatada del trapecio. Si el auto está en marcha, la página no llama al servicio y avisa (el detector también lo rechaza). Muestra lo que midió, o el motivo si no pudo (por ejemplo, algo delante de la cámara). **Deshacer** vuelve a la calibración anterior.
+2. **Qué parte del piso ver.** Con los tres deslizadores en metros (desde, hasta y medio ancho, medidos desde el pie de la cámara). El detector vuelve a proyectar el trapecio al instante con la pose medida; si se sale de la imagen, lo rechaza y avisa.
+3. **Medidas con cinta.** El **ancho del carril** (centro a centro de las líneas) va al detector: no cambia la escala, la usan los chequeos y el modo "una línea". La **distancia entre ejes** y la de la **cámara al eje trasero** van al control (Pure Pursuit).
+4. **Color.** Mirá qué pinta de rojo en "Lo que ve el detector". Si toma por blanco cosas que no son línea, subí el brillo mínimo o bajá la saturación máxima.
+5. **Región.** "Descartar de arriba" ignora el fondo (línea cian). Tiene que quedar por encima del trapecio.
+6. **Guardar.** Deja en la Jetson (`~/.config/bfmc/lane_detection.yaml`) la calibración, la parte del piso, el ancho del carril, el color y la región; se cargan al arrancar. La distancia entre ejes y la de la cámara al eje trasero son del control y **no** las guarda: copialas al `params.yaml` del repo ("Para dejarlo fijo en el repo"), porque son medidas del auto, iguales para todo el equipo.
 
-**Aplicar en vivo** se puede apagar: entonces la página no manda nada y los cambios quedan solo en el navegador. **Valores del detector** vuelve a los que se leyeron al conectar.
+**Aplicar en vivo** se puede apagar: la página no manda nada y los cambios quedan solo en el navegador. **Valores del detector** vuelve a los que se leyeron al conectar.
+
+### Servicios que usa la calibración
+
+| Servicio | Tipo | Qué hace | Espera |
+|---|---|---|---|
+| `<nodo del detector>/calibrate_ground` (por defecto `/lane_detection/calibrate_ground`) | `std_srvs/srv/Trigger` | Mide la pose de la cámara con la profundidad y la aplica. `success` y en `message` lo medido (`altura 0.205 m, pitch 20.1°, …`) o el motivo | 20 s |
+| `<nodo>/save_params` | `std_srvs/srv/Trigger` | Guarda en la Jetson; `message` dice dónde | 3 s |
+| `<nodo>/set_parameters_atomically` | `rcl_interfaces/srv/SetParametersAtomically` | Deshacer: restaura la pose anterior, todo junto | 3 s |
+
+Si el detector no tiene esos servicios (una versión anterior a A2-151), la página avisa y no cambia nada.
 
 ## Seguridad: leer antes de abrir los puertos
 
@@ -105,6 +118,8 @@ Con el auto apoyado sobre la pista y la cámara derecha:
 
 **Verificado en la Jetson real** (Orin, Ubuntu 22.04.5, aarch64, RealSense), antes de esta función: los paquetes existen en arm64, el script compila y lanza todo, la cámara publica en `RELIABLE` a 640 x 480, y la página muestra la imagen y los datos del carril.
 
+**Sin verificar (A2-157):** la distribución nueva y la tarjeta Calibración no se probaron en un navegador: falta comprobar que a 1366 × 768, 1440 × 900 y 1920 × 1080 no haya scroll, que la consola no muestre errores, y el flujo Calibrar / Deshacer / Guardar con el detector real (o un rosbridge simulado). Lo verificado más abajo es de la versión anterior (con el trapecio arrastrable).
+
 **Sin verificar:**
 
 - Las imágenes de depuración y la calibración en vivo **en la Jetson real**, con la cámara real: el costo en CPU de dibujar las imágenes y que 10 imágenes por segundo no atrasen al detector.
@@ -115,8 +130,7 @@ Con el auto apoyado sobre la pista y la cámara derecha:
 
 ## Qué no hace (todavía)
 
-- No cambia `lane_width_px`, `forward_range_m` ni el resto de los parámetros: solo el trapecio, el brillo, la saturación y la región.
-- No guarda los cambios en el `params.yaml`: hay que copiarlos.
+- No guarda la distancia entre ejes ni la de la cámara al eje trasero: van al `params.yaml` del repo con "Copiar".
 - No autentica: **cualquiera con acceso al puerto 9090 puede mover o frenar el auto**.
 - No mide la velocidad real: el deslizador fija la velocidad que el control pide, que el puente traduce a un duty sin medirla (el auto no tiene encoder).
 - No muestra `sign_detection`.

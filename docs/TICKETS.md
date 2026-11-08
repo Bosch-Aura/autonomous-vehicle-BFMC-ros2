@@ -58,7 +58,7 @@ no son parámetros: se calculan** con tres datos independientes:
 - [ ] **Medir la distancia entre ejes** del auto (para A2-155).
 - [ ] **Calibrar en la pista** y comprobar el error con cinta cada 10 cm: menor a 1 cm a 0,5 m y a 2 cm a 1 m. Adjuntar captura del visor al ticket.
 - [ ] Verificar en la Jetson que la cámara real entra en el rectángulo por defecto (±0,25 m a 0,45 m): con la cámara nominal, las esquinas cercanas caen al 1 % del borde.
-- [ ] Botón Calibrar y Guardar en el visor (A2-157). Hasta entonces, arrastrar el trapecio en el visor da error (el parámetro `warp_src` ya no existe).
+- [x] Botón Calibrar y Guardar en el visor (A2-157). El arrastre del trapecio se reemplazó por el rectángulo del piso en metros.
 - [ ] Correr la suite completa (`docker compose run --rm test`). Se corrieron `bfmc_lane_detection` y `bfmc_bringup` por separado; los tests de arranque del sistema fallaron solo por falta de dependencias en el contenedor `dev`.
 
 ---
@@ -119,7 +119,7 @@ igual residuo, la de menos píxeles). El ancho se mide **perpendicular** a las l
 - [ ] **Afinar los umbrales en la pista** con el protocolo de zonas (recta, curva cerrada, intersección, rotonda, punteadas).
 - [ ] **Guardar capturas PNG** de casos reales (bueno, reflejo, una línea, sin líneas) en `test/capturas/`.
 - [ ] **Probar en la pista** que tapando la cámara el auto frena, y que no frena justo antes de una intersección (ahí las líneas desaparecen a propósito).
-- [ ] Mostrar el modo en el visor (A2-157); hoy se ve en la imagen de depuración.
+- [x] Mostrar el modo en el visor (A2-157): panel Carril.
 - [x] **Bug corregido en A2-154:** `dibujar_cenital` usaba una variable `modo` que no existía (un reemplazo de texto cambió dos llamadas en vez de una). El nodo se caía al mirar la vista desde arriba. Desde A2-154, antes de cada commit se corre `pyflakes`, que lo detecta en segundos.
 
 ---
@@ -225,7 +225,7 @@ el desvío, el rumbo y la curvatura se siguen con un Kalman dentro del módulo d
 
 ## A2-155: Pure Pursuit y latencia de punta a punta
 
-Commit: el de "A2-155: ..." en `prueba-jetson` (el hash se completa en el próximo ticket).
+Commit `a162ef4`.
 
 ### Descripción actualizada (para Jira)
 
@@ -267,3 +267,64 @@ giro de la salida y el manejo de "sin carril" (patrón Strategy).
 - [ ] **En pista, a baja velocidad,** recorrer las zonas del protocolo con `algorithm: pid` y después `pure_pursuit`, misma velocidad. Anotar salidas de carril y oscilaciones de cada uno, la Ld usada, y cuál queda como default.
 - [ ] **Latencia de punta a punta** con todo integrado: `ros2 run bfmc_bringup medir_latencia`, con `sudo nvpmodel -q` anotado. Antes, verificar que la cámara use el reloj del sistema (`global_time_enabled` en realsense-ros). Dejar promedio y p99 en el ticket.
 - [ ] **Avisar** a quien mantiene `bfmc_control` (A2-138) y `bfmc_decision`: el stamp de `/control/lane_cmd` y `/cmd/drive` ahora es el de la imagen, y `LaneState` suma `reference_distance_m`. Relacionado: A2-71 (Stanley).
+
+---
+
+## A2-157: visor con botón Calibrar y sin scroll
+
+Commit: el de "A2-157: ..." en `prueba-jetson` (el hash se completa en el próximo ticket).
+
+### Descripción actualizada (para Jira)
+
+`frontend/visor-calibracion/index.html` reorganizado y adaptado a la calibración de A2-151.
+
+**Distribución** (sin cambiar ningún `id` que use el JavaScript):
+
+- Encabezado de una línea: título, IP, Conectar, Desconectar y el estado de la conexión.
+  Puertos, topics y nodo, plegados en "Conexión avanzada" (se despliega encima, sin mover el resto).
+- Izquierda, grilla de 2 × 2: Cámara, Lo que ve el detector, Vista desde arriba y Calibración.
+- Derecha, panel de 340 px: Mando del auto y Carril.
+- Desde 1000 × 600 px, sin scroll: las imágenes entran en su celda con su proporción (4:3 y
+  1:1) con container queries. En pantallas chicas, una columna con scroll normal.
+- Las ayudas largas, plegadas en `<details>` ("Cómo funciona", "Colores", "Para dejarlo fijo").
+
+**Tarjeta Calibración:**
+
+- **Calibrar:** llama a `<nodo>/calibrate_ground` (`std_srvs/Trigger`, espera de 20 s). Antes
+  guarda la pose actual. No llama si `/hardware/status` dice que el auto está en marcha
+  (`link_up`, `RUNNING` y sin obstáculo) y avisa "frená el auto antes de calibrar"; sin datos
+  del puente, deja calibrar. Con éxito, relee los parámetros, muestra el mensaje y habilita
+  Deshacer; si falla, muestra el motivo; si el servicio no existe, avisa sin cambiar nada.
+- **Deshacer:** restaura la pose anterior (`calib_height_m`, `calib_pitch_deg`,
+  `calib_roll_deg`, `camera_intrinsics`) con `set_parameters_atomically`.
+- **Guardar:** llama a `<nodo>/save_params` (persistencia en la Jetson).
+- **Qué parte del piso ver:** tres deslizadores en metros (`calib_forward_near_m`,
+  `calib_forward_far_m`, `calib_half_width_m`); el detector reproyecta el trapecio.
+- **Medidas con cinta,** con la ayuda de cómo medir cada una: ancho del carril
+  (`lane_width_m`, al detector) y distancia entre ejes y de cámara a eje trasero
+  (`wheelbase_m`, `camera_to_rear_axle_m`, al control).
+- **Color y región:** los tres deslizadores de siempre.
+- **Para dejarlo fijo en el repo:** el texto con los parámetros del detector y del control.
+
+**Panel Carril:** suma el modo (dos líneas, una línea, predicho, PERDIDO), qué líneas son
+válidas y la curvatura. Los valores NaN (carril perdido) se muestran como `--`.
+
+### Diferencias con el ticket original, y por qué
+
+| Ticket original | Cómo quedó | Por qué |
+|---|---|---|
+| Aplicar el patch `visor-calibracion-boton-calibrar.patch` | Rehecho desde la descripción del ticket | El patch no estaba en el repo, las ramas ni el disco |
+| Guardar / Deshacer `warp_src`, `lane_width_px`, `forward_range_m` | Deshacer restaura la pose de la cámara | Desde A2-151 esos tres no son parámetros: se calculan con la pose, los intrínsecos y el rectángulo |
+| Mantener "arrastrar el trapecio"; canvas con `ResizeObserver` | Sin canvas: rectángulo del piso en metros; el trapecio se ve en "Lo que ve el detector" | Arrastrar desataba la escala del trapecio. El trapecio ya lo dibuja el detector (única fuente de verdad), y se saca código |
+| Texto para copiar de 6 líneas | Botón Guardar (Jetson) + texto con los parámetros nuevos (repo) | La calibración ya se guarda sola en la Jetson; el texto queda para compartirla con el equipo |
+| — | Medidas con cinta con su ayuda (A2-151, A2-155) | Pedido: cargarlas desde la interfaz y que se explique cómo medir cada una |
+| — | Distancia entre ejes y cámara–eje trasero al `params.yaml` del repo, no a Guardar | Son medidas del auto, iguales para todo el equipo y conviene versionarlas; guardarlas en la Jetson exigía duplicar `param_store` en `bfmc_control` (decisión D4, opción C) |
+| — | Modo, líneas válidas y curvatura en el panel Carril | Lo que agregaron A2-152 y A2-154 a `LaneState` |
+| — | `NaN` del JSON de rosbridge reemplazado por `null` antes de parsear | Con el carril perdido, rosbridge manda el literal `NaN` (JSON inválido) y la página descartaba el mensaje: mostraba el último dato viejo justo al perder el carril |
+
+### Pendiente
+
+- [ ] **Abrir el visor en un navegador** (no se probó): sin scroll a 1366 × 768, 1440 × 900 y 1920 × 1080, el panel derecho tampoco; sin errores en la consola.
+- [ ] **Con un rosbridge simulado o el detector real:** Calibrar con éxito (estado "calibrado", mensaje, Deshacer habilitado), Deshacer, auto en marcha (no llama y avisa), servicio inexistente (avisa y no cambia nada), Guardar.
+- [ ] **Que siga andando lo anterior:** conectar, imágenes, ajustes en vivo, Iniciar, Frenar, Rearmar y Destrabar.
+- [ ] Se verificó solo que el JavaScript compila (`node --check`) y que existen todos los `id` que usa.
