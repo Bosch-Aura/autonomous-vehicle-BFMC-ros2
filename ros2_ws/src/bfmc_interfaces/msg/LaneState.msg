@@ -29,6 +29,10 @@ float32 heading_error_rad
 # Curvatura del centro del carril [1/m]. Positiva: el carril dobla hacia la izquierda.
 float32 curvature
 
+# Dónde se midieron desvío, rumbo y curvatura: distancia hacia adelante desde el pie de la
+# cámara [m]. No es el auto: quien use el estado en otro punto tiene que trasladarlo.
+float32 reference_distance_m
+
 # Confianza de la detección, de 0.0 a 1.0.
 float32 confidence
 

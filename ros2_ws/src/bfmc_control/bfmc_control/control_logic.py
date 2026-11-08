@@ -1,4 +1,10 @@
-"""Lógica pura de bfmc_control: PID de dirección sobre el estado del carril.
+"""Lógica pura de bfmc_control: dirección y velocidad sobre el estado del carril.
+
+Dos algoritmos para el giro (`algorithm`): el PID sobre "desvío + peso × rumbo" (A2-138,
+el de siempre) y Pure Pursuit (A2-155, pure_pursuit.py). Los dos comparten lo demás: la
+saturación, el filtro y el límite de velocidad de giro de la salida, y qué hacer sin
+carril. El PID calcula la velocidad como siempre; Pure Pursuit la baja en las curvas y
+con poca confianza.
 
 No importa ROS ni lee el reloj: recibe el instante actual como argumento, así el
 comportamiento en el tiempo se verifica sin esperar.
@@ -7,6 +13,14 @@ Convenciones (las mismas que bfmc_interfaces): unidades SI, y un error o un
 ángulo positivo es hacia la izquierda.
 """
 from dataclasses import dataclass
+from typing import Optional
+
+from bfmc_control.pure_pursuit import (
+    angulo_de_direccion, distancia_de_mirada, punto_objetivo, PurePursuitConfig, velocidad,
+)
+
+PID = 'pid'
+PURE_PURSUIT = 'pure_pursuit'
 
 
 @dataclass(frozen=True)
@@ -17,6 +31,8 @@ class LaneInput:
     lateral_error_m: float
     heading_error_rad: float
     confidence: float
+    curvature: float = 0.0               # [1/m], positiva a la izquierda (lo usa Pure Pursuit)
+    reference_distance_m: float = 0.0    # del pie de la cámara al punto donde se midió
 
 
 @dataclass(frozen=True)
@@ -45,6 +61,8 @@ class ControlConfig:
     lost_speed_factor: float
     slowdown_gain: float
     max_dt_s: float
+    algorithm: str = PID
+    pure_pursuit: Optional[PurePursuitConfig] = None
 
     def __post_init__(self):
         if min(self.kp, self.ki, self.kd) < 0.0:
@@ -69,6 +87,10 @@ class ControlConfig:
             raise ValueError('slowdown_gain debe estar en [0, 1)')
         if self.max_dt_s <= 0.0:
             raise ValueError('max_dt_s debe ser positivo')
+        if self.algorithm not in (PID, PURE_PURSUIT):
+            raise ValueError('algorithm debe ser "%s" o "%s"' % (PID, PURE_PURSUIT))
+        if self.algorithm == PURE_PURSUIT and self.pure_pursuit is None:
+            raise ValueError('pure_pursuit necesita sus parámetros')
 
 
 def _limitar(valor, maximo):
@@ -113,6 +135,9 @@ class ControlLogic:
             steer = self._dar_forma(0.0, now)
             return ControlOutput(steer, cfg.cruise_speed_mps * cfg.lost_speed_factor)
 
+        if cfg.algorithm == PURE_PURSUIT:
+            return self._pure_pursuit(lane, now)
+
         error = lane.lateral_error_m + cfg.heading_weight_m_per_rad * lane.heading_error_rad
         if abs(error) < cfg.deadband_m:
             error = 0.0
@@ -135,6 +160,17 @@ class ControlLogic:
         steer = self._dar_forma(raw, now)
         speed = cfg.cruise_speed_mps * (1.0 - cfg.slowdown_gain * abs(steer) / cfg.max_steer_rad)
         return ControlOutput(steer, speed)
+
+    def _pure_pursuit(self, lane: LaneInput, now: float) -> ControlOutput:
+        cfg = self._config
+        pp = cfg.pure_pursuit
+        self._reset_pid()     # si se vuelve al PID, que arranque limpio
+        rapidez = velocidad(pp, cfg.cruise_speed_mps, lane.curvature, lane.confidence)
+        ld = distancia_de_mirada(pp, rapidez)
+        x, y = punto_objetivo(pp, lane.lateral_error_m, lane.heading_error_rad,
+                              lane.curvature, lane.reference_distance_m, ld)
+        giro = _limitar(angulo_de_direccion(pp, x, y), cfg.max_steer_rad)
+        return ControlOutput(self._dar_forma(giro, now), rapidez)
 
     def _dar_forma(self, objetivo, now):
         """Filtra la salida y limita su velocidad de cambio."""

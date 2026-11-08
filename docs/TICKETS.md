@@ -176,7 +176,7 @@ dónde estaba la línea en un cuadro anterior, se busca solo cerca.
 
 ## A2-154: filtro de Kalman del estado del carril
 
-Commit: el de "A2-154: ..." en `prueba-jetson` (el hash se completa en el próximo ticket).
+Commit `d4218cb`.
 
 ### Descripción actualizada (para Jira)
 
@@ -220,3 +220,50 @@ el desvío, el rumbo y la curvatura se siguen con un Kalman dentro del módulo d
 - [ ] **Comparar con y sin filtro** (`kalman_enabled`) en las zonas del protocolo de A2-152.
 - [ ] **Medir el tiempo agregado por cuadro** en la Jetson (`ros2 topic hz /perception/lane`).
 - [ ] Encender el filtro por defecto cuando R y Q estén medidos.
+
+---
+
+## A2-155: Pure Pursuit y latencia de punta a punta
+
+Commit: el de "A2-155: ..." en `prueba-jetson` (el hash se completa en el próximo ticket).
+
+### Descripción actualizada (para Jira)
+
+`bfmc_control` suma Pure Pursuit (`pure_pursuit.py`, lógica pura) como segundo algoritmo de
+dirección. `algorithm: pid | pure_pursuit`; el PID queda igual y es el default hasta validar
+Pure Pursuit en pista. Los dos comparten la saturación, el filtro y el límite de velocidad de
+giro de la salida y el manejo de "sin carril" (patrón Strategy).
+
+- **Marco del auto:** origen en el eje trasero, x adelante, y a la izquierda.
+- **Dónde se midió:** `LaneState.reference_distance_m` (campo nuevo) dice a qué distancia del
+  pie de la cámara se midieron desvío, rumbo y curvatura; con `camera_to_rear_axle_m` el
+  control sabe que el punto está a `x_ref` del eje trasero.
+- **Punto objetivo:** `y(Ld) = d + ψ·s + κ·s²/2`, `s = Ld − x_ref`. Sin cambio de signo:
+  `lateral_error_m` ya es la posición del centro respecto del auto, positiva a la izquierda.
+- **Ley:** `δ = atan(2·L·sin α / l)`, `α = atan2(y, Ld)`, `l` = distancia al punto.
+- **Ld** `= clamp(lookahead_gain_s · v, lookahead_min_m, lookahead_max_m)`; arranca fija
+  (`lookahead_gain_s: 0`).
+- **Velocidad:** `min(crucero, √(max_lateral_accel_mps2 / |κ|)) × max(speed_min_factor, confianza)`.
+- **Latencia:** `/control/lane_cmd` y `/cmd/drive` llevan en el encabezado el instante de la
+  imagen. `ros2 run bfmc_bringup medir_latencia` da promedio, p99 y máximo.
+
+### Diferencias con el ticket original, y por qué
+
+| Ticket original | Cómo quedó | Por qué |
+|---|---|---|
+| `y(x) = d + ψx + κx²/2` con `d` en el auto | `d`, `ψ`, `κ` trasladados desde el punto de medición (`reference_distance_m`) | El detector mide a 0,575 m delante de la cámara, no en el auto: usada tal cual, la fórmula pone el objetivo corrido |
+| "Ojo con el signo: d_centro = −d" | Sin cambio de signo | `LaneState.lateral_error_m` ya es la posición del centro respecto del auto (positiva a la izquierda) |
+| Ld entre 0,3 y 0,6 m | Entre 0,70 y 1,10 m desde el eje trasero `[asumido]` | La cámara ve de 0,45 a 0,95 m **delante de la cámara**; con 0,2 m de cámara a eje, de 0,65 a 1,15 m del eje. Más cerca, el objetivo sale de extrapolar a ciegas |
+| `δ = atan(2·L·sin α / Ld)` | `/ l` (distancia real al punto) | Es la fórmula estándar; con `y ≠ 0` la distancia al punto no es Ld |
+| "Convertir a la unidad que espera /control/lane_cmd" | Sin conversión | `/control/lane_cmd` ya usa radianes (SI); la conversión al servo la hace el puente |
+| Velocidad `v_max · f(confianza, κ)` | Límite de aceleración lateral `√(a/|κ|)` y factor de confianza con piso | Es la práctica común de adaptación de velocidad en curvas, con un parámetro con significado físico en vez de una ganancia a ojo |
+| Medir la latencia | Propagar el stamp de la imagen + `medir_latencia` | Ningún nodo usaba esos stamps; así la latencia se mide con el dato real, sin instrumentar los nodos |
+| Stanley como tercera opción | No se implementó | YAGNI; el esquema de `algorithm` permite agregarlo |
+
+### Pendiente
+
+- [ ] **Correr los tests** (no se corrieron): `test_pure_pursuit.py` (recto, signos, curva, saturación, Ld, velocidad), `test_medir_latencia.py`, contrato de `LaneState` en `bfmc_interfaces`.
+- [ ] **Medir en el auto** `wheelbase_m` y `camera_to_rear_axle_m` (hoy 0,26 y 0,20 `[asumido]`), y revisar que el rango de Ld caiga dentro de la vista.
+- [ ] **En pista, a baja velocidad,** recorrer las zonas del protocolo con `algorithm: pid` y después `pure_pursuit`, misma velocidad. Anotar salidas de carril y oscilaciones de cada uno, la Ld usada, y cuál queda como default.
+- [ ] **Latencia de punta a punta** con todo integrado: `ros2 run bfmc_bringup medir_latencia`, con `sudo nvpmodel -q` anotado. Antes, verificar que la cámara use el reloj del sistema (`global_time_enabled` en realsense-ros). Dejar promedio y p99 en el ticket.
+- [ ] **Avisar** a quien mantiene `bfmc_control` (A2-138) y `bfmc_decision`: el stamp de `/control/lane_cmd` y `/cmd/drive` ahora es el de la imagen, y `LaneState` suma `reference_distance_m`. Relacionado: A2-71 (Stanley).

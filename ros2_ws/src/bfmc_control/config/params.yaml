@@ -28,3 +28,20 @@ control:
     min_confidence: 0.3                # [0, 1] debajo de esto se trata como carril perdido [asumido]
     lost_speed_factor: 1.0             # [0, 1] fracción de la velocidad de crucero sin carril: 1 = no baja, el carril solo orienta
     max_dt_s: 0.5                      # [s] una pausa mayor entre mediciones reinicia el PID [asumido]
+
+    # Algoritmo de dirección: pid (A2-138, el de siempre) o pure_pursuit (A2-155). El PID queda
+    # por defecto hasta validar Pure Pursuit en pista. Se puede cambiar en vivo.
+    algorithm: pid
+
+    # Pure Pursuit. Marco del auto: origen en el eje trasero, x adelante. La vista cenital
+    # empieza a calib_forward_near_m (0,45 m) delante de la cámara: Ld tiene que caer dentro
+    # de lo que la cámara ve (eje trasero -> cámara + 0,45 a 0,95 m), si no se extrapola a ciegas.
+    wheelbase_m: 0.26                  # [m] distancia entre ejes, centro a centro de las ruedas [asumido: medir]
+    camera_to_rear_axle_m: 0.20        # [m] del eje trasero al pie de la cámara, hacia adelante [asumido: medir]
+    lookahead_min_m: 0.70              # [m] Ld mínima desde el eje trasero [asumido: afinar en pista]
+    lookahead_max_m: 1.10              # [m] Ld máxima [asumido]
+    lookahead_gain_s: 0.0              # [s] Ld = gain * v; 0 = Ld fija en la mínima (arrancar así)
+    # Velocidad: en las curvas, la que no supera esta aceleración lateral (v = sqrt(a / |curvatura|)),
+    # y con poca confianza baja hasta speed_min_factor de la de crucero.
+    max_lateral_accel_mps2: 1.0        # [m/s²] [asumido: afinar en pista]
+    speed_min_factor: 0.5              # (0, 1]

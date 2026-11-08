@@ -23,4 +23,9 @@ setup(
     description='Arranca todo el sistema AURA con un solo comando.',
     license='MIT',
     tests_require=['pytest'],
+    entry_points={
+        'console_scripts': [
+            'medir_latencia = bfmc_bringup.medir_latencia:main',
+        ],
+    },
 )

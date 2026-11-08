@@ -555,6 +555,11 @@ class LaneDetectionNode(Node):
         estado.lateral_error_m = carril.lateral_error_m
         estado.heading_error_rad = carril.heading_error_rad
         estado.curvature = carril.curvature
+        # La fila de medición, en metros desde el pie de la cámara: el borde de abajo de la
+        # vista más la fracción hacia adelante.
+        estado.reference_distance_m = (
+            self._valor('calib_forward_near_m')
+            + self._valor('reference_row_fraction') * detector.config.view_length_m)
         estado.confidence = carril.confidence
         estado.intersection_detected = carril.intersection_detected
         self._publisher.publish(estado)

@@ -2,6 +2,7 @@
 from ackermann_msgs.msg import AckermannDriveStamped
 from bfmc_decision.decision_logic import (
     DecisionConfig, DecisionLogic, Drive, HardwareObservation, LaneObservation, SignObservation,
+    Source,
 )
 from bfmc_interfaces.action import ManeuverExecute
 from bfmc_interfaces.msg import HardwareStatus, LaneState, SignDetectionArray, VehicleState
@@ -38,6 +39,8 @@ class DecisionNode(Node):
 
     def __init__(self):
         super().__init__('decision')
+        # Instante de origen (header.stamp) del último comando de cada fuente.
+        self._instante_de_origen = {}
 
         for nombre in PARAMETROS_TEXTO:
             self.declare_parameter(nombre, Parameter.Type.STRING)
@@ -115,10 +118,12 @@ class DecisionNode(Node):
             self._now_s())
 
     def _on_lane_cmd(self, msg: AckermannDriveStamped):
+        self._instante_de_origen[Source.LANE] = msg.header.stamp
         self._logic.on_lane_command(
             Drive(msg.drive.speed, msg.drive.steering_angle), self._now_s())
 
     def _on_maneuver_cmd(self, msg: AckermannDriveStamped):
+        self._instante_de_origen[Source.MANEUVER] = msg.header.stamp
         self._logic.on_maneuver_command(
             Drive(msg.drive.speed, msg.drive.steering_angle), self._now_s())
 
@@ -131,12 +136,16 @@ class DecisionNode(Node):
         if decision.maneuver_request is not None:
             self._pedir_maniobra(decision.maneuver_request)
 
-        self._publicar_comando(decision.command)
+        self._publicar_comando(decision.command, decision.source)
         self._publicar_estado(decision)
 
-    def _publicar_comando(self, comando: Drive):
+    def _publicar_comando(self, comando: Drive, fuente: Source):
         msg = AckermannDriveStamped()
-        msg.header.stamp = self.get_clock().now().to_msg()
+        # El instante del dato con el que se decidió (el del comando elegido, que trae el de
+        # la imagen): así `ros2 topic delay /cmd/drive` mide la latencia de punta a punta.
+        # Sin fuente (detenido), el de ahora.
+        origen = self._instante_de_origen.get(fuente)
+        msg.header.stamp = origen if origen is not None else self.get_clock().now().to_msg()
         msg.header.frame_id = self._valor('frame_id')
         msg.drive.speed = comando.speed_mps
         msg.drive.steering_angle = comando.steering_rad

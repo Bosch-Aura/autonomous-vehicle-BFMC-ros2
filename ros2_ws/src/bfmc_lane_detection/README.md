@@ -33,6 +33,7 @@ El encabezado del resultado es el de la imagen, así quien lo consume sabe de qu
 | `lateral_error_m` | Positivo si el centro del carril queda a la **izquierda** del auto |
 | `heading_error_rad` | Positivo si el carril sigue hacia la **izquierda** |
 | `curvature` | [1/m] del centro del carril; positiva si dobla hacia la **izquierda** |
+| `reference_distance_m` | Dónde se midieron desvío, rumbo y curvatura: distancia desde el pie de la cámara (`calib_forward_near_m + reference_row_fraction × largo de la vista`). No es el auto |
 | `mode` | `MODE_TWO_LINES`, `MODE_ONE_LINE`, `MODE_PREDICTED` o `MODE_LOST` (ver "Chequeos y fallback") |
 | `left_valid`, `right_valid` | Si cada línea pasó sus chequeos en esta imagen |
 | `confidence` | De 0 a 1. Con las dos líneas es mayor que con una; crece con los píxeles de línea hasta `full_confidence_pixels`; en `MODE_PREDICTED` baja hasta 0 |

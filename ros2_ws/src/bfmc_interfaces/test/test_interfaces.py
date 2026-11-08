@@ -25,6 +25,7 @@ def test_lane_state_expone_modo_desvio_rumbo_confianza_e_interseccion():
         'lateral_error_m': 'float',
         'heading_error_rad': 'float',
         'curvature': 'float',
+        'reference_distance_m': 'float',
         'confidence': 'float',
         'intersection_detected': 'boolean',
     }
