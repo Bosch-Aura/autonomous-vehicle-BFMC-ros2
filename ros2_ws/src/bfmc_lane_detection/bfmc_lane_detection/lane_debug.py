@@ -38,8 +38,12 @@ def renderizar(detector: LaneDetector, bgr: np.ndarray):
     return dibujar_camara(detector, bgr, analisis), dibujar_cenital(detector, analisis)
 
 
-def dibujar_camara(detector: LaneDetector, bgr: np.ndarray, analisis: Analisis) -> np.ndarray:
-    """Dibuja lo que vio el detector sobre la imagen de la cámara. No modifica `bgr`."""
+def dibujar_camara(detector: LaneDetector, bgr: np.ndarray, analisis: Analisis,
+                   modo: str = '') -> np.ndarray:
+    """Dibuja lo que vio el detector sobre la imagen de la cámara. No modifica `bgr`.
+
+    `modo` es el modo del fallback (lane_tracker.py), que el detector no conoce.
+    """
     cfg = detector.config
     alto, ancho = bgr.shape[:2]
 
@@ -63,7 +67,7 @@ def dibujar_camara(detector: LaneDetector, bgr: np.ndarray, analisis: Analisis) 
         carril = (centro['centro_px'], centro['y_px'])
         _polilinea(imagen, np.array([auto, carril], dtype=np.float64), inversa, MAGENTA, 3)
 
-    _escribir(imagen, _resumen(analisis), 8, 8)
+    _escribir(imagen, _resumen(analisis, modo), 8, 8)
     _escribir(imagen, ['rojo=blanco  amarillo=trapecio  cian=region  verde/azul=lineas'],
               8, alto - 24)
     return imagen
@@ -104,7 +108,7 @@ def dibujar_cenital(detector: LaneDetector, analisis: Analisis) -> np.ndarray:
         cv2.line(imagen, (0, y), (ancho - 1, y), NARANJA, 1)
         cv2.circle(imagen, (int(round(centro['centro_px'])), y), 6, MAGENTA, -1)
 
-    _escribir(imagen, _resumen(analisis), 8, 8)
+    _escribir(imagen, _resumen(analisis, modo), 8, 8)
     _escribir(imagen, ['amarillo=eje del auto  naranja=fila de medicion'], 8, alto - 24)
     return imagen
 
@@ -126,7 +130,7 @@ def _polilinea(imagen, puntos_cenital, inversa, color, grosor):
     cv2.polylines(imagen, [en_camara.reshape(-1, 1, 2)], False, color, grosor)
 
 
-def _resumen(analisis):
+def _resumen(analisis, modo=''):
     resultado = analisis.resultado
     if resultado.detected:
         primera = 'carril: SI (%s)' % analisis.centro['modo']
@@ -136,6 +140,10 @@ def _resumen(analisis):
         primera = 'carril: NO detectado'
         segunda = 'sin lineas validas'
     lineas = [primera, segunda]
+    if modo:
+        lineas.insert(0, 'MODO: %s' % modo)
+    if resultado.failed_checks:
+        lineas.append('fallo: %s' % resultado.failed_checks)
     if resultado.intersection_detected:
         lineas.append('INTERSECCION')
     return lineas

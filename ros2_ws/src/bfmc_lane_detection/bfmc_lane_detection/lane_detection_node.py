@@ -10,6 +10,7 @@ from bfmc_lane_detection.ground_calibration import (
 from bfmc_lane_detection.image_utils import imagen_a_bgr, profundidad_a_metros
 from bfmc_lane_detection.lane_debug import dibujar_camara, dibujar_cenital
 from bfmc_lane_detection.lane_detection_logic import LaneConfig, LaneDetector
+from bfmc_lane_detection.lane_tracker import LaneTracker, NOMBRES_DE_MODO
 from bfmc_lane_detection.param_store import guardar_parametros
 import cv2
 import numpy as np
@@ -30,12 +31,13 @@ PARAMETROS_TEXTO = (
     'save_service', 'persist_file')
 PARAMETROS_ENTEROS = (
     'morph_kernel_px', 'warp_width', 'warp_height', 'n_windows', 'window_margin_px',
-    'min_pixels', 'full_confidence_pixels', 'intersection_min_rows',
+    'min_pixels', 'full_confidence_pixels', 'intersection_min_rows', 'min_windows',
 )
 PARAMETROS_DECIMALES = (
     'roi_top_fraction', 'lane_width_m',
     'reference_row_fraction', 'intersection_band_top_fraction', 'intersection_row_fraction',
-    'debug_max_fps',
+    'debug_max_fps', 'max_residual_m', 'min_curve_radius_m', 'lane_width_tolerance_m',
+    'lost_timeout_s',
 )
 PARAMETROS_ARREGLOS = ('white_hsv_min', 'white_hsv_max')
 
@@ -167,9 +169,13 @@ class LaneDetectionNode(Node):
         for nombre in CALIB_ARREGLOS:
             self.declare_parameter(nombre, Parameter.Type.DOUBLE_ARRAY)
         self.declare_parameter('calib_check_on_start', Parameter.Type.BOOL)
+        self.declare_parameter('width_check_fractions', Parameter.Type.DOUBLE_ARRAY)
         self._config_calibracion()   # falla al arrancar si la calibración está mal configurada
 
         self._detector = LaneDetector(self._configuracion())
+        # La memoria del carril vive aparte del detector: rehacer el detector por un cambio
+        # de parámetros no la borra.
+        self._tracker = LaneTracker(self._valor('lost_timeout_s'))
 
         # Las imágenes se leen con calidad "best effort" y cola de 1: si el nodo se
         # atrasa, conviene procesar la imagen más nueva y no acumular retraso.
@@ -240,6 +246,11 @@ class LaneDetectionNode(Node):
             return SetParametersResult(
                 successful=False,
                 reason='el auto está andando: frenalo antes de cambiar %s' % ', '.join(geometria))
+        if 'lost_timeout_s' in cambios:
+            try:
+                self._tracker.lost_timeout_s = cambios['lost_timeout_s']
+            except ValueError as error:
+                return SetParametersResult(successful=False, reason=str(error))
         if 'debug_max_fps' in cambios and not cambios['debug_max_fps'] > 0.0:
             return SetParametersResult(
                 successful=False, reason='debug_max_fps debe ser mayor que 0')
@@ -492,22 +503,30 @@ class LaneDetectionNode(Node):
                 'imagen descartada: falló la visión: %s' % error, throttle_duration_sec=5.0)
             return
 
+        # El tiempo es el de la imagen: el fallback mide cuánto hace que no hay líneas
+        # válidas en el reloj de la cámara, no en el del procesamiento.
+        instante = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        carril = self._tracker.update(resultado, instante)
+
         estado = LaneState()
         estado.header = msg.header
-        estado.detected = resultado.detected
-        estado.lateral_error_m = resultado.lateral_error_m
-        estado.heading_error_rad = resultado.heading_error_rad
-        estado.confidence = resultado.confidence
-        estado.intersection_detected = resultado.intersection_detected
+        estado.mode = carril.mode
+        estado.detected = carril.detected
+        estado.left_valid = carril.left_valid
+        estado.right_valid = carril.right_valid
+        estado.lateral_error_m = carril.lateral_error_m
+        estado.heading_error_rad = carril.heading_error_rad
+        estado.confidence = carril.confidence
+        estado.intersection_detected = carril.intersection_detected
         self._publisher.publish(estado)
 
         if depurar:
-            self._publicar_depuracion(detector, bgr, analisis, msg.header)
+            self._publicar_depuracion(detector, bgr, analisis, carril, msg.header)
 
-    def _publicar_depuracion(self, detector, bgr, analisis, encabezado):
+    def _publicar_depuracion(self, detector, bgr, analisis, carril, encabezado):
         """Dibuja y publica las imágenes de depuración. Si falla, la detección sigue."""
         try:
-            camara = dibujar_camara(detector, bgr, analisis)
+            camara = dibujar_camara(detector, bgr, analisis, NOMBRES_DE_MODO[carril.mode])
             cenital = dibujar_cenital(detector, analisis)
         except (cv2.error, ValueError, np.linalg.LinAlgError) as error:
             self.get_logger().warning(

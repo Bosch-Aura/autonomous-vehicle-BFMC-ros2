@@ -10,11 +10,18 @@ Pipeline:
    líneas paralelas del carril quedan paralelas y las distancias son uniformes.
 4. Ajuste: se buscan las líneas izquierda y derecha con ventanas deslizantes y se
    ajusta un polinomio de segundo grado a cada una.
-5. Medición: a una fila de referencia se calculan el desvío lateral y el error de
+5. Chequeos (A2-152): cada línea se descarta si tiene pocas ventanas con píxeles, si el
+   polinomio ajusta mal (residuo) o si es más curva que la curva más cerrada de la pista.
+   Si las dos pasan pero no están a un ancho de carril entre sí (medido perpendicular a
+   las líneas, en varias alturas), se queda la que mejor ajusta.
+6. Medición: a una fila de referencia se calculan el desvío lateral y el error de
    rumbo, en metros y radianes.
 
 Convenciones (las de bfmc_interfaces): unidades SI, y un desvío o ángulo positivo
 es hacia la izquierda del auto.
+
+El detector no tiene memoria: el fallback cuando no hay líneas válidas (repetir el último
+estado, perder el carril) está en lane_tracker.py.
 
 `detect` devuelve solo el resultado. `analizar` hace lo mismo pero además devuelve lo
 que el detector vio por el camino (la máscara de blancos, las ventanas, las curvas),
@@ -22,7 +29,7 @@ para dibujarlo en las imágenes de depuración.
 """
 from dataclasses import dataclass
 import math
-from typing import Optional, Sequence
+from typing import NamedTuple, Optional, Sequence
 
 import cv2
 import numpy as np
@@ -63,6 +70,12 @@ class LaneConfig:
     n_windows: int
     window_margin_px: int
     min_pixels: int
+    # Chequeos de cada línea y del par (A2-152).
+    min_windows: int                    # ventanas con píxeles que necesita una línea
+    max_residual_m: float               # error medio del polinomio [m]
+    min_curve_radius_m: float           # radio de la curva más cerrada de la pista [m]
+    lane_width_tolerance_m: float       # cuánto puede diferir el ancho medido de lane_width_m
+    width_check_fractions: Sequence[float]  # alturas (0 = cerca, 1 = lejos) donde se mide
     reference_row_fraction: float
     full_confidence_pixels: int
     intersection_band_top_fraction: float
@@ -94,6 +107,14 @@ class LaneConfig:
                                  self.lane_width_m, self.view_width_m))
         if self.n_windows < 1 or self.window_margin_px < 1 or self.min_pixels < 1:
             raise ValueError('n_windows, window_margin_px y min_pixels deben ser positivos')
+        if not 1 <= self.min_windows <= self.n_windows:
+            raise ValueError('min_windows debe estar entre 1 y n_windows')
+        if min(self.max_residual_m, self.min_curve_radius_m, self.lane_width_tolerance_m) <= 0:
+            raise ValueError('max_residual_m, min_curve_radius_m y lane_width_tolerance_m '
+                             'deben ser positivos')
+        if not self.width_check_fractions or not all(
+                0.0 <= f <= 1.0 for f in self.width_check_fractions):
+            raise ValueError('width_check_fractions debe tener al menos un valor entre 0 y 1')
         if not 0.0 <= self.reference_row_fraction < 1.0:
             raise ValueError('reference_row_fraction debe estar en [0, 1)')
         if self.full_confidence_pixels < 1:
@@ -114,6 +135,18 @@ class LaneResult:
     heading_error_rad: float
     confidence: float
     intersection_detected: bool
+    left_valid: bool = False
+    right_valid: bool = False
+    failed_checks: str = ''      # qué chequeos fallaron, para la depuración ('' si ninguno)
+
+
+class Linea(NamedTuple):
+    """Una línea ajustada en la vista cenital: x = a y² + b y + c, en píxeles."""
+
+    coef: np.ndarray
+    pixeles: int
+    ventanas: int          # ventanas en las que se encontraron píxeles
+    residuo_px: float      # error medio |x ajustada - x| de los píxeles
 
 
 NOT_DETECTED = LaneResult(False, 0.0, 0.0, 0.0, False)
@@ -123,7 +156,7 @@ NOT_DETECTED = LaneResult(False, 0.0, 0.0, 0.0, False)
 class Analisis:
     """Lo que el detector vio en una imagen, para dibujarlo.
 
-    `izquierda` y `derecha` son None o (coeficientes, píxeles) de la curva x(y) en la
+    `izquierda` y `derecha` son None o la `Linea` encontrada (pase o no los chequeos) en la
     vista cenital. `trazas` guarda, para cada lado ('izq' y 'der'), la columna donde
     arranca la línea y las ventanas probadas: (x_ini, y_ini, x_fin, y_fin, píxeles).
     `centro` es None o el diccionario con el que se midió el carril.
@@ -192,12 +225,15 @@ class LaneDetector:
 
         izquierda, derecha = self._buscar_lineas(cenital, trazas)
         interseccion = self._hay_interseccion(cenital)
-        centro = self._centro(izquierda, derecha)
+        izquierda_ok, derecha_ok, fallos = self._validar(izquierda, derecha)
+        centro = self._centro(izquierda_ok, derecha_ok)
+        validas = {'left_valid': izquierda_ok is not None, 'right_valid': derecha_ok is not None,
+                   'failed_checks': '; '.join(fallos)}
         if centro is None:
-            resultado = LaneResult(False, 0.0, 0.0, 0.0, interseccion)
+            resultado = LaneResult(False, 0.0, 0.0, 0.0, interseccion, **validas)
         else:
             lateral, rumbo, confianza = self._medir(centro)
-            resultado = LaneResult(True, lateral, rumbo, confianza, interseccion)
+            resultado = LaneResult(True, lateral, rumbo, confianza, interseccion, **validas)
         return Analisis(resultado, mascara, cenital, izquierda, derecha,
                         trazas if trazas is not None else {}, centro)
 
@@ -251,6 +287,7 @@ class LaneDetector:
         paso = alto // cfg.n_windows
         x_actual = base
         xs, ys = [], []
+        con_pixeles = 0
         for ventana in range(cfg.n_windows):
             y_fin = alto - ventana * paso
             y_ini = max(0, y_fin - paso)
@@ -259,6 +296,7 @@ class LaneDetector:
             fy, fx = np.nonzero(cenital[y_ini:y_fin, x_ini:x_fin])
             if ventanas is not None:
                 ventanas.append((x_ini, y_ini, x_fin, y_fin, int(fy.size)))
+            con_pixeles += int(fy.size > 0)
             if fy.size >= cfg.min_pixels:
                 x_actual = int(fx.mean()) + x_ini
             xs.extend((fx + x_ini).tolist())
@@ -266,18 +304,20 @@ class LaneDetector:
 
         if len(ys) < cfg.min_pixels or len(set(ys)) < 3:
             return None
-        coeficientes = np.polyfit(np.array(ys, dtype=np.float64),
-                                  np.array(xs, dtype=np.float64), 2)
-        return coeficientes, len(ys)
+        y = np.array(ys, dtype=np.float64)
+        x = np.array(xs, dtype=np.float64)
+        coeficientes = np.polyfit(y, x, 2)
+        residuo = float(np.mean(np.abs(np.polyval(coeficientes, y) - x)))
+        return Linea(coeficientes, len(ys), con_pixeles, residuo)
 
     # --- medición -------------------------------------------------------------------
     def _centro(self, izquierda, derecha) -> Optional[dict]:
         """Decide dónde está el centro del carril en la fila de referencia.
 
-        Devuelve None si no hay ninguna línea. Si no, un diccionario con la columna del
-        centro (`centro_px`), la pendiente de la curva (`pendiente`), los píxeles que la
-        respaldan, la confianza base, la fila (`y_px`) y qué líneas se usaron (`modo`:
-        'ambas', 'izquierda' o 'derecha').
+        Recibe solo líneas que pasaron los chequeos. Devuelve None si no hay ninguna. Si
+        no, un diccionario con la columna del centro (`centro_px`), la pendiente de la
+        curva (`pendiente`), los píxeles que la respaldan, la confianza base, la fila
+        (`y_px`) y qué líneas se usaron (`modo`: 'ambas', 'izquierda' o 'derecha').
         """
         cfg = self._config
         if izquierda is None and derecha is None:
@@ -290,24 +330,17 @@ class LaneDetector:
             a, b, c = ajuste[0]
             return a * y * y + b * y + c, 2.0 * a * y + b
 
-        usar_ambas = izquierda is not None and derecha is not None
-        if usar_ambas:
+        # Las líneas ya pasaron los chequeos (ver _validar): si llegan las dos, son un carril.
+        if izquierda is not None and derecha is not None:
             x_izq, pendiente_izq = evaluar(izquierda)
             x_der, pendiente_der = evaluar(derecha)
-            separacion = x_der - x_izq
-            # Si las dos "líneas" no están a una distancia de carril razonable, una de
-            # ellas es ruido: se usa la que tiene más píxeles.
-            usar_ambas = 0.5 * ancho_carril_px <= separacion <= 1.5 * ancho_carril_px
-        if usar_ambas:
             centro = 0.5 * (x_izq + x_der)
             pendiente = 0.5 * (pendiente_izq + pendiente_der)
             pixeles = izquierda[1] + derecha[1]
             base_confianza = 1.0
             modo = 'ambas'
         else:
-            candidatos = [(izquierda, +1.0), (derecha, -1.0)]
-            ajuste, signo = max((c for c in candidatos if c[0] is not None),
-                                key=lambda c: c[0][1])
+            ajuste, signo = (izquierda, +1.0) if izquierda is not None else (derecha, -1.0)
             x_linea, pendiente = evaluar(ajuste)
             centro = x_linea + signo * 0.5 * ancho_carril_px
             pixeles = ajuste[1]
@@ -315,6 +348,75 @@ class LaneDetector:
             modo = 'izquierda' if signo > 0 else 'derecha'
         return {'centro_px': centro, 'pendiente': pendiente, 'pixeles': pixeles,
                 'base_confianza': base_confianza, 'y_px': y, 'modo': modo}
+
+    def _validar(self, izquierda, derecha):
+        """Aplica los chequeos. Devuelve (izquierda válida, derecha válida, fallos).
+
+        Cada una es la Linea o None. Una línea que no pasa sus chequeos se descarta. Si las
+        dos pasan pero no están a un ancho de carril entre sí, se descarta la que ajusta peor
+        (mayor residuo; a igual residuo, la de menos píxeles): una mancha de reflejo puede
+        tener muchos píxeles, pero no tiene forma de línea.
+        """
+        fallos = []
+        validas = []
+        for nombre, linea in (('izq', izquierda), ('der', derecha)):
+            motivo = None if linea is None else self._fallo_de_linea(linea)
+            if motivo is not None:
+                fallos.append('%s: %s' % (nombre, motivo))
+            validas.append(None if motivo is not None else linea)
+        izquierda, derecha = validas
+        if izquierda is not None and derecha is not None and not self._ancho_ok(
+                izquierda, derecha):
+            fallos.append('ancho de carril')
+            if (izquierda.residuo_px, -izquierda.pixeles) > (derecha.residuo_px,
+                                                              -derecha.pixeles):
+                izquierda = None
+            else:
+                derecha = None
+        return izquierda, derecha, fallos
+
+    def _fallo_de_linea(self, linea: Linea) -> Optional[str]:
+        """El motivo por el que la línea no pasa sus chequeos, o None si los pasa."""
+        cfg = self._config
+        if linea.ventanas < cfg.min_windows:
+            return 'pocas ventanas (%d)' % linea.ventanas
+        if linea.residuo_px * self._mpp_x > cfg.max_residual_m:
+            return 'residuo %.3f m' % (linea.residuo_px * self._mpp_x)
+        if self._curvatura_m(linea, self._fila_de_referencia()) > 1.0 / cfg.min_curve_radius_m:
+            return 'demasiado curva'
+        return None
+
+    def _fila_de_referencia(self):
+        return self._config.warp_height * (1.0 - self._config.reference_row_fraction)
+
+    def _pendiente_m(self, linea: Linea, y_px: float) -> float:
+        """dx/dy en metros (la escala puede ser distinta en cada eje)."""
+        a, b, _ = linea.coef
+        return (2.0 * a * y_px + b) * self._mpp_x / self._mpp_y
+
+    def _curvatura_m(self, linea: Linea, y_px: float) -> float:
+        """|curvatura| [1/m] de la línea en la fila `y_px`."""
+        a_m = linea.coef[0] * self._mpp_x / (self._mpp_y ** 2)    # d²x/dy² en metros
+        pendiente = self._pendiente_m(linea, y_px)
+        return abs(2.0 * a_m) / (1.0 + pendiente ** 2) ** 1.5
+
+    def _ancho_ok(self, izquierda: Linea, derecha: Linea) -> bool:
+        """Las dos líneas están a un ancho de carril, medido perpendicular a ellas.
+
+        En la misma fila, la distancia horizontal entre dos líneas paralelas inclinadas un
+        ángulo θ es ancho / cos θ: en una curva con θ = 30°, un carril de 0,37 m mide 0,43 m
+        en horizontal. Por eso se corrige por cos θ antes de comparar.
+        """
+        cfg = self._config
+        for fraccion in cfg.width_check_fractions:
+            y = cfg.warp_height * (1.0 - fraccion)
+            horizontal = (np.polyval(derecha.coef, y) - np.polyval(izquierda.coef, y))
+            angulo = math.atan(0.5 * (self._pendiente_m(izquierda, y)
+                                      + self._pendiente_m(derecha, y)))
+            ancho = horizontal * self._mpp_x * math.cos(angulo)
+            if abs(ancho - cfg.lane_width_m) > cfg.lane_width_tolerance_m:
+                return False
+        return True
 
     def _medir(self, centro: dict) -> tuple:
         cfg = self._config

@@ -9,8 +9,9 @@ Escala: 100 px = 0,4 m en ambos ejes, es decir 0,004 m por píxel.
 import math
 
 from bfmc_lane_detection.lane_detection_logic import (
-    cuadrilatero_valido, LaneConfig, LaneDetector,
+    cuadrilatero_valido, LaneConfig, LaneDetector, Linea,
 )
+import cv2
 import numpy as np
 import pytest
 from synthetic_lanes import carril_cenital, lienzo, linea
@@ -26,6 +27,8 @@ def configuracion(**cambios):
         'roi_top_fraction': 0.0, 'warp_src': (0, 0, 1, 0, 1, 1, 0, 1),
         'warp_width': ANCHO, 'warp_height': ALTO, 'lane_width_m': 0.4, 'view_width_m': 0.8,
         'view_length_m': 0.8, 'n_windows': 8, 'window_margin_px': 20, 'min_pixels': 30,
+        'min_windows': 3, 'max_residual_m': 0.02, 'min_curve_radius_m': 0.4,
+        'lane_width_tolerance_m': 0.05, 'width_check_fractions': (0.1, 0.5, 0.9),
         'reference_row_fraction': 0.0, 'full_confidence_pixels': 1000,
         'intersection_band_top_fraction': 0.5, 'intersection_row_fraction': 0.6,
         'intersection_min_rows': 5,
@@ -295,3 +298,74 @@ def test_analizar_indica_con_que_lineas_se_midio():
     assert detector.analizar(carril_cenital(ANCHO, ALTO, 50, None)).centro['modo'] == 'izquierda'
     assert detector.analizar(carril_cenital(ANCHO, ALTO, None, 150)).centro['modo'] == 'derecha'
     assert detector.analizar(lienzo(ANCHO, ALTO)).centro is None
+
+
+# --- chequeos de cada medición (A2-152) -----------------------------------------------
+
+def zigzag(imagen, x, amplitud, grosor=2):
+    """Una línea vertical en `x` que se va corriendo ± `amplitud` px: ajusta mal."""
+    puntos = [(x + (amplitud if (y // 10) % 2 else -amplitud), y) for y in range(ALTO, -1, -10)]
+    cv2.polylines(imagen, [np.array(puntos, dtype=np.int32).reshape(-1, 1, 2)], False,
+                  (255, 255, 255), grosor)
+    return imagen
+
+
+def test_un_carril_bueno_tiene_las_dos_lineas_validas():
+    resultado = detectar(carril_cenital(ANCHO, ALTO, 50, 150))
+    assert (resultado.left_valid, resultado.right_valid) == (True, True)
+    assert resultado.failed_checks == ''
+
+
+def test_un_reflejo_que_rompe_el_ancho_se_descarta_y_queda_la_linea_buena():
+    # Línea buena a la izquierda; a la derecha, un "reflejo" desparejo a 0,52 m.
+    imagen = zigzag(carril_cenital(ANCHO, ALTO, 50, None, grosor=2), 180, 6, grosor=6)
+    resultado = detectar(imagen)
+    assert resultado.detected is True
+    assert (resultado.left_valid, resultado.right_valid) == (True, False)
+    assert resultado.failed_checks
+    # El centro sale de la línea buena más medio carril: el auto está centrado.
+    assert resultado.lateral_error_m == pytest.approx(0.0, abs=0.01)
+
+
+def test_si_el_ancho_no_cierra_se_queda_la_linea_que_mejor_ajusta():
+    # Las dos pasan sus chequeos, pero están a 0,52 m: se descarta la de mayor residuo
+    # aunque tenga más píxeles.
+    imagen = zigzag(carril_cenital(ANCHO, ALTO, 40, None, grosor=2), 170, 3, grosor=4)
+    resultado = detectar(imagen)
+    assert 'ancho' in resultado.failed_checks
+    assert (resultado.left_valid, resultado.right_valid) == (True, False)
+
+
+def test_una_linea_corta_con_pocas_ventanas_se_descarta():
+    imagen = linea(lienzo(ANCHO, ALTO), (50, ALTO - 1), (50, ALTO - 45), grosor=8)
+    resultado = detectar(imagen)
+    assert resultado.detected is False
+    assert 'pocas ventanas' in resultado.failed_checks
+
+
+def test_una_linea_mas_curva_que_la_pista_se_descarta():
+    imagen = lienzo(ANCHO, ALTO)
+    puntos = [(int(50 + 0.002 * (ALTO - y) ** 2), y) for y in range(ALTO, -1, -5)]
+    cv2.polylines(imagen, [np.array(puntos, dtype=np.int32).reshape(-1, 1, 2)], False,
+                  (255, 255, 255), 6)
+    # Curvatura en la fila de medición: 2 * 0,002 px⁻¹ = 1 m⁻¹ (radio 1 m).
+    assert detectar(imagen, min_curve_radius_m=0.4).detected is True
+    curva = detectar(imagen, min_curve_radius_m=5.0)
+    assert curva.detected is False
+    assert 'curva' in curva.failed_checks
+
+
+@pytest.mark.parametrize('separacion_m, angulo_deg, esperado', [
+    (0.4 / math.cos(math.radians(30)), 30.0, True),   # carril de 0,40 m inclinado 30°
+    (0.40, 30.0, False),                              # 0,40 horizontal = 0,35 perpendicular
+    (0.40, 0.0, True),
+])
+def test_el_ancho_se_mide_perpendicular_a_las_lineas(separacion_m, angulo_deg, esperado):
+    # En una curva las líneas cruzan la fila inclinadas: en horizontal el carril "mide"
+    # más. Sin corregir por el ángulo, una curva cerrada perdería siempre una línea.
+    detector = LaneDetector(configuracion())
+    pendiente = math.tan(math.radians(angulo_deg))
+    separacion_px = separacion_m / M_POR_PX
+    izquierda = Linea(np.array([0.0, pendiente, 50.0]), 1000, 8, 0.5)
+    derecha = Linea(np.array([0.0, pendiente, 50.0 + separacion_px]), 1000, 8, 0.5)
+    assert detector._ancho_ok(izquierda, derecha) is esperado

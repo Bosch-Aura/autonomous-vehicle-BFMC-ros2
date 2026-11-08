@@ -374,6 +374,6 @@ def lane_config_desde_parametros(valores: dict):
     }
     directos = {campo.name: valores[campo.name] for campo in dataclasses.fields(LaneConfig)
                 if campo.name not in CAMPOS_CALCULADOS}
-    for nombre in ('white_hsv_min', 'white_hsv_max'):
+    for nombre in ('white_hsv_min', 'white_hsv_max', 'width_check_fractions'):
         directos[nombre] = tuple(directos[nombre])
     return LaneConfig(**directos, **calculados)

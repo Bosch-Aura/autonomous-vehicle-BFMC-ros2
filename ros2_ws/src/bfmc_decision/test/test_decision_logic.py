@@ -145,14 +145,25 @@ def test_un_comando_de_carril_vencido_es_una_emergencia():
     assert 'carril' in decision.reason
 
 
-def test_un_carril_sin_detectar_no_frena_el_auto_por_mucho_que_dure():
+def test_con_el_carril_perdido_el_auto_frena():
+    # bfmc_lane_detection solo manda detected=false en MODE_LOST: un corte breve de
+    # líneas llega como detectado (MODE_PREDICTED) y el auto sigue.
     logic = logica()
     entradas(logic, 10.0, carril_detectado=False)
-    for instante in (12.25, 20.0, 60.0):
-        entradas(logic, instante, carril_detectado=False)
-        decision = logic.step(instante)
-        assert decision.state == State.LANE_FOLLOW
-        assert decision.command == CARRIL
+    decision = logic.step(10.0)
+    assert decision.state == State.EMERGENCY
+    assert decision.command.speed_mps == 0.0
+    assert 'carril perdido' in decision.reason
+
+
+def test_cuando_vuelve_el_carril_el_auto_sigue_solo():
+    logic = logica()
+    entradas(logic, 10.0, carril_detectado=False)
+    assert logic.step(10.0).state == State.EMERGENCY
+    entradas(logic, 10.1, carril_detectado=True)
+    decision = logic.step(10.1)
+    assert decision.state == State.LANE_FOLLOW
+    assert decision.command == CARRIL
 
 
 def test_la_emergencia_termina_cuando_las_condiciones_se_normalizan():

@@ -5,6 +5,7 @@ tienen un tope de tiempo; la visión se prueba aparte, sin ROS, en
 test_lane_detection_logic.py y test_lane_detection_yaml.py.
 """
 import gc
+import math
 from pathlib import Path
 import threading
 import time
@@ -121,6 +122,16 @@ def test_una_imagen_sin_carril_publica_no_detectado(entorno):
     estado = publicar_y_esperar(entorno, mensaje_de(lienzo(CAMARA_ANCHO, CAMARA_ALTO)))
     assert estado.detected is False
     assert estado.confidence == 0.0
+    # Sin ninguna medición válida antes, no hay nada que predecir: carril perdido.
+    assert estado.mode == LaneState.MODE_LOST
+    assert math.isnan(estado.lateral_error_m)
+
+
+def test_un_carril_bueno_se_publica_en_modo_dos_lineas(entorno, parametros):
+    estado = publicar_y_esperar(
+        entorno, mensaje_de(carril_visto_por_la_camara(parametros, corrimiento_px=0)))
+    assert estado.mode == LaneState.MODE_TWO_LINES
+    assert (estado.left_valid, estado.right_valid) == (True, True)
 
 
 def test_el_encabezado_del_resultado_es_el_de_la_imagen(entorno):

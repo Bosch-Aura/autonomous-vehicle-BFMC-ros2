@@ -32,11 +32,36 @@ El encabezado del resultado es el de la imagen, así quien lo consume sabe de qu
 |---|---|
 | `lateral_error_m` | Positivo si el centro del carril queda a la **izquierda** del auto |
 | `heading_error_rad` | Positivo si el carril sigue hacia la **izquierda** |
-| `confidence` | De 0 a 1. Con las dos líneas visibles es mayor que con una; crece con los píxeles de línea hasta `full_confidence_pixels` |
-| `detected` | `false` si no se encontró ninguna línea; los demás campos no valen |
+| `mode` | `MODE_TWO_LINES`, `MODE_ONE_LINE`, `MODE_PREDICTED` o `MODE_LOST` (ver "Chequeos y fallback") |
+| `left_valid`, `right_valid` | Si cada línea pasó sus chequeos en esta imagen |
+| `confidence` | De 0 a 1. Con las dos líneas es mayor que con una; crece con los píxeles de línea hasta `full_confidence_pixels`; en `MODE_PREDICTED` baja hasta 0 |
+| `detected` | `false` **solo** en `MODE_LOST`; entonces el desvío y el rumbo son NaN y la confianza 0 |
 | `intersection_detected` | Hay una franja horizontal blanca que cruza la vista cercana al auto |
 
-**Una sola línea visible:** el centro se estima sumando o restando medio ancho de carril. **Dos líneas demasiado juntas o separadas** (fuera de 0,5 a 1,5 veces el ancho esperado) se toman como ruido: se usa la que tiene más píxeles.
+## Chequeos y fallback (A2-152)
+
+**Chequeos de cada imagen** (`lane_detection_logic.py`, sin memoria). Una línea se descarta si:
+
+- tiene menos de `min_pixels` píxeles o menos de `min_windows` ventanas con píxeles;
+- el polinomio ajusta mal: error medio mayor a `max_residual_m`;
+- es más curva que la curva más cerrada de la pista (`min_curve_radius_m`).
+
+Si las dos pasan pero no están a `lane_width_m` ± `lane_width_tolerance_m` entre sí en todas las alturas de `width_check_fractions`, se descarta la que **ajusta peor** (mayor residuo; a igual residuo, la de menos píxeles): una mancha de reflejo puede tener muchos píxeles, pero no forma de línea. El ancho se mide **perpendicular** a las líneas: en una curva cruzan la fila inclinadas, y en horizontal un carril de 0,37 m inclinado 30° mide 0,43 m. No hay un chequeo de paralelismo aparte: el ancho en varias alturas ya lo acota.
+
+**Fallback escalonado** (`lane_tracker.py`, con memoria y el tiempo de la imagen):
+
+| Modo | Cuándo | Qué se publica |
+|---|---|---|
+| `MODE_TWO_LINES` | Las dos líneas válidas | Centro = promedio de las dos |
+| `MODE_ONE_LINE` | Una válida | Centro = esa línea ± medio `lane_width_m` |
+| `MODE_PREDICTED` | Ninguna, hace menos de `lost_timeout_s` | El último estado válido; la confianza baja en línea recta hasta 0 |
+| `MODE_LOST` | Ninguna por más de `lost_timeout_s` | `detected = false`, NaN, confianza 0: `bfmc_decision` frena |
+
+Es el patrón común de degradación gradual: seguir con una estimación por un tiempo acotado (el error de seguir a ciegas crece rápido) y después una parada controlada. Cuando vuelven las líneas se recupera solo. La memoria está aparte del detector: cambiar un parámetro en vivo no la borra.
+
+En la imagen de depuración se ven el modo y qué chequeo falló. Para analizar una prueba en pista: `ros2 bag record /perception/lane`.
+
+**Tests con capturas reales:** guardá cuadros de la pista como PNG en `test/capturas/`, con el modo esperado al principio del nombre (`dos_lineas__recta_01.png`, `una_linea__reflejo_02.png`, `perdido__tapada_01.png`). `test_capturas.py` los corre todos; sin capturas, se saltea.
 
 ## Imágenes de depuración y cambios en vivo
 

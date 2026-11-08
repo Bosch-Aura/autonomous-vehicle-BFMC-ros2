@@ -51,6 +51,8 @@ STOPPED = Drive(0.0, 0.0)
 @dataclass(frozen=True)
 class LaneObservation:
 
+    # false solo cuando bfmc_lane_detection da el carril por perdido (MODE_LOST): pasó
+    # lost_timeout_s sin ninguna línea válida. Un corte breve llega como detectado.
     detected: bool
     intersection_detected: bool
 
@@ -151,6 +153,7 @@ class DecisionLogic:
         self._hardware_time = None
         self._lane_cmd = None
         self._lane_cmd_time = None
+        self._lane_lost = False
         self._maneuver_cmd = None
         self._maneuver_cmd_time = None
 
@@ -161,6 +164,7 @@ class DecisionLogic:
 
     # --- entradas -----------------------------------------------------------------
     def on_lane(self, lane: LaneObservation, now: float) -> None:
+        self._lane_lost = not lane.detected
         self._intersection_streak = (
             self._intersection_streak + 1 if lane.intersection_detected else 0)
 
@@ -248,6 +252,11 @@ class DecisionLogic:
         if self._maneuver is _Maneuver.NONE:
             if (now - self._lane_cmd_time) > cfg.lane_cmd_timeout_s:
                 return 'comando de carril vencido'
+            # Degradación gradual (A2-152): un corte breve de líneas se cubre con la
+            # predicción y el auto sigue; perdido el carril, parada controlada. No queda
+            # trabado: cuando vuelve el carril, la emergencia termina sola.
+            if self._lane_lost:
+                return 'carril perdido'
         return None
 
     def _emergencia(self, motivo, now):
@@ -288,8 +297,11 @@ class DecisionLogic:
         self._maneuver = _Maneuver.NONE
         self._maneuver_name = ''
         self._cooldown_until = now + self._config.maneuver_cooldown_s
-        # Lo observado del carril durante la maniobra no vale: se empieza de cero.
+        # Lo observado del carril durante la maniobra no vale: se empieza de cero. Dentro
+        # de la intersección las líneas desaparecen a propósito; el próximo LaneState dirá
+        # si el carril sigue perdido.
         self._intersection_streak = 0
+        self._lane_lost = False
 
     # --- eventos ----------------------------------------------------------------------
     def _evento(self, now):

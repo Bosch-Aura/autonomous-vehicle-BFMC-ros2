@@ -41,8 +41,11 @@ Cualquiera de estas condiciones detiene el auto:
 | `/hardware/status` vencido (`hardware_timeout_s`) | Sí |
 | Enlace con el ESP32 caído, o watchdog del ESP32 cortado | Sí |
 | Comando de carril vencido (`lane_cmd_timeout_s`) | **No** |
+| Carril perdido: `LaneState.detected` en `false`, que `bfmc_lane_detection` manda solo en `MODE_LOST` (más de `lost_timeout_s` sin ninguna línea válida) | **No** |
 
-La última **no rige durante una maniobra**: dentro de una intersección las líneas del carril desaparecen a propósito y la maniobra no las usa. Al terminar la maniobra, lo observado del carril durante ella se descarta y se empieza de cero.
+**Carril perdido (A2-152).** Sigue el patrón común de degradación gradual: un corte breve de líneas llega como `MODE_PREDICTED` (detectado) y el auto sigue; pasado `lost_timeout_s`, parada controlada. No queda trabado: cuando vuelve el carril, la emergencia termina sola. Reemplaza el comportamiento anterior de A2-142 (sin carril, seguir sin límite de tiempo).
+
+Las dos últimas **no rigen durante una maniobra**: dentro de una intersección las líneas del carril desaparecen a propósito y la maniobra no las usa. Al terminar la maniobra, lo observado del carril durante ella se descarta y se empieza de cero.
 
 Una emergencia durante una maniobra la **cancela**. Cuando las condiciones se normalizan, el estado vuelve solo a `LANE_FOLLOW`.
 

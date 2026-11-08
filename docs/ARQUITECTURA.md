@@ -101,7 +101,7 @@ Convenciones:
 
 En cada ciclo `bfmc_decision` elige una sola fuente para `/cmd/drive`, de mayor a menor prioridad:
 
-1. **Emergencia.** El ESP32 se detuvo por un obstáculo (`obstacle_stop` en `/hardware/status`), se perdió la comunicación con el ESP32 o hay una entrada vencida: parada.
+1. **Emergencia.** El ESP32 se detuvo por un obstáculo (`obstacle_stop` en `/hardware/status`), se perdió la comunicación con el ESP32, hay una entrada vencida o el carril está perdido (`LaneState.mode == MODE_LOST`, fuera de una maniobra): parada.
 2. **Maniobra activa.** Si hay una maniobra en curso, se usa `/maneuver/cmd` y se ignora el carril.
 3. **Evento de señal o intersección.** Se inicia la maniobra correspondiente.
 4. **Seguir carril.** Se reenvía `/control/lane_cmd`. Es el comportamiento por defecto.

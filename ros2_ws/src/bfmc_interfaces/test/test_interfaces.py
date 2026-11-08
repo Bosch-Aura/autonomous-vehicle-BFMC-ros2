@@ -15,10 +15,13 @@ def campos(mensaje):
     return mensaje.get_fields_and_field_types()
 
 
-def test_lane_state_expone_desvio_rumbo_confianza_e_interseccion():
+def test_lane_state_expone_modo_desvio_rumbo_confianza_e_interseccion():
     assert campos(LaneState) == {
         'header': 'std_msgs/Header',
+        'mode': 'uint8',
         'detected': 'boolean',
+        'left_valid': 'boolean',
+        'right_valid': 'boolean',
         'lateral_error_m': 'float',
         'heading_error_rad': 'float',
         'confidence': 'float',
@@ -28,6 +31,12 @@ def test_lane_state_expone_desvio_rumbo_confianza_e_interseccion():
 
 def test_lane_state_por_defecto_no_detecta_el_carril():
     assert LaneState().detected is False
+
+
+def test_lane_state_define_los_cuatro_modos_del_fallback():
+    modos = (LaneState.MODE_TWO_LINES, LaneState.MODE_ONE_LINE,
+             LaneState.MODE_PREDICTED, LaneState.MODE_LOST)
+    assert modos == (0, 1, 2, 3)
 
 
 def test_sign_detection_expone_etiqueta_confianza_distancia_y_caja():
