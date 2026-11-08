@@ -48,6 +48,16 @@ control:
     curvature_ff_max: 2.2              # [1/m] centro de la curva más cerrada ~0,46 m (ver min_curve_radius_m de lane_detection)
     curvature_ff_hold_s: 0.5           # [s] [asumido]
 
+    # Espera antes de doblar. El carril se mide a ~0,58 m delante del eje trasero y la curvatura
+    # sale de toda la vista, así que el auto dobla antes de llegar a la curva. turn_delay_m retrasa
+    # el término de curvatura turn_delay_m / cruise_speed_mps (5 cm a 0,3 m/s = 0,17 s): la curva
+    # empieza más tarde y el giro de régimen queda igual. 0 = como antes.
+    # Se cambian en vivo: ros2 param set /control turn_delay_m 0.10
+    turn_delay_m: 0.05                 # [m] [asumido: probar 0, 0,05, 0,10, 0,15 en pista]
+    # Evalúa el desvío y el rumbo esta distancia más cerca del auto. Además de adelantar menos,
+    # baja el giro de régimen en la curva (~17 % con 5 cm), así que se prueba aparte. 0 = apagado.
+    error_shift_m: 0.0                 # [m] [asumido]
+
     # Algoritmo de dirección: pid (A2-138, el de siempre) o pure_pursuit (A2-155). El PID queda
     # por defecto hasta validar Pure Pursuit en pista. Se puede cambiar en vivo.
     algorithm: pid

@@ -67,6 +67,8 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 | `curvature_ff_max` | 1/m | Tope de la curvatura del término |
 | `curvature_ff_hold_s` | s | Cuánto se sostiene la última curvatura confiable |
 | `hold_steer_s` | s | Cuánto se sostiene el último giro con carril al perderlo. 0 = enderezar enseguida |
+| `turn_delay_m` | m | Espera antes de doblar: el término de curvatura se retrasa `turn_delay_m / cruise_speed_mps`. La curva empieza más tarde y el giro de régimen no cambia. 0 = como antes. Solo en el PID |
+| `error_shift_m` | m | Evalúa el desvío y el rumbo esta distancia más cerca del auto sobre la misma línea. Baja también el giro de régimen en la curva. 0 = apagado. Solo en el PID |
 | `algorithm` | — | `pid` o `pure_pursuit` |
 | `wheelbase_m`, `camera_to_rear_axle_m` | m | Medidas del auto para Pure Pursuit |
 | `lookahead_min_m`, `lookahead_max_m`, `lookahead_gain_s` | m, m, s | Distancia de mirada |
