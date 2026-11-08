@@ -10,6 +10,7 @@ import time
 
 from ackermann_msgs.msg import AckermannDriveStamped
 from bfmc_hardware_bridge.hardware_bridge_node import HardwareBridgeNode
+from bfmc_hardware_bridge.units import Esp32Limits, to_servo
 from bfmc_interfaces.msg import HardwareStatus
 import pytest
 import rclpy
@@ -167,12 +168,16 @@ def test_sin_comandos_envia_velocidad_cero_como_heartbeat(entorno):
     assert 'C:SET_STEER:105' in entorno.puerto.tramas()
 
 
-def test_un_comando_se_envia_al_esp32_en_sus_unidades(entorno):
+def test_un_comando_se_envia_al_esp32_en_sus_unidades(entorno, parametros_del_yaml):
     assert entorno.esperar(lambda: 'C:SET_SPEED:255' in entorno.puerto.tramas(),
                            lambda: entorno.comando(0.5, math.radians(25.0)))
     tramas = entorno.puerto.tramas()
     assert 'C:SET_DIR:1' in tramas
-    assert 'C:SET_STEER:50' in tramas
+    # 25° a la izquierda: la misma conversión con los topes del YAML (en el orden que tengan).
+    limites = Esp32Limits(**{campo: parametros_del_yaml[campo] for campo in (
+        'max_speed_mps', 'max_steer_rad', 'duty_start', 'duty_max', 'servo_left',
+        'servo_center', 'servo_right')})
+    assert 'C:SET_STEER:%d' % to_servo(math.radians(25.0), limites) in tramas
 
 
 def test_el_estado_del_esp32_se_publica_tal_como_lo_reporta(entorno):

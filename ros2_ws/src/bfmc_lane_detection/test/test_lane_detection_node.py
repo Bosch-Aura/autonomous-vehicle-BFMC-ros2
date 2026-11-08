@@ -264,7 +264,7 @@ def test_un_cambio_de_umbral_de_color_llega_al_detector(entorno_completo):
 
 
 @pytest.mark.parametrize('nombre, valor', [
-    ('calib_half_width_m', 0.6),       # el rectángulo no entra en la imagen
+    ('calib_half_width_m', 0.6),       # el borde lejano del rectángulo no entra en la imagen
     ('calib_forward_near_m', 2.0),     # el borde cercano más lejos que el lejano
     ('calib_pitch_deg', -10.0),        # mirando para arriba: el piso no se ve
     ('lane_width_m', 0.6),             # el carril no entra en la vista
@@ -509,7 +509,7 @@ def test_sin_profundidad_responde_que_revise_la_camara(ros):
         respuesta = calibrar(nodo, auxiliar)
         assert respuesta.success is False
         assert 'align_depth' in respuesta.message
-        assert nodo._suscripciones_profundidad == []   # no queda escuchando la profundidad
+        assert nodo._captura is None   # no queda una captura en curso (lo que llegue se ignora)
     finally:
         executor.shutdown()
         hilo.join(timeout=TIMEOUT_S)
@@ -517,10 +517,12 @@ def test_sin_profundidad_responde_que_revise_la_camara(ros):
         auxiliar.destroy_node()
 
 
-def test_en_marcha_no_escucha_la_profundidad(con_profundidad):
+def test_despues_de_calibrar_no_queda_una_captura_en_curso(con_profundidad):
+    # Las suscripciones a la profundidad quedan (destruirlas con el executor andando tira
+    # el nodo abajo), pero sin captura en curso lo que llega se ignora.
     nodo, auxiliar, _ = con_profundidad
     calibrar(nodo, auxiliar)
-    assert nodo._suscripciones_profundidad == []
+    assert nodo._captura is None
 
 
 @pytest.mark.parametrize('nombre, valor', [

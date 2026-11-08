@@ -221,7 +221,7 @@ def test_la_matriz_de_perspectiva_se_calcula_una_sola_vez_por_tamano():
     {'morph_kernel_px': 0},
     {'roi_top_fraction': 1.0},
     {'warp_src': (0, 0, 1, 0)},
-    {'warp_src': (0, 0, 1, 0, 1, 1, 0, 2)},
+    {'warp_src': (0, 0, 2, 0, 1, 1, 0, 1)},   # una esquina lejana fuera de la imagen
     {'warp_width': 1},
     {'lane_width_m': 0.0},
     {'view_length_m': -1.0},

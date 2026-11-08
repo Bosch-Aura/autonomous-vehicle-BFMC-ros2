@@ -1,0 +1,13 @@
+# Nombre fijo para el ESP32 del auto: /dev/esp32.
+#
+# El kernel le da al CH340 del DevKit (USB 1a86:7523) el primer nombre libre: en la Jetson,
+# con el driver de WCH, /dev/ttyCH341USB0; si al reconectarse el nombre viejo sigue tomado
+# por un programa que no lo cerró, /dev/ttyCH341USB1, y con el driver del kernel, /dev/ttyUSB0.
+# Con esta regla /dev/esp32 apunta siempre al que esté conectado, y bfmc_hardware_bridge
+# lo vuelve a abrir solo al reconectarse.
+#
+# Ojo: el CH340 no tiene número de serie, así que cualquier adaptador CH340 enchufado se
+# toma como el ESP32. En el auto hay uno solo.
+#
+# Instalar: ros2_ws/src/bfmc_hardware_bridge/udev/instalar_regla.sh
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="esp32", GROUP="dialout", MODE="0660"

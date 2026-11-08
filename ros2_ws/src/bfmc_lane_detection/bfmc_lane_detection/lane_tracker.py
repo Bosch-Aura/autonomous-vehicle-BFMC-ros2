@@ -76,14 +76,36 @@ class LaneTracker:
         self._rechazando_desde: Optional[float] = None
         # Por lado ('left', 'right'): (polinomio, instante en que fue válido).
         self._previas = {}
+        # Último desvío medido (con una o dos líneas) y su instante: con él, el detector
+        # decide de qué lado es una línea sola. Vale `memoria_lado_s`.
+        self._centro_previo: Optional[tuple] = None
+        self._memoria_lado_s = 1.0
+
+    @property
+    def memoria_lado_s(self) -> float:
+        return self._memoria_lado_s
+
+    @memoria_lado_s.setter
+    def memoria_lado_s(self, valor: float) -> None:
+        if not valor > 0.0:
+            raise ValueError('side_memory_s debe ser mayor que 0')
+        self._memoria_lado_s = valor
 
     def previas(self, now: float) -> tuple:
         """Los polinomios (izquierdo, derecho) vigentes en `now`, o None, para el detector."""
         return tuple(self._vigente(lado, now) for lado in ('left', 'right'))
 
+    def centro_previo(self, now: float) -> Optional[float]:
+        """El último desvío medido si tiene a lo sumo `memoria_lado_s`, o None."""
+        if self._centro_previo is None:
+            return None
+        desvio, instante = self._centro_previo
+        return desvio if 0.0 <= now - instante <= self._memoria_lado_s else None
+
     def olvidar_previas(self) -> None:
         """Olvida los polinomios y el filtro: por ejemplo, si cambió la vista cenital."""
         self._previas.clear()
+        self._centro_previo = None
         if self._kalman is not None:
             self._kalman.olvidar()
 
@@ -131,6 +153,9 @@ class LaneTracker:
         else:
             salida = self._con_filtro(modo, medicion, now, velocidad_mps)
         self._modo_previo = modo
+        if (modo in (MODE_TWO_LINES, MODE_ONE_LINE) and salida.detected
+                and math.isfinite(salida.lateral_error_m)):
+            self._centro_previo = (salida.lateral_error_m, now)
         return salida
 
     def _modo(self, medicion: LaneResult, now: float) -> int:

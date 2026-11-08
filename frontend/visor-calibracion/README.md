@@ -54,9 +54,9 @@ source ros2_ws/install/setup.bash
 | 1 | `ros2 launch bfmc_camera camera.launch.py` |
 | 2 | `ros2 launch bfmc_lane_detection lane_detection.launch.py` |
 | 3 | `ros2 run web_video_server web_video_server` |
-| 4 | `ros2 launch rosbridge_server rosbridge_websocket_launch.xml` |
+| 4 | `ros2 launch rosbridge_server rosbridge_websocket_launch.xml call_services_in_new_thread:=true default_call_service_timeout:=25.0` |
 
-La terminal 4 también necesita el workspace cargado: `rosbridge` tiene que conocer el tipo `bfmc_interfaces/msg/LaneState` para pasarlo a JSON.
+La terminal 4 también necesita el workspace cargado: `rosbridge` tiene que conocer el tipo `bfmc_interfaces/msg/LaneState` para pasarlo a JSON. Las dos opciones hacen que cada llamada a un servicio vaya en su propio hilo y venza a los 25 s (más que los 20 s que el visor espera la calibración). Sin ellas, en Humble una llamada que el nodo no contesta queda esperando para siempre y traba las siguientes de la página.
 
 </details>
 
@@ -79,11 +79,12 @@ Si la imagen se queda en "conectando…" y el panel del carril sí funciona, el 
 Con el auto **quieto** sobre la pista, la cámara montada y el piso delante del auto **despejado**:
 
 1. **Calibrar.** Mide con la profundidad la altura, la inclinación y el giro de la cámara (A2-151). El trapecio y la escala de la vista desde arriba salen de ahí: **no se arrastran a mano**, así la escala nunca queda desatada del trapecio. Si el auto está en marcha, la página no llama al servicio y avisa (el detector también lo rechaza). Muestra lo que midió, o el motivo si no pudo (por ejemplo, algo delante de la cámara). **Deshacer** vuelve a la calibración anterior.
-2. **Qué parte del piso ver.** Con los tres deslizadores en metros (desde, hasta y medio ancho, medidos desde el pie de la cámara). El detector vuelve a proyectar el trapecio al instante con la pose medida; si se sale de la imagen, lo rechaza y avisa.
+2. **Qué parte del piso ver.** Con los tres deslizadores en metros (desde, hasta y medio ancho, medidos desde el pie de la cámara). El detector vuelve a proyectar el trapecio al instante con la pose medida. "Desde" baja lo que marca la barra aunque la cámara no vea el piso tan cerca: esa franja de la vista desde arriba sale negra (sin datos). Si el borde lejano (hasta y medio ancho) se sale de la imagen, lo rechaza y avisa.
 3. **Medidas con cinta.** El **ancho del carril** (centro a centro de las líneas) va al detector: no cambia la escala, la usan los chequeos y el modo "una línea". La **distancia entre ejes** y la de la **cámara al eje trasero** van al control (Pure Pursuit).
 4. **Color.** Mirá qué pinta de rojo en "Lo que ve el detector". Si toma por blanco cosas que no son línea, subí el brillo mínimo o bajá la saturación máxima.
 5. **Región.** "Descartar de arriba" ignora el fondo (línea cian). Tiene que quedar por encima del trapecio.
-6. **Guardar.** Deja en la Jetson (`~/.config/bfmc/lane_detection.yaml`) la calibración, la parte del piso, el ancho del carril, el color y la región; se cargan al arrancar. La distancia entre ejes y la de la cámara al eje trasero son del control y **no** las guarda: copialas al `params.yaml` del repo ("Para dejarlo fijo en el repo"), porque son medidas del auto, iguales para todo el equipo.
+6. **Predeterminados** (opcional). Vuelve la parte del piso, el color, la región y el ancho del carril a los valores del repo, en vivo. No cambia la pose medida ni lo guardado.
+7. **Guardar.** Deja en la Jetson (`~/.config/bfmc/lane_detection.yaml`) la calibración, la parte del piso, el ancho del carril, el color y la región; se cargan al arrancar. La distancia entre ejes y la de la cámara al eje trasero son del control y **no** las guarda: copialas al `params.yaml` del repo ("Para dejarlo fijo en el repo"), porque son medidas del auto, iguales para todo el equipo.
 
 **Aplicar en vivo** se puede apagar: la página no manda nada y los cambios quedan solo en el navegador. **Valores del detector** vuelve a los que se leyeron al conectar.
 

@@ -2,7 +2,8 @@
 
 Es el único lugar del sistema donde se convierten las unidades: dentro de ROS
 todo es SI (m/s, rad) y el ESP32 espera un duty de tracción (0-255), un sentido
-de marcha aparte y una posición de servo (izquierda < centro < derecha).
+de marcha aparte y una posición de servo (el centro entre los topes izquierdo y derecho,
+en el orden que tenga el servo montado).
 """
 from dataclasses import dataclass
 import math
@@ -25,8 +26,11 @@ class Esp32Limits:
             raise ValueError('max_speed_mps y max_steer_rad deben ser positivos')
         if not 0 < self.duty_start < self.duty_max <= 255:
             raise ValueError('debe cumplirse 0 < duty_start < duty_max <= 255')
-        if not self.servo_left < self.servo_center < self.servo_right:
-            raise ValueError('debe cumplirse servo_left < servo_center < servo_right')
+        # El orden depende de cómo está montado el servo: en un auto el tope izquierdo es el
+        # número chico y en otro el grande. Lo único fijo es que el centro quede entre los dos.
+        if not (min(self.servo_left, self.servo_right) < self.servo_center
+                < max(self.servo_left, self.servo_right)):
+            raise ValueError('servo_center debe quedar entre servo_left y servo_right')
 
 
 def _finito(valor):

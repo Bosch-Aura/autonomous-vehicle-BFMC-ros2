@@ -163,15 +163,16 @@
         <button id="calibrar">Calibrar</button>
         <button id="deshacer" class="sec" disabled>Deshacer</button>
         <button id="guardar" class="sec">Guardar</button>
+        <button id="predeterminados" class="sec">Predeterminados</button>
       </div>
       <p class="resultado suave" id="resultado-calibracion"></p>
       <details><summary>Cómo funciona</summary>
-        <p><b>Calibrar:</b> con el auto quieto y el piso despejado, mide con la profundidad la altura y la inclinación de la cámara. De ahí salen el trapecio y la escala de la vista desde arriba. <b>Deshacer</b> vuelve a la calibración anterior. <b>Guardar</b> deja todo lo de esta tarjeta guardado en la Jetson (sobrevive a reiniciar).</p>
+        <p><b>Calibrar:</b> con el auto quieto y el piso despejado, mide con la profundidad la altura y la inclinación de la cámara. De ahí salen el trapecio y la escala de la vista desde arriba. <b>Deshacer</b> vuelve a la calibración anterior. <b>Guardar</b> deja todo lo de esta tarjeta guardado en la Jetson (sobrevive a reiniciar). <b>Predeterminados</b> vuelve la parte del piso, el color, la región y el ancho del carril a los valores del repo (no cambia la pose medida ni lo guardado: para que quede, Guardar). Si "Desde" queda más cerca de lo que ve la cámara, el trapecio baja igual y esa franja de la vista desde arriba sale negra.</p>
       </details>
 
       <h3>Qué parte del piso ver</h3>
-      <label class="deslizador"><span>Desde (adelante de la cámara) <b><output id="valor-cerca">0.45</output> m</b></span>
-        <input type="range" id="cerca" min="0.20" max="1.00" step="0.01" value="0.45"></label>
+      <label class="deslizador"><span>Desde (adelante de la cámara) <b><output id="valor-cerca">0.35</output> m</b></span>
+        <input type="range" id="cerca" min="0.20" max="1.00" step="0.01" value="0.35"></label>
       <label class="deslizador"><span>Hasta <b><output id="valor-lejos">0.95</output> m</b></span>
         <input type="range" id="lejos" min="0.40" max="1.60" step="0.01" value="0.95"></label>
       <label class="deslizador"><span>Medio ancho <b><output id="valor-medio">0.25</output> m</b></span>
@@ -179,7 +180,7 @@
 
       <h3>Medidas con cinta</h3>
       <div class="medida-fila"><label for="ancho-carril">Ancho del carril [m]</label>
-        <input id="ancho-carril" type="number" class="medida" min="0.20" max="0.60" step="0.005" value="0.37"></div>
+        <input id="ancho-carril" type="number" class="medida" min="0.20" max="0.60" step="0.005" value="0.38"></div>
       <small>De centro a centro de las dos líneas, en una recta. Medí en 3 lugares y promediá.</small>
       <div class="medida-fila"><label for="entre-ejes">Distancia entre ejes [m]</label>
         <input id="entre-ejes" type="number" class="medida" min="0.10" max="0.50" step="0.005" value="0.26"></div>
@@ -267,7 +268,7 @@
 // nodos tienen en ese momento.
 const INICIAL = {
   hsvMin: [0, 0, 200], hsvMax: [179, 60, 255], roi: 0.3,
-  cerca: 0.45, lejos: 0.95, medio: 0.25, anchoCarril: 0.37,
+  cerca: 0.35, lejos: 0.95, medio: 0.25, anchoCarril: 0.38,
 };
 const INICIAL_AUTO = { entreEjes: 0.26, camaraEje: 0.20 };
 
@@ -381,7 +382,8 @@ $('roi').addEventListener('input', (e) => {
   enviarEnVivo('roi_top_fraction', 'decimal', ajustes.roi);
 });
 // El rectángulo del piso en metros: el detector vuelve a proyectar el trapecio con la pose ya
-// medida (si se sale de la imagen, lo rechaza y avisa).
+// medida. El borde cercano puede salir de la imagen (esa franja de la vista cenital sale
+// negra); si el lejano se sale, lo rechaza y avisa.
 [['cerca', 'calib_forward_near_m'], ['lejos', 'calib_forward_far_m'],
  ['medio', 'calib_half_width_m']].forEach(([id, parametro]) => {
   $(id).addEventListener('input', (e) => {
@@ -673,6 +675,35 @@ async function guardar() {
   }
 }
 
+// Vuelve los ajustes de esta tarjeta (no la pose) a los valores del params.yaml del repo, en vivo.
+async function predeterminados() {
+  if (autoEnMarcha) {
+    fijarEstado('estado-ajustes', 'frená el auto antes de volver a los predeterminados', 'mal');
+    return;
+  }
+  if (!window.confirm('¿Volver la parte del piso, el color, la región y el ancho del carril a ' +
+                      'los valores del repo? La pose medida no cambia y lo guardado tampoco.')) {
+    return;
+  }
+  $('predeterminados').disabled = true;
+  try {
+    const r = await llamarServicio(nombreDelServicio('reset_params'), 'std_srvs/srv/Trigger', {});
+    $('resultado-calibracion').textContent = r.message;
+    if (r.success) {
+      await leerDelDetector();           // los deslizadores muestran lo que quedó en el nodo
+      fijarEstado('estado-ajustes', 'predeterminados aplicados (sin guardar)', 'ok');
+    } else {
+      fijarEstado('estado-ajustes', 'no se aplicaron los predeterminados', 'mal');
+    }
+  } catch (error) {
+    fijarEstado('estado-ajustes', servicioInexistente(error)
+      ? 'el detector no tiene "Predeterminados": actualizá el nodo'
+      : 'no se pudieron aplicar los predeterminados: ' + error.message, 'mal');
+  } finally {
+    $('predeterminados').disabled = false;
+  }
+}
+
 // ---------------------------------------------------------------- conexión
 
 function leerConfiguracion() {
@@ -937,6 +968,7 @@ $('copiar').addEventListener('click', copiar);
 $('calibrar').addEventListener('click', calibrar);
 $('deshacer').addEventListener('click', deshacer);
 $('guardar').addEventListener('click', guardar);
+$('predeterminados').addEventListener('click', predeterminados);
 $('restablecer').addEventListener('click', () => {
   restablecerDesdeElDetector();
   enviarTodo();

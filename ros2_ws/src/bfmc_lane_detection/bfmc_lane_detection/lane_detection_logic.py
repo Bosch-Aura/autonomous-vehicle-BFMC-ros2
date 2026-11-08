@@ -41,6 +41,8 @@ import numpy as np
 # Método con el que se encontró cada línea (para la depuración).
 SLIDING_WINDOWS = 'sliding_windows'
 PRIOR_SEARCH = 'prior_search'
+# Se agrega al método de una línea que se pasó de lado por continuidad (ver _lado_por_continuidad).
+CONTINUIDAD = '+continuidad'
 
 # Un cuadrilátero de warp_src con un giro menor a esto (producto vectorial de dos lados
 # consecutivos, en fracciones de la imagen) se toma por degenerado o cruzado.
@@ -100,8 +102,12 @@ class LaneConfig:
             raise ValueError('morph_kernel_px debe ser al menos 1')
         if not 0.0 <= self.roi_top_fraction < 1.0:
             raise ValueError('roi_top_fraction debe estar en [0, 1)')
-        if len(self.warp_src) != 8 or not all(0.0 <= v <= 1.0 for v in self.warp_src):
-            raise ValueError('warp_src debe tener 8 valores entre 0 y 1: x, y de 4 puntos')
+        # Las esquinas lejanas (las dos primeras) tienen que estar en la imagen; las
+        # cercanas pueden quedar afuera (esa parte de la vista cenital sale negra).
+        if (len(self.warp_src) != 8 or not all(math.isfinite(v) for v in self.warp_src)
+                or not all(0.0 <= v <= 1.0 for v in self.warp_src[:4])):
+            raise ValueError('warp_src debe tener 8 valores, x, y de 4 puntos; los de las '
+                             'dos esquinas de arriba, entre 0 y 1')
         if not cuadrilatero_valido(self.warp_src):
             raise ValueError('warp_src no forma un cuadrilátero válido: los puntos van en el '
                              'orden arriba-izquierda, arriba-derecha, abajo-derecha, '
@@ -242,19 +248,49 @@ class LaneDetector:
         return self._matrices[clave]
 
     # --- detección ------------------------------------------------------------------
-    def detect(self, bgr: np.ndarray, previas=(None, None)) -> LaneResult:
+    def detect(self, bgr: np.ndarray, previas=(None, None),
+               centro_previo_m: Optional[float] = None) -> LaneResult:
         """Devuelve el estado del carril. `bgr` es una imagen alto x ancho x 3 de uint8.
 
         `previas` son los polinomios (a, b, c) de la línea izquierda y derecha en un cuadro
         anterior, o None: con ellos se busca cerca en vez de en toda la imagen.
+
+        `centro_previo_m` es el desvío lateral del centro del carril medido hace poco (el
+        mismo signo que `lateral_error_m`), o None. Con una sola línea, decide de qué lado
+        es (ver `_lado_por_continuidad`).
         """
-        return self._procesar(bgr, None, previas).resultado
+        return self._procesar(bgr, None, previas, centro_previo_m).resultado
 
-    def analizar(self, bgr: np.ndarray, previas=(None, None)) -> Analisis:
+    def analizar(self, bgr: np.ndarray, previas=(None, None),
+                 centro_previo_m: Optional[float] = None) -> Analisis:
         """Igual que `detect`, pero devuelve además lo que el detector vio."""
-        return self._procesar(bgr, {}, previas)
+        return self._procesar(bgr, {}, previas, centro_previo_m)
 
-    def _procesar(self, bgr, trazas, previas):
+    def _lado_por_continuidad(self, izquierda, derecha, centro_previo_m) -> bool:
+        """Con una sola línea válida, indica si hay que pasarla al otro lado.
+
+        Sin memoria, el lado de una línea es la mitad de la vista donde arranca. Pero si el
+        auto se corrió o va cruzado (en una curva), una línea cruza el centro de la vista y
+        se la toma por la del otro lado: el centro del carril queda del lado contrario y el
+        auto gira al revés. Con el centro de hace un momento se elige el lado que deja el
+        centro cerca de donde estaba: las dos hipótesis están a un ancho de carril entre sí.
+        Si ninguna queda a menos de medio carril del centro previo (memoria vieja o algo
+        cambió de golpe), no se toca y vale la mitad de la vista.
+        """
+        if centro_previo_m is None or (izquierda is None) == (derecha is None):
+            return False
+        cfg = self._config
+        linea = izquierda if izquierda is not None else derecha
+        x = float(np.polyval(linea.coef, self._fila_de_referencia()))
+        previo_px = cfg.warp_width / 2.0 - centro_previo_m / self._mpp_x
+        medio = 0.5 * self._ancho_carril_px
+        distancia_como_izq = abs(x + medio - previo_px)
+        distancia_como_der = abs(x - medio - previo_px)
+        actual, otra = ((distancia_como_izq, distancia_como_der) if izquierda is not None
+                        else (distancia_como_der, distancia_como_izq))
+        return otra < actual and otra < medio
+
+    def _procesar(self, bgr, trazas, previas, centro_previo_m=None):
         if bgr.ndim != 3 or bgr.shape[2] != 3:
             raise ValueError('se esperaba una imagen BGR de alto x ancho x 3')
         alto, ancho = bgr.shape[:2]
@@ -265,6 +301,16 @@ class LaneDetector:
             cenital, trazas, previas)
         interseccion = self._hay_interseccion(cenital)
         izquierda_ok, derecha_ok, fallos, descartada = self._validar(izquierda, derecha)
+        if self._lado_por_continuidad(izquierda_ok, derecha_ok, centro_previo_m):
+            izquierda_ok, derecha_ok = derecha_ok, izquierda_ok
+            izquierda, derecha = derecha, izquierda
+            metodo_izq, metodo_der = metodo_der, metodo_izq
+            if izquierda_ok is not None:
+                metodo_izq += CONTINUIDAD
+            else:
+                metodo_der += CONTINUIDAD
+            if trazas is not None:
+                trazas['izq'], trazas['der'] = trazas.get('der'), trazas.get('izq')
         centro = self._centro(izquierda_ok, derecha_ok)
         validas = {'left_valid': izquierda_ok is not None, 'right_valid': derecha_ok is not None,
                    'failed_checks': '; '.join(fallos),
@@ -303,36 +349,83 @@ class LaneDetector:
 
         Cada línea es None o una Linea. Con polinomio previo se busca cerca de él; si no
         hay previo, o lo encontrado cerca no pasa los chequeos de la línea, se buscan las
-        ventanas deslizantes en la mitad de la imagen de ese lado. Las reglas son por
+        ventanas deslizantes desde un arranque (ver `_arranques`). Las reglas son por
         línea: perder una no reinicia la otra. Si `trazas` es un diccionario, se completa
         con el método, la columna de arranque y las ventanas de cada lado.
         """
         cfg = self._config
         alto, ancho = cenital.shape
-        medio = ancho // 2
-        histograma = None
         ys, xs = np.nonzero(cenital)
-        resultado = []
-        for lado, previa, desde, hasta in (('izq', previas[0], 0, medio),
-                                           ('der', previas[1], medio, ancho)):
-            if previa is not None:
-                linea = self._buscar_cerca(ys, xs, previa, alto)
-                if linea is not None and self._fallo_de_linea(linea) is None:
-                    resultado.append((linea, PRIOR_SEARCH))
-                    if trazas is not None:
-                        trazas[lado] = {'metodo': PRIOR_SEARCH, 'base': None, 'ventanas': [],
-                                        'previa': previa}
-                    continue
-            if histograma is None:
-                histograma = (cenital[alto // 2:] > 0).sum(axis=0)
-            base = self._base(histograma[desde:hasta], desde)
-            ventanas = [] if trazas is not None else None
-            linea = None if base is None else self._ajustar(cenital, base, cfg, ventanas)
-            resultado.append((linea, SLIDING_WINDOWS))
-            if trazas is not None:
-                trazas[lado] = {'metodo': SLIDING_WINDOWS, 'base': base, 'ventanas': ventanas,
-                                'previa': None}
-        return resultado[0], resultado[1]
+        encontradas = {}
+        for lado, previa in (('izq', previas[0]), ('der', previas[1])):
+            if previa is None:
+                continue
+            linea = self._buscar_cerca(ys, xs, previa, alto)
+            if linea is not None and self._fallo_de_linea(linea) is None:
+                encontradas[lado] = (linea, PRIOR_SEARCH)
+                if trazas is not None:
+                    trazas[lado] = {'metodo': PRIOR_SEARCH, 'base': None, 'ventanas': [],
+                                    'previa': previa}
+
+        faltan = [lado for lado in ('izq', 'der') if lado not in encontradas]
+        if faltan:
+            bases = self._arranques(cenital, faltan, {
+                lado: float(np.polyval(linea.coef, alto - 1))
+                for lado, (linea, _) in encontradas.items()})
+            for lado in faltan:
+                base = bases.get(lado)
+                ventanas = [] if trazas is not None else None
+                linea = None if base is None else self._ajustar(cenital, base, cfg, ventanas)
+                encontradas[lado] = (linea, SLIDING_WINDOWS)
+                if trazas is not None:
+                    trazas[lado] = {'metodo': SLIDING_WINDOWS, 'base': base,
+                                    'ventanas': ventanas, 'previa': None}
+        return encontradas['izq'], encontradas['der']
+
+    def _arranques(self, cenital, faltan, ya_encontradas) -> dict:
+        """Columna donde arranca cada línea que falta: {'izq': x, 'der': x} (o sin la clave).
+
+        Se cuentan los píxeles de la mitad cercana sumados en el ancho de una ventana, no
+        por columna: una línea en diagonal (auto cruzado en una curva) reparte sus píxeles
+        en muchas columnas y ninguna sola llega a min_pixels, aunque la línea se vea entera.
+        Se toman los picos más fuertes de todo el ancho, a más de medio carril entre sí y de
+        las líneas ya encontradas: así dos búsquedas nunca arrancan sobre la misma línea. Con
+        dos picos, el de la izquierda es la línea izquierda. Con uno, su lado es el de la
+        mitad de la vista donde cae (y del lado libre si la otra línea ya está), y
+        `_lado_por_continuidad` lo puede corregir después.
+        """
+        cfg = self._config
+        alto, ancho = cenital.shape
+        por_columna = (cenital[alto // 2:] > 0).sum(axis=0)
+        histograma = np.convolve(
+            por_columna, np.ones(2 * cfg.window_margin_px + 1), mode='same')
+        columnas = np.arange(ancho)
+        separacion = 0.5 * self._ancho_carril_px
+        for lado, x in ya_encontradas.items():
+            histograma[np.abs(columnas - x) < separacion] = 0
+            # La línea que falta está del otro lado de la que ya se encontró.
+            histograma[columnas <= x if lado == 'izq' else columnas >= x] = 0
+        picos = []
+        for _ in faltan:
+            if histograma.max() < cfg.min_pixels:
+                break
+            x = int(np.argmax(histograma))
+            # La suma por ventana es plana alrededor de una línea fina: el máximo cae en el
+            # borde de esa meseta. El arranque es el centro de los píxeles de esa ventana.
+            cerca = np.abs(columnas - x) <= cfg.window_margin_px
+            pesos = por_columna[cerca]
+            if pesos.sum() > 0:
+                x = int(round(float((columnas[cerca] * pesos).sum() / pesos.sum())))
+            picos.append(x)
+            histograma[np.abs(columnas - x) < separacion] = 0
+        picos.sort()
+        if len(faltan) == 2 and len(picos) == 2:
+            return {'izq': picos[0], 'der': picos[1]}
+        if len(picos) == 1:
+            if len(faltan) == 1:
+                return {faltan[0]: picos[0]}
+            return {'izq' if picos[0] < ancho / 2.0 else 'der': picos[0]}
+        return {}
 
     def _buscar_cerca(self, ys, xs, previa, alto) -> Optional[Linea]:
         """Ajusta la línea con los píxeles a menos de search_margin_m del polinomio previo."""
@@ -351,11 +444,6 @@ class LaneDetector:
         paso = max(1, alto // cfg.n_windows)
         ventanas = int(np.unique(np.minimum(ys // paso, cfg.n_windows - 1)).size)
         return Linea(coeficientes, int(ys.size), ventanas, residuo)
-
-    def _base(self, histograma, desplazamiento):
-        if histograma.size == 0 or histograma.max() < self._config.min_pixels:
-            return None
-        return int(np.argmax(histograma)) + desplazamiento
 
     @staticmethod
     def _ajustar(cenital, base, cfg, ventanas=None):

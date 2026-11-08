@@ -16,7 +16,7 @@ Se decidió adaptar el bridge y no tocar el firmware.
 
 ### 1. Enlace
 
-USB del DevKit, a **115200 baudios**. En la Jetson, el driver de WCH expone el CH340 como `/dev/ttyCH341USB0` (no `/dev/ttyUSB0`). El firmware también escucha por UART en los GPIO 16/17 a 921600; el bridge no la usa.
+USB del DevKit, a **115200 baudios**. En la Jetson, el driver de WCH expone el CH340 como `/dev/ttyCH341USB0` (no `/dev/ttyUSB0`), y como `/dev/ttyCH341USB1` si al reconectarse el nombre anterior sigue tomado; el bridge usa el enlace fijo `/dev/esp32` que crea una regla udev (ver el README de `bfmc_hardware_bridge`). El firmware también escucha por UART en los GPIO 16/17 a 921600; el bridge no la usa.
 
 ### 2. Jetson → ESP32
 

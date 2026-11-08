@@ -1,19 +1,23 @@
 """Nodo ROS2 de bfmc_lane_detection: convierte las imágenes de la cámara en LaneState."""
+import array
 import dataclasses
+import os
 import threading
 
 from ackermann_msgs.msg import AckermannDriveStamped
+from ament_index_python.packages import get_package_share_directory
 from bfmc_interfaces.msg import HardwareStatus, LaneState
 from bfmc_lane_detection.ground_calibration import (
-    calibrar_piso, CalibrationError, CAMPOS_CALCULADOS, GroundCalibrationConfig, GroundView,
-    Intrinsics, lane_config_desde_parametros, medir_pose, PARAMETROS_DE_GEOMETRIA,
+    calibrar_piso, CalibrationError, CAMPOS_CALCULADOS, esquinas_fuera_de_la_imagen,
+    GroundCalibrationConfig, GroundView, Intrinsics, lane_config_desde_parametros, medir_pose,
+    PARAMETROS_DE_GEOMETRIA,
 )
 from bfmc_lane_detection.image_utils import imagen_a_bgr, profundidad_a_metros
 from bfmc_lane_detection.lane_debug import dibujar_camara, dibujar_cenital
 from bfmc_lane_detection.lane_detection_logic import LaneConfig, LaneDetector
 from bfmc_lane_detection.lane_kalman import LaneKalman
 from bfmc_lane_detection.lane_tracker import LaneTracker, NOMBRES_DE_MODO
-from bfmc_lane_detection.param_store import guardar_parametros
+from bfmc_lane_detection.param_store import guardar_parametros, leer_parametros
 import cv2
 import numpy as np
 from rcl_interfaces.msg import SetParametersResult
@@ -26,11 +30,12 @@ from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CameraInfo, Image
 from std_srvs.srv import Trigger
+import yaml
 
 PARAMETROS_TEXTO = (
     'image_topic', 'lane_topic', 'debug_overlay_topic', 'debug_birdview_topic',
     'depth_topic', 'depth_info_topic', 'hardware_status_topic', 'calibrate_service',
-    'save_service', 'persist_file', 'cmd_drive_topic')
+    'save_service', 'persist_file', 'cmd_drive_topic', 'reset_service')
 PARAMETROS_ENTEROS = (
     'morph_kernel_px', 'warp_width', 'warp_height', 'n_windows', 'window_margin_px',
     'min_pixels', 'full_confidence_pixels', 'intersection_min_rows', 'min_windows',
@@ -40,6 +45,7 @@ PARAMETROS_DECIMALES = (
     'reference_row_fraction', 'intersection_band_top_fraction', 'intersection_row_fraction',
     'debug_max_fps', 'max_residual_m', 'min_curve_radius_m', 'lane_width_tolerance_m',
     'lost_timeout_s', 'search_margin_m', 'kalman_max_std_m', 'kalman_gate_chi2',
+    'side_memory_s',
 )
 PARAMETROS_ARREGLOS = ('white_hsv_min', 'white_hsv_max')
 
@@ -76,6 +82,13 @@ PARAMETROS_DEL_DETECTOR = tuple(
 PARAMETROS_PERSISTENTES = (
     'lane_width_m',) + PARAMETROS_DE_GEOMETRIA + (
     'white_hsv_min', 'white_hsv_max', 'roi_top_fraction')
+
+# Lo que vuelve a los valores del params.yaml del paquete el botón Predeterminados: los
+# ajustes de la vista y del color. La pose y los intrínsecos no, porque son medidas de la
+# cámara real (los del YAML son nominales); para eso están Calibrar y Deshacer.
+PARAMETROS_REINICIABLES = (
+    'white_hsv_min', 'white_hsv_max', 'roi_top_fraction', 'calib_forward_near_m',
+    'calib_forward_far_m', 'calib_half_width_m', 'lane_width_m')
 
 # Filtro de Kalman del carril (A2-154): se rearma con cualquiera de estos cambios.
 PARAMETROS_DEL_FILTRO = (
@@ -133,10 +146,11 @@ class LaneDetectionNode(Node):
     cambiar el ancho del carril (`lane_width_m`, dato de la pista) no la toca.
 
     Calibración (`calibrate_service`, std_srvs/Trigger): se suscribe a la profundidad
-    alineada al color solo mientras calibra, junta `calib_frames` cuadros, mide la pose
-    (ver ground_calibration.py) y la aplica junto con los intrínsecos. Si falla, no cambia
-    nada y responde el motivo. Al arrancar, si `calib_check_on_start`, compara la cámara
-    con la última calibración y avisa si se movió.
+    alineada al color en la primera captura (y no la suelta: ver `_terminar_captura`),
+    junta `calib_frames` cuadros, mide la pose (ver ground_calibration.py) y la aplica
+    junto con los intrínsecos. Si falla, no cambia nada y responde el motivo. Al arrancar,
+    si `calib_check_on_start`, compara la cámara con la última calibración y avisa si se
+    movió.
 
     Con el auto andando (el ESP32 en RUNNING según `hardware_status_topic`) se rechazan la
     calibración y los cambios de geometría: cambiarían la escala en plena marcha. Sin
@@ -146,10 +160,13 @@ class LaneDetectionNode(Node):
     Guardar (`save_service`, std_srvs/Trigger): escribe PARAMETROS_PERSISTENTES en
     `persist_file`, fuera del repo; los launch lo cargan después del params.yaml.
 
-    Hilos: el servicio espera los cuadros de profundidad, así que la profundidad y la
-    calibración tienen sus propios grupos de callbacks y el nodo corre con un
-    MultiThreadedExecutor. Las imágenes de color y los cambios de parámetros siguen en el
-    grupo por defecto, de a uno.
+    Hilos: el nodo corre con un MultiThreadedExecutor. Las imágenes de color, la
+    profundidad y la calibración tienen cada una su grupo de callbacks; los servicios de
+    parámetros y los topics chicos (/cmd/drive, /hardware/status) quedan en el grupo por
+    defecto. Así una imagen lenta no deja sin atender a los parámetros: con todo en un solo
+    grupo, siempre hay una imagen nueva esperando y el executor la elige antes que a un
+    pedido de parámetros, que no se contesta nunca. Como un cambio de parámetros puede
+    llegar mientras se procesa una imagen, el tracker se toca solo con `_candado_carril`.
     """
 
     def __init__(self, **opciones):
@@ -184,8 +201,11 @@ class LaneDetectionNode(Node):
 
         self._detector = LaneDetector(self._configuracion())
         # La memoria del carril vive aparte del detector: rehacer el detector por un cambio
-        # de parámetros no la borra.
+        # de parámetros no la borra. La usan el hilo de las imágenes y el de los cambios de
+        # parámetros: este candado los turna (y el cambio de detector va con él).
+        self._candado_carril = threading.Lock()
         self._tracker = LaneTracker(self._valor('lost_timeout_s'))
+        self._tracker.memoria_lado_s = self._valor('side_memory_s')
         self._configurar_filtro()   # falla al arrancar si los parámetros del filtro son inválidos
         # Velocidad del auto para predecir: la comandada (/cmd/drive). No hay odometría.
         # Sin comandos, 0: el filtro mantiene el estado y su incertidumbre crece.
@@ -204,8 +224,12 @@ class LaneDetectionNode(Node):
             Image, self._valor('debug_overlay_topic'), depuracion)
         self._publicador_cenital = self.create_publisher(
             Image, self._valor('debug_birdview_topic'), depuracion)
+        # Grupo propio: mientras se procesa una imagen, el grupo por defecto (los servicios
+        # de parámetros) sigue atendiéndose en otro hilo.
+        self._grupo_imagenes = MutuallyExclusiveCallbackGroup()
         self._subscription = self.create_subscription(
-            Image, self._valor('image_topic'), self._on_image, imagenes)
+            Image, self._valor('image_topic'), self._on_image, imagenes,
+            callback_group=self._grupo_imagenes)
         self._ultima_depuracion = None
 
         self._candado = threading.Lock()
@@ -218,6 +242,9 @@ class LaneDetectionNode(Node):
             callback_group=self._grupo_calibracion)
         self._servicio_guardar = self.create_service(
             Trigger, self._valor('save_service'), self._al_guardar,
+            callback_group=self._grupo_calibracion)
+        self._servicio_reiniciar = self.create_service(
+            Trigger, self._valor('reset_service'), self._al_reiniciar,
             callback_group=self._grupo_calibracion)
         self._estado_esp32 = ''
         self._suscripcion_comando = self.create_subscription(
@@ -264,6 +291,11 @@ class LaneDetectionNode(Node):
 
     def _al_cambiar_parametros(self, parametros):
         """Valida un cambio de parámetros y, si es válido, rehace el detector."""
+        # Toca el tracker y el detector: no puede cruzarse con una imagen a medio guardar.
+        with self._candado_carril:
+            return self._aplicar_parametros(parametros)
+
+    def _aplicar_parametros(self, parametros):
         cambios = {parametro.name: parametro.value for parametro in parametros}
 
         fijos = sorted(nombre for nombre in cambios if nombre in PARAMETROS_SOLO_AL_ARRANCAR)
@@ -279,6 +311,11 @@ class LaneDetectionNode(Node):
         if 'lost_timeout_s' in cambios:
             try:
                 self._tracker.lost_timeout_s = cambios['lost_timeout_s']
+            except ValueError as error:
+                return SetParametersResult(successful=False, reason=str(error))
+        if 'side_memory_s' in cambios:
+            try:
+                self._tracker.memoria_lado_s = cambios['side_memory_s']
             except ValueError as error:
                 return SetParametersResult(successful=False, reason=str(error))
         if any(nombre in PARAMETROS_DEL_FILTRO for nombre in cambios):
@@ -313,7 +350,21 @@ class LaneDetectionNode(Node):
             self._tracker.olvidar_previas()
             self.get_logger().info(
                 'detector actualizado: %s' % ', '.join(de_la_vision), throttle_duration_sec=1.0)
+            aviso = self._aviso_borde_cercano(
+                configuracion.warp_src,
+                cambios.get('calib_forward_near_m', self._valor('calib_forward_near_m')))
+            if aviso:
+                self.get_logger().info(aviso, throttle_duration_sec=1.0)
         return SetParametersResult(successful=True)
+
+    @staticmethod
+    def _aviso_borde_cercano(warp_src, cerca_m):
+        """Un aviso si el borde cercano del trapecio queda fuera de la imagen, o ''."""
+        if not esquinas_fuera_de_la_imagen(warp_src):
+            return ''
+        return ('el borde cercano (calib_forward_near_m = %.2f m) queda fuera de la imagen: '
+                'la cámara no ve el piso tan cerca y la franja de abajo de la vista cenital '
+                'sale negra, sin datos' % cerca_m)
 
     # --- calibración -------------------------------------------------------------------
     def _config_calibracion(self, cambios=None):
@@ -343,14 +394,16 @@ class LaneDetectionNode(Node):
         return captura
 
     def _terminar_captura(self, captura):
-        """Deja de escuchar la profundidad, si `captura` sigue siendo la captura en curso."""
+        """Termina la captura, si `captura` sigue siendo la captura en curso.
+
+        Las suscripciones a la profundidad NO se destruyen: destruirlas desde este hilo
+        mientras el MultiThreadedExecutor toma un mensaje de ellas en otro tira el nodo
+        abajo (rclpy InvalidHandle, "destruction was requested"). Quedan creadas y, sin
+        captura en curso, `_on_depth` y `_on_depth_info` ignoran lo que llega.
+        """
         with self._candado:
-            if self._captura is not captura:
-                return
-            self._captura = None
-            suscripciones, self._suscripciones_profundidad = self._suscripciones_profundidad, []
-        for suscripcion in suscripciones:
-            self.destroy_subscription(suscripcion)
+            if self._captura is captura:
+                self._captura = None
 
     def _on_depth(self, msg: Image):
         with self._candado:
@@ -442,6 +495,9 @@ class LaneDetectionNode(Node):
                 '. Aviso: el trapecio empieza en y=%.2f, más arriba que roi_top_fraction '
                 '(%.2f): esa parte de la vista queda tapada. Bajá roi_top_fraction a %.2f o menos'
                 % (arriba, self._valor('roi_top_fraction'), arriba))
+        aviso = self._aviso_borde_cercano(resultado.warp_src, vista.near_m)
+        if aviso:
+            respuesta.message += '. Aviso: ' + aviso
         self.get_logger().info('calibración aplicada: %s' % respuesta.message)
         return respuesta
 
@@ -460,6 +516,52 @@ class LaneDetectionNode(Node):
         respuesta.message = 'guardado en %s: %s' % (ruta, ', '.join(PARAMETROS_PERSISTENTES))
         self.get_logger().info(respuesta.message)
         return respuesta
+
+    def _al_reiniciar(self, _pedido, respuesta):
+        """Vuelve PARAMETROS_REINICIABLES a los valores del params.yaml del paquete, en vivo."""
+        respuesta.success = False
+        ruta = os.path.join(
+            get_package_share_directory('bfmc_lane_detection'), 'config', 'params.yaml')
+        try:
+            predeterminados = leer_parametros(ruta, self.get_name())
+        except (OSError, yaml.YAMLError) as error:
+            respuesta.message = 'no se pudieron leer los predeterminados de %s: %s' % (ruta, error)
+            self.get_logger().error(respuesta.message)
+            return respuesta
+        faltan = [nombre for nombre in PARAMETROS_REINICIABLES if nombre not in predeterminados]
+        if faltan:
+            respuesta.message = '%s no tiene %s' % (ruta, ', '.join(faltan))
+            self.get_logger().error(respuesta.message)
+            return respuesta
+
+        # Todos juntos y por la misma validación que cualquier cambio (con el auto andando,
+        # la geometría se rechaza).
+        aplicado = self.set_parameters_atomically([
+            self._como_parametro(nombre, predeterminados[nombre])
+            for nombre in PARAMETROS_REINICIABLES])
+        if not aplicado.successful:
+            respuesta.message = 'el detector rechazó los predeterminados: %s' % aplicado.reason
+            self.get_logger().warning(respuesta.message)
+            return respuesta
+        respuesta.success = True
+        respuesta.message = (
+            'predeterminados aplicados en vivo (%s): %s. La pose de la cámara no cambia. Lo '
+            'guardado sigue igual: para que quede al reiniciar, Guardar (%s)'
+            % (ruta, ', '.join(PARAMETROS_REINICIABLES),
+               self._nombre(self._valor('save_service'))))
+        self.get_logger().info(respuesta.message)
+        return respuesta
+
+    def _como_parametro(self, nombre, valor):
+        """Un Parameter con el tipo declarado de `nombre` (el YAML puede traer 1 por 1.0)."""
+        tipo = self.get_parameter(nombre).type_
+        if tipo == Parameter.Type.DOUBLE:
+            valor = float(valor)
+        elif tipo == Parameter.Type.DOUBLE_ARRAY:
+            valor = [float(v) for v in valor]
+        elif tipo == Parameter.Type.INTEGER_ARRAY:
+            valor = [int(v) for v in valor]
+        return Parameter(nombre, tipo, valor)
 
     def _nombre(self, nombre):
         """El nombre completo de un servicio (expande el `~` del nodo)."""
@@ -532,19 +634,27 @@ class LaneDetectionNode(Node):
         # El tiempo es el de la imagen: el fallback mide cuánto hace que no hay líneas
         # válidas en el reloj de la cámara, no en el del procesamiento.
         instante = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
-        previas = self._tracker.previas(instante)
+        with self._candado_carril:
+            previas = self._tracker.previas(instante)
+            centro_previo = self._tracker.centro_previo(instante)
         try:
             if depurar:
-                analisis = detector.analizar(bgr, previas)
+                analisis = detector.analizar(bgr, previas, centro_previo)
                 resultado = analisis.resultado
             else:
-                resultado = detector.detect(bgr, previas)
+                resultado = detector.detect(bgr, previas, centro_previo)
         except (cv2.error, np.linalg.LinAlgError) as error:
             self.get_logger().error(
                 'imagen descartada: falló la visión: %s' % error, throttle_duration_sec=5.0)
             return
 
-        carril = self._tracker.update(resultado, instante, self._velocidad_mps)
+        with self._candado_carril:
+            carril = self._tracker.update(resultado, instante, self._velocidad_mps)
+            if self._detector is not detector:
+                # Cambiaron los parámetros mientras se procesaba: esta imagen termina con su
+                # detector, pero las líneas que acaba de guardar están en píxeles de la
+                # vista vieja y no sirven para buscar en la nueva.
+                self._tracker.olvidar_previas()
 
         estado = LaneState()
         estado.header = msg.header
@@ -589,7 +699,9 @@ class LaneDetectionNode(Node):
         mensaje.encoding = 'bgr8'
         mensaje.is_bigendian = 0
         mensaje.step = mensaje.width * 3
-        mensaje.data = np.ascontiguousarray(imagen).tobytes()
+        # array.array y no bytes: con bytes, el mensaje de rclpy valida byte por byte en
+        # Python (~200 ms por imagen de 640x480 en la Jetson, y se publican dos por cuadro).
+        mensaje.data = array.array('B', np.ascontiguousarray(imagen).tobytes())
         return mensaje
 
 

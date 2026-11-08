@@ -76,7 +76,7 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 
 | Parámetro | Unidad | Descripción |
 |---|---|---|
-| `serial_port`, `baud_rate` | —, baudios | USB del ESP32: `/dev/ttyCH341USB0` a 115200 en esta Jetson |
+| `serial_port`, `baud_rate` | —, baudios | USB del ESP32: `/dev/esp32` (ver "Nombre fijo del puerto") a 115200 |
 | `send_rate_hz` | Hz | Frecuencia del ciclo. Su período tiene que quedar bien por debajo del watchdog de 300 ms del firmware |
 | `arm_retry_s` | s | Espera entre reintentos de armar, detener, arrancar o destrabar mientras el ESP32 no confirme |
 | `heartbeat_period_s` | s | Cada cuánto se reenvía el stop vigente como latido. Menor que `link_timeout_s`. **Asumido** (0,3 s) |
@@ -87,12 +87,14 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 | `cmd_timeout_s` | s | Antigüedad máxima de un comando. **Asumido** (0,25 s) |
 | `link_timeout_s` | s | Tiempo sin eventos para dar el enlace por caído. **Asumido** (1 s) |
 | `max_speed_mps` | m/s | Velocidad que corresponde a `duty_max`. **Asumido**: no hay calibración |
-| `max_steer_rad` | rad | Ángulo de las ruedas con el servo en un tope (50 o 160). **Por verificar** (30°) |
+| `max_steer_rad` | rad | Ángulo de las ruedas con el servo en un tope (`servo_left` o `servo_right`). **Por verificar** (30°) |
 | `duty_start`, `duty_max` | duty | Umbral de arranque y máximo del motor |
 | `servo_left`, `servo_center`, `servo_right` | servo | Topes del servo |
 | `*_topic`, `*_service`, `status_frame_id`, `status_rate_hz` | — | Nombres y frecuencia del estado |
 
-Los topes del servo (`servo_left`, `servo_center`, `servo_right`) tienen que coincidir con los del firmware (`include/hardware.h`, o `Brain-Aura/hardware.env` si existe). `max_steer_rad` no lo usa el firmware: es la equivalencia entre el tope del servo y el ángulo real de las ruedas, y hay que medirlo en el auto. También hay que comprobar que el servo en 50 gire hacia la izquierda.
+Los topes del servo (`servo_left`, `servo_center`, `servo_right`) tienen que coincidir con los del firmware (`include/hardware.h`, o `Brain-Aura/hardware.env` si existe). `max_steer_rad` no lo usa el firmware: es la equivalencia entre el tope del servo y el ángulo real de las ruedas, y hay que medirlo en el auto.
+
+**Sentido del servo.** `servo_left` es el valor con el que las ruedas giran a la **izquierda** en ESTE auto, sea el número chico o el grande: el bridge acepta los topes en cualquier orden, con el centro entre los dos. En este auto el servo está montado al revés de lo que dice `hardware.env` (con 50 las ruedas van a la derecha), así que el YAML usa `servo_left: 160` y `servo_right: 50`. Síntoma de tenerlo invertido: el control pide girar hacia el centro del carril y el auto se va para el otro lado. Para comprobarlo con el auto levantado: correrlo a la derecha del carril (el control pide izquierda) y mirar que las ruedas apunten a la izquierda.
 
 ## Cómo usarlo en el auto
 
@@ -110,6 +112,17 @@ ros2 run bfmc_hardware_bridge hardware_bridge --ros-args --params-file config/pa
 ```
 
 Si dice que no tiene permiso sobre el puerto: `sudo usermod -aG dialout $USER` y volver a iniciar sesión. Ningún otro programa (Brain-Aura, un monitor serie) puede tener el puerto abierto al mismo tiempo.
+
+### Nombre fijo del puerto
+
+El kernel le da al CH340 del ESP32 el primer nombre libre: en la Jetson, `/dev/ttyCH341USB0`. Si el ESP32 se reconecta mientras otro programa todavía tiene abierto el nombre viejo, aparece como `/dev/ttyCH341USB1` y un puerto fijo en el YAML ya no lo encuentra (el log repite `could not open port ... No such file or directory`). Por eso el YAML usa `/dev/esp32`, un enlace que crea la regla [`udev/99-bfmc-esp32.rules`](udev/99-bfmc-esp32.rules) y que apunta siempre al CH340 conectado. Se instala una vez por Jetson:
+
+```bash
+ros2_ws/src/bfmc_hardware_bridge/udev/instalar_regla.sh   # pide sudo
+ls -l /dev/esp32                                          # -> ttyCH341USB0 (o el que toque)
+```
+
+Sin la regla, `/dev/esp32` no existe: pasá el puerto a mano con `serial_port:=/dev/ttyCH341USB0`. Para ver quién tiene tomado un puerto: `fuser -v /dev/ttyCH341USB*`.
 
 ## Cómo probarlo
 

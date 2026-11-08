@@ -103,7 +103,11 @@ else
   lanzar carril ros2 launch bfmc_lane_detection lane_detection.launch.py
 fi
 lanzar video ros2 run web_video_server web_video_server
-lanzar rosbridge ros2 launch rosbridge_server rosbridge_websocket_launch.xml
+# Cada llamada a un servicio en su propio hilo y con tope: si un nodo no contesta, esa llamada
+# vence sola y no traba las demás de la página (los valores por defecto de Humble, false y 0,
+# la dejan esperando para siempre). El tope supera los 20 s que el visor espera la calibración.
+lanzar rosbridge ros2 launch rosbridge_server rosbridge_websocket_launch.xml \
+  call_services_in_new_thread:=true default_call_service_timeout:=25.0
 
 echo "== Esperando los topics (hasta ${ESPERA_TOPICS_S} s cada uno)"
 for topic in /camera/color/image_raw /perception/lane; do

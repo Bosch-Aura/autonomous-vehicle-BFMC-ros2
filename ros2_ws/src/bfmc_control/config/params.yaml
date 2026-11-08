@@ -22,10 +22,15 @@ control:
 
     # Velocidad.
     cruise_speed_mps: 0.3              # [m/s] velocidad de crucero [asumido]
-    slowdown_gain: 0.4                 # [0, 1) cuánto baja la velocidad al girar al máximo [asumido]
+    # [0, 1) cuánto baja la velocidad al girar al máximo. En 0: con 0,4 el auto pedía 0,18 m/s
+    # (duty 181) con las ruedas giradas y el motor no lo movía; se clavaba en las curvas
+    # (2026-11-08). A 0,3 m/s no hace falta frenar en curva. Volver a subirlo solo con un piso
+    # de duty medido que mueva el auto con las ruedas al tope.
+    slowdown_gain: 0.0
 
     # Carril no detectado o poco confiable.
-    min_confidence: 0.3                # [0, 1] debajo de esto se trata como carril perdido [asumido]
+    min_confidence: 0.15               # [0, 1] debajo de esto se trata como carril perdido y se endereza. Bajo para que,
+                                       # mientras lane_detection predice (lost_timeout_s, 1 s), se siga girando con la última estimación
     lost_speed_factor: 1.0             # [0, 1] fracción de la velocidad de crucero sin carril: 1 = no baja, el carril solo orienta
     max_dt_s: 0.5                      # [s] una pausa mayor entre mediciones reinicia el PID [asumido]
 

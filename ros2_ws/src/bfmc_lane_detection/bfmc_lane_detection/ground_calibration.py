@@ -302,19 +302,28 @@ def trapecio(pose: GroundPose, intr: Intrinsics, vista: GroundView) -> tuple:
     """`warp_src`: las esquinas del rectángulo del piso en la imagen, como fracciones.
 
     El orden es el de warp_src: arriba-izquierda, arriba-derecha, abajo-derecha,
-    abajo-izquierda ("arriba" = lejos). Lanza CalibrationError si no entra en la imagen.
+    abajo-izquierda ("arriba" = lejos).
+
+    El borde cercano puede quedar fuera de la imagen: la cámara no ve el piso pegado al
+    auto, y esa franja de la vista cenital sale negra (sin datos), pero el trapecio va
+    donde dice `calib_forward_near_m`. El borde lejano sí tiene que verse: si no, el piso
+    que se quiere mirar no está en la imagen. Lanza CalibrationError si una esquina lejana
+    queda afuera o alguna queda detrás de la cámara.
     """
     cerca, lejos, medio = vista.near_m, vista.far_m, vista.half_width_m
     esquinas = ((lejos, medio), (lejos, -medio), (cerca, -medio), (cerca, medio))
     warp_src = []
-    for nombre, (x, y) in zip(ESQUINAS, esquinas):
+    for indice, (nombre, (x, y)) in enumerate(zip(ESQUINAS, esquinas)):
         pixel = a_la_imagen(punto_del_piso(pose, x, y), intr)
-        fuera = pixel is None or not (0.0 <= pixel[0] <= intr.width
-                                      and 0.0 <= pixel[1] <= intr.height)
-        if fuera:
+        if pixel is None:
             raise CalibrationError(
-                'el rectángulo no entra en la imagen (la esquina %s queda afuera): achicá '
-                'calib_half_width_m o subí calib_forward_near_m' % nombre)
+                'la esquina %s del rectángulo queda detrás de la cámara: revisá la pose '
+                '(calib_pitch_deg) o subí calib_forward_near_m' % nombre)
+        lejana = indice < 2
+        if lejana and not (0.0 <= pixel[0] <= intr.width and 0.0 <= pixel[1] <= intr.height):
+            raise CalibrationError(
+                'el borde lejano del rectángulo no entra en la imagen (la esquina %s queda '
+                'afuera): achicá calib_half_width_m o bajá calib_forward_far_m' % nombre)
         warp_src += [round(pixel[0] / intr.width, DECIMALES_WARP),
                      round(pixel[1] / intr.height, DECIMALES_WARP)]
     warp_src = tuple(warp_src)
@@ -322,6 +331,13 @@ def trapecio(pose: GroundPose, intr: Intrinsics, vista: GroundView) -> tuple:
         raise CalibrationError('el trapecio calculado no es un cuadrilátero válido: revisá '
                                'calib_forward_near_m, calib_forward_far_m y calib_half_width_m')
     return warp_src
+
+
+def esquinas_fuera_de_la_imagen(warp_src: Sequence[float]) -> tuple:
+    """Los nombres de las esquinas de `warp_src` que quedan fuera de la imagen."""
+    puntos = np.array(warp_src, dtype=np.float64).reshape(4, 2)
+    return tuple(nombre for nombre, (x, y) in zip(ESQUINAS, puntos)
+                 if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0))
 
 
 def calibrar_piso(profundidades: Sequence[np.ndarray], intr: Intrinsics,

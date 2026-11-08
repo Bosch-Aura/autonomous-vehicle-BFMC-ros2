@@ -65,12 +65,12 @@ def test_un_carril_centrado_se_mide_sin_desvio(detector, geometria):
     assert resultado.lateral_error_m == pytest.approx(0.0, abs=TOLERANCIA_M)
 
 
-def test_un_carril_corrido_a_la_derecha_da_desvio_negativo(detector, geometria):
+def test_un_carril_corrido_a_la_derecha_da_desvio_negativo(detector, geometria, parametros):
     ancho, _, carril = geometria
     centro = ancho / 2 + 40
     frame = vista_de_camara(detector, geometria, *lineas(centro, carril))
     resultado = detector.detect(frame)
-    esperado = -40 * (0.37 / carril)
+    esperado = -40 * (parametros['lane_width_m'] / carril)
     assert resultado.detected is True
     assert resultado.lateral_error_m == pytest.approx(esperado, abs=TOLERANCIA_M)
 

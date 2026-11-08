@@ -6,7 +6,7 @@
 hardware_bridge:
   ros__parameters:
     # Enlace serial con el ESP32 (USB del DevKit).
-    serial_port: /dev/ttyCH341USB0     # en la Jetson el driver de WCH expone el CH340 con este nombre, no como ttyUSB0
+    serial_port: /dev/esp32            # nombre fijo de la regla udev/99-bfmc-esp32.rules (el kernel lo llama ttyCH341USB0, ttyCH341USB1...)
     baud_rate: 115200                  # baudios del USB en el firmware (Serial.begin en main.cpp)
     send_rate_hz: 20.0                 # [Hz] velocidad y dirección por ciclo; alimentan el watchdog de 300 ms del ESP32
     reconnect_period_s: 1.0            # [s] espera entre intentos de reabrir el puerto
@@ -37,9 +37,12 @@ hardware_bridge:
 
     # Escalas de los comandos.
     max_speed_mps: 0.5                 # [m/s] velocidad que corresponde a duty_max [asumido: no hay calibración m/s -> duty]
-    max_steer_rad: 0.523599            # [rad] 30 grados: ángulo de las ruedas con el servo en un tope (50 o 160) [por-verificar: medir en el auto]
+    max_steer_rad: 0.523599            # [rad] 30 grados: ángulo de las ruedas con el servo en un tope (servo_left o servo_right) [por-verificar: medir en el auto]
     duty_start: 140                    # duty mínimo con el que el motor arranca desde parado [hardware.env: BRAIN_DUTY_ARRANQUE]
     duty_max: 255                      # [hardware.env: BRAIN_DUTY_MAX]
-    servo_left: 50                     # [hardware.env: BRAIN_SERVO_IZQUIERDA]
+    # En este auto el servo está montado al revés de lo que dice hardware.env: con 50 las ruedas
+    # van a la DERECHA. Visto en pista (2026-11-08): pidiendo derecha, el auto se iba a la
+    # izquierda. Por eso los topes van intercambiados respecto de BRAIN_SERVO_IZQUIERDA/DERECHA.
+    servo_left: 160                    # [hardware.env: BRAIN_SERVO_DERECHA] tope que gira a la izquierda
     servo_center: 105                  # [hardware.env: BRAIN_SERVO_CENTRO]
-    servo_right: 160                   # [hardware.env: BRAIN_SERVO_DERECHA]
+    servo_right: 50                    # [hardware.env: BRAIN_SERVO_IZQUIERDA] tope que gira a la derecha

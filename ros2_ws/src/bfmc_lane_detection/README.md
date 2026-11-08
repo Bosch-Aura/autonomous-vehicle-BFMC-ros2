@@ -15,6 +15,7 @@ Medir el carril en cada imagen. **No calcula comandos**: no decide cuánto girar
 | Publica | `debug_overlay_topic` | `/perception/lane_debug/overlay` | `sensor_msgs/Image` (`bgr8`): la cámara con lo detectado encima |
 | Publica | `debug_birdview_topic` | `/perception/lane_debug/birdview` | `sensor_msgs/Image` (`bgr8`): la vista desde arriba con las ventanas y las curvas |
 | Servicio | `calibrate_service` | `/lane_detection/calibrate_ground` | `std_srvs/Trigger`: calibra la vista cenital con la profundidad (ver "Cómo calibrarlo") |
+| Servicio | `reset_service` | `/lane_detection/reset_params` | `std_srvs/Trigger`: vuelve la parte del piso, el color, la región y el ancho del carril a los valores del `params.yaml` del paquete, en vivo (ver "Predeterminados") |
 | Se suscribe (solo al calibrar) | `depth_topic` | `/camera/aligned_depth_to_color/image_raw` | `sensor_msgs/Image` (`16UC1` en mm o `32FC1` en m; *best effort*) |
 | Se suscribe (solo al calibrar) | `depth_info_topic` | `/camera/aligned_depth_to_color/camera_info` | `sensor_msgs/CameraInfo`: los intrínsecos de esa profundidad |
 
@@ -96,9 +97,9 @@ ros2 param set /lane_detection calib_forward_near_m 0.50
 ros2 param set /lane_detection roi_top_fraction 0.25
 ```
 
-El cambio **se valida antes de aplicarse**: un valor inválido (un rectángulo que no entra en la imagen, un umbral fuera de rango) se rechaza con el motivo y el detector sigue como estaba. **Con el auto andando** (ESP32 en `RUNNING` según `/hardware/status`) se rechazan los cambios de geometría y la calibración: cambiarían la escala en plena marcha. El ancho del carril sí se puede cambiar. Sin el puente lanzado no hay estado y el auto no se puede mover, así que se permiten. Lo cambiado vale hasta reiniciar; para que quede, **Guardar** (ver abajo). Los topics, el nombre del servicio y los de las imágenes de depuración solo se eligen al arrancar. Un cambio arma un detector nuevo y lo reemplaza de una vez: la imagen que se está procesando termina con el detector con el que empezó, nunca con una mezcla.
+El cambio **se valida antes de aplicarse**: un valor inválido (un rectángulo cuyo borde lejano no entra en la imagen, un umbral fuera de rango) se rechaza con el motivo y el detector sigue como estaba. **Con el auto andando** (ESP32 en `RUNNING` según `/hardware/status`) se rechazan los cambios de geometría y la calibración: cambiarían la escala en plena marcha. El ancho del carril sí se puede cambiar. Sin el puente lanzado no hay estado y el auto no se puede mover, así que se permiten. Lo cambiado vale hasta reiniciar; para que quede, **Guardar** (ver abajo). Los topics, el nombre del servicio y los de las imágenes de depuración solo se eligen al arrancar. Un cambio arma un detector nuevo y lo reemplaza de una vez: la imagen que se está procesando termina con el detector con el que empezó, nunca con una mezcla.
 
-**Hilos.** El nodo corre con un `MultiThreadedExecutor`: el servicio de calibración espera los cuadros de profundidad, y con un solo hilo esa espera trabaría al propio callback que los recibe. Las imágenes de color y los cambios de parámetros siguen en el grupo por defecto, de a uno; la profundidad y la calibración tienen sus propios grupos.
+**Hilos.** El nodo corre con un `MultiThreadedExecutor`: el servicio de calibración espera los cuadros de profundidad, y con un solo hilo esa espera trabaría al propio callback que los recibe. Las imágenes de color, la profundidad y la calibración tienen cada una su grupo; los servicios de parámetros (`get_parameters`, `set_parameters`...) y los topics chicos quedan en el grupo por defecto. Así una imagen lenta no deja sin respuesta a los parámetros: si compartieran grupo, siempre habría una imagen nueva esperando y el executor la elegiría antes, y el visor diría "el nodo no respondió". Como un cambio de parámetros puede llegar mientras se procesa una imagen, el tracker y el cambio de detector van con un candado; si el detector cambió durante una imagen, al terminarla se olvidan las líneas previas (están en píxeles de la vista vieja).
 
 ## Parámetros
 
@@ -114,6 +115,7 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 | Pista | `lane_width_m` (no cambia la escala) |
 | Geometría | `calib_height_m`, `calib_pitch_deg`, `calib_roll_deg`, `camera_intrinsics`, `calib_forward_near_m`, `calib_forward_far_m`, `calib_half_width_m` |
 | Guardar | `save_service`, `persist_file` |
+| Predeterminados | `reset_service` |
 | Estado del auto | `hardware_status_topic` |
 | Líneas | `n_windows`, `window_margin_px`, `min_pixels` |
 | Chequeos (A2-152) | `min_windows`, `max_residual_m`, `min_curve_radius_m`, `lane_width_tolerance_m`, `width_check_fractions` |
@@ -159,7 +161,7 @@ ros2 service call /lane_detection/calibrate_ground std_srvs/srv/Trigger
 O con el botón **Calibrar** del visor (A2-157). Tarda menos de un segundo después de recibir los cuadros (espera hasta `calib_timeout_s`).
 
 - **Si sale bien:** el detector la usa al instante y la respuesta dice lo que midió (`altura 0.205 m, pitch 20.1°, roll 0.4°, inliers 93%, 1 px = 1.25 mm`). Para que quede al reiniciar, **Guardar**.
-- **Si falla, no cambia nada** y la respuesta dice por qué y qué hacer: no llegó la profundidad (¿`align_depth` activado?), hay algo delante de la cámara (pocos inliers), la altura o la inclinación no tienen sentido (una pared tomada por piso), o el rectángulo no entra en la imagen (achicá `calib_half_width_m` o subí `calib_forward_near_m`).
+- **Si falla, no cambia nada** y la respuesta dice por qué y qué hacer: no llegó la profundidad (¿`align_depth` activado?), hay algo delante de la cámara (pocos inliers), la altura o la inclinación no tienen sentido (una pared tomada por piso), o el borde lejano del rectángulo no entra en la imagen (achicá `calib_half_width_m` o bajá `calib_forward_far_m`).
 - Si el trapecio empieza más arriba que `roi_top_fraction`, la respuesta lo avisa: esa parte de la vista quedaría tapada.
 
 **Chequeo al arrancar.** Con `calib_check_on_start`, el nodo mide la cámara con `calib_check_frames` cuadros y, si la altura o el pitch difieren de `calib_height_m` y `calib_pitch_deg` más que la tolerancia (1 cm o 1°), loguea un WARN: la cámara se movió y hay que recalibrar. No corrige nada solo y no frena el arranque.
@@ -180,12 +182,14 @@ ros2 service call /lane_detection/save_params std_srvs/srv/Trigger
 
 O el botón **Guardar** del visor. Escribe en `persist_file` (`~/.config/bfmc/lane_detection.yaml`) **solo** estas medidas y ajustes: `lane_width_m`, la geometría (pose, intrínsecos y rectángulo) y el color y la región (`white_hsv_min`, `white_hsv_max`, `roi_top_fraction`). Los launch (`lane_detection.launch.py` y `bfmc_bringup/system.launch.py`) cargan ese archivo **después** del `params.yaml`, así le gana.
 
+**Predeterminados.** `ros2 service call /lane_detection/reset_params std_srvs/srv/Trigger`, o el botón del visor, vuelve en vivo `white_hsv_min`, `white_hsv_max`, `roi_top_fraction`, el rectángulo (`calib_forward_near_m`, `calib_forward_far_m`, `calib_half_width_m`) y `lane_width_m` a los valores del `params.yaml` del paquete, todos juntos y con la misma validación (con el auto andando se rechaza). **No** toca la pose ni los intrínsecos, que son medidas de la cámara real (para eso, Calibrar), ni el archivo guardado: para que quede al reiniciar, Guardar.
+
 - **Por qué fuera del repo:** con `--symlink-install`, el `params.yaml` instalado es un enlace al del repo. Escribirlo dejaría cambios sin commitear en la Jetson y conflictos en cada `git pull`.
 - **Escritura atómica:** se escribe un temporal y se lo renombra. Un corte de luz deja el archivo anterior entero, nunca uno a medias.
 - **Para volver a los valores del repo:** borrá `~/.config/bfmc/lane_detection.yaml`.
 - **Cuidado:** si se cambia el `params.yaml` del repo (por ejemplo, otro `lane_width_m` medido por el equipo), lo guardado en la Jetson le sigue ganando hasta que se borre o se vuelva a guardar.
 
-**Cerca del auto la cámara ve poco de ancho.** Con la cámara nominal (0,20 m, 20°), las esquinas cercanas del rectángulo de ±0,25 m a 0,45 m caen a 1 % del borde de la imagen. Si la cámara real está más baja o menos inclinada, la calibración se va a rechazar por "no entra en la imagen".
+**Cerca del auto la cámara ve poco de ancho.** Con la cámara nominal (0,20 m, 20°), las esquinas cercanas del rectángulo de ±0,25 m a 0,45 m caen a 1 % del borde de la imagen. Si la cámara real está más baja o menos inclinada, o si se baja `calib_forward_near_m`, las esquinas cercanas quedan fuera de la imagen: el trapecio va igual donde dice el parámetro y esa franja de la vista cenital sale negra (sin datos); el nodo lo avisa en el log y en la respuesta de la calibración. Con la cámara medida en el auto (0,268 m, 23,6°) y ±0,25 m, las esquinas cercanas entran recién desde 0,44 m. El borde lejano sí tiene que entrar: si no, se rechaza.
 
 ### Color y verificación
 

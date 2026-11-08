@@ -141,9 +141,12 @@ def test_ida_y_vuelta_un_punto_del_piso_cae_donde_predice_la_escala(
         np.array([[pixel_real(adelante_m, izquierda_m)]], dtype=np.float64),
         detector.warp_matrix(ANCHO, ALTO))[0, 0]
 
-    mm = resultado.mm_per_px_x / 1000.0
-    esperado_x = 200.0 - izquierda_m / mm                   # izquierda = columnas menores
-    esperado_y = 400.0 - (adelante_m - VISTA.near_m) / mm
+    # La escala y el borde cercano son los del rectángulo del YAML (el del detector).
+    config = detector.config
+    mm_x = config.view_width_m / config.warp_width
+    mm_y = config.view_length_m / config.warp_height
+    esperado_x = config.warp_width / 2.0 - izquierda_m / mm_x      # izquierda = columnas menores
+    esperado_y = config.warp_height - (adelante_m - parametros['calib_forward_near_m']) / mm_y
     # Criterio de A2-151: error menor a 1 cm a 0,5 m y a 2 cm a 1 m (8 px = 1 cm).
     assert cenital[0] == pytest.approx(esperado_x, abs=4.0)
     assert cenital[1] == pytest.approx(esperado_y, abs=4.0)
@@ -207,9 +210,11 @@ def test_los_parametros_de_la_calibracion_traen_pose_e_intrinsecos(cfg):
 
 def test_el_yaml_trae_una_geometria_valida_de_la_camara_nominal(parametros):
     config = lane_config_desde_parametros(parametros)
-    assert config.warp_src == pytest.approx(
-        trapecio(POSE_REAL, INTR, VISTA), abs=1e-4)
-    assert (config.view_width_m, config.view_length_m) == pytest.approx((0.5, 0.5))
+    vista = GroundView(parametros['calib_forward_near_m'], parametros['calib_forward_far_m'],
+                       parametros['calib_half_width_m'])
+    assert config.warp_src == pytest.approx(trapecio(POSE_REAL, INTR, vista), abs=1e-4)
+    assert (config.view_width_m, config.view_length_m) == pytest.approx(
+        (vista.width_m, vista.length_m))
     # La región de interés no tapa la parte lejana del trapecio.
     assert parametros['roi_top_fraction'] <= min(config.warp_src[1], config.warp_src[3])
 
@@ -238,7 +243,7 @@ def test_una_altura_fuera_de_rango_se_rechaza(cfg):
         calibrar(replace(cfg, height_range_m=(0.05, 0.15)), cuadros())
 
 
-def test_un_rectangulo_que_no_entra_en_la_imagen_se_rechaza(cfg):
+def test_un_rectangulo_cuyo_borde_lejano_no_entra_en_la_imagen_se_rechaza(cfg):
     with pytest.raises(CalibrationError, match='no entra en la imagen.*calib_half_width_m'):
         calibrar(cfg, cuadros(), vista=GroundView(0.45, 0.95, 0.6))
 
