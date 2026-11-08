@@ -93,3 +93,49 @@ def test_cambiar_el_plazo_no_borra_la_memoria():
 def test_un_plazo_no_positivo_se_rechaza(plazo):
     with pytest.raises(ValueError):
         LaneTracker(plazo)
+
+
+# --- polinomios previos para buscar cerca (A2-153) ------------------------------------
+
+AJUSTE_IZQ = (0.0, 0.0, 50.0)
+AJUSTE_DER = (0.0, 0.0, 150.0)
+CON_AJUSTES = LaneResult(True, 0.0, 0.0, 1.0, False, left_valid=True, right_valid=True,
+                         left_fit=AJUSTE_IZQ, right_fit=AJUSTE_DER)
+
+
+def test_sin_mediciones_no_hay_previas():
+    assert LaneTracker(TIMEOUT_S).previas(10.0) == (None, None)
+
+
+def test_las_lineas_validas_quedan_como_previas():
+    tracker = LaneTracker(TIMEOUT_S)
+    tracker.update(CON_AJUSTES, 10.0)
+    assert tracker.previas(10.03) == (AJUSTE_IZQ, AJUSTE_DER)
+
+
+def test_un_hueco_breve_conserva_la_previa_y_uno_largo_la_olvida():
+    # Las reglas son por línea: la izquierda deja de ser válida, la derecha sigue.
+    tracker = LaneTracker(TIMEOUT_S)
+    tracker.update(CON_AJUSTES, 10.0)
+    solo_derecha = LaneResult(True, 0.0, 0.0, 0.5, False, right_valid=True,
+                              right_fit=AJUSTE_DER)
+    tracker.update(solo_derecha, 10.2)
+    assert tracker.previas(10.2) == (AJUSTE_IZQ, AJUSTE_DER)    # hueco de punteada
+    tracker.update(solo_derecha, 10.4)
+    assert tracker.previas(10.4) == (None, AJUSTE_DER)          # más de lost_timeout_s
+
+
+def test_si_el_ancho_descarto_una_linea_su_previa_se_olvida_enseguida():
+    tracker = LaneTracker(TIMEOUT_S)
+    tracker.update(CON_AJUSTES, 10.0)
+    descartada = LaneResult(True, 0.0, 0.0, 0.5, False, left_valid=True, left_fit=AJUSTE_IZQ,
+                            width_discarded='right')
+    tracker.update(descartada, 10.03)
+    assert tracker.previas(10.03) == (AJUSTE_IZQ, None)
+
+
+def test_olvidar_previas_obliga_a_buscar_de_nuevo():
+    tracker = LaneTracker(TIMEOUT_S)
+    tracker.update(CON_AJUSTES, 10.0)
+    tracker.olvidar_previas()
+    assert tracker.previas(10.03) == (None, None)

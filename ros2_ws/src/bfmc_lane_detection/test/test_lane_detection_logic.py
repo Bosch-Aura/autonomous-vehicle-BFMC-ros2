@@ -9,7 +9,7 @@ Escala: 100 px = 0,4 m en ambos ejes, es decir 0,004 m por píxel.
 import math
 
 from bfmc_lane_detection.lane_detection_logic import (
-    cuadrilatero_valido, LaneConfig, LaneDetector, Linea,
+    cuadrilatero_valido, LaneConfig, LaneDetector, Linea, PRIOR_SEARCH, SLIDING_WINDOWS,
 )
 import cv2
 import numpy as np
@@ -29,6 +29,7 @@ def configuracion(**cambios):
         'view_length_m': 0.8, 'n_windows': 8, 'window_margin_px': 20, 'min_pixels': 30,
         'min_windows': 3, 'max_residual_m': 0.02, 'min_curve_radius_m': 0.4,
         'lane_width_tolerance_m': 0.05, 'width_check_fractions': (0.1, 0.5, 0.9),
+        'search_margin_m': 0.05,
         'reference_row_fraction': 0.0, 'full_confidence_pixels': 1000,
         'intersection_band_top_fraction': 0.5, 'intersection_row_fraction': 0.6,
         'intersection_min_rows': 5,
@@ -369,3 +370,52 @@ def test_el_ancho_se_mide_perpendicular_a_las_lineas(separacion_m, angulo_deg, e
     izquierda = Linea(np.array([0.0, pendiente, 50.0]), 1000, 8, 0.5)
     derecha = Linea(np.array([0.0, pendiente, 50.0 + separacion_px]), 1000, 8, 0.5)
     assert detector._ancho_ok(izquierda, derecha) is esperado
+
+
+# --- búsqueda alrededor del polinomio previo (A2-153) -------------------------------
+
+def test_sin_previo_se_buscan_las_ventanas_deslizantes():
+    resultado = detectar(carril_cenital(ANCHO, ALTO, 50, 150))
+    assert (resultado.left_method, resultado.right_method) == (
+        SLIDING_WINDOWS, SLIDING_WINDOWS)
+    assert resultado.left_fit is not None and resultado.right_fit is not None
+
+
+def test_si_la_linea_se_corre_2_cm_la_busqueda_cerca_del_previo_la_encuentra():
+    detector = LaneDetector(configuracion())
+    primero = detector.detect(carril_cenital(ANCHO, ALTO, 50, 150))
+    corrimiento_px = int(round(0.02 / M_POR_PX))       # 2 cm = 5 px
+    segundo = detector.detect(
+        carril_cenital(ANCHO, ALTO, 50 + corrimiento_px, 150 + corrimiento_px),
+        previas=(primero.left_fit, primero.right_fit))
+    assert (segundo.left_method, segundo.right_method) == (PRIOR_SEARCH, PRIOR_SEARCH)
+    assert segundo.lateral_error_m == pytest.approx(primero.lateral_error_m - 0.02, abs=0.005)
+
+
+def test_un_reflejo_lejos_del_previo_no_se_toma():
+    detector = LaneDetector(configuracion())
+    primero = detector.detect(carril_cenital(ANCHO, ALTO, 50, 150))
+    imagen = carril_cenital(ANCHO, ALTO, 50, 150)
+    cv2.rectangle(imagen, (175, 0), (195, ALTO - 1), (255, 255, 255), -1)   # reflejo
+    segundo = detector.detect(imagen, previas=(primero.left_fit, primero.right_fit))
+    assert segundo.right_method == PRIOR_SEARCH
+    assert segundo.right_valid is True
+    # La derecha sigue en x = 150 en la fila de abajo, no en el reflejo.
+    assert np.polyval(segundo.right_fit, ALTO - 1) == pytest.approx(150, abs=3)
+    assert segundo.lateral_error_m == pytest.approx(primero.lateral_error_m, abs=0.005)
+
+
+def test_si_no_hay_nada_cerca_del_previo_se_vuelve_a_las_ventanas_en_el_mismo_cuadro():
+    detector = LaneDetector(configuracion())
+    primero = detector.detect(carril_cenital(ANCHO, ALTO, 50, 150))
+    # La izquierda desapareció de donde estaba: no hay nada cerca del previo.
+    segundo = detector.detect(carril_cenital(ANCHO, ALTO, None, 150),
+                              previas=(primero.left_fit, primero.right_fit))
+    assert segundo.left_method == SLIDING_WINDOWS
+    assert segundo.right_method == PRIOR_SEARCH      # las reglas son por línea
+    assert segundo.left_valid is False
+
+
+def test_el_ancho_descartado_se_informa_para_olvidar_ese_previo():
+    imagen = zigzag(carril_cenital(ANCHO, ALTO, 40, None, grosor=2), 170, 3, grosor=4)
+    assert detectar(imagen).width_discarded == 'right'

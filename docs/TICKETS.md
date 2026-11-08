@@ -120,3 +120,53 @@ igual residuo, la de menos píxeles). El ancho se mide **perpendicular** a las l
 - [ ] **Guardar capturas PNG** de casos reales (bueno, reflejo, una línea, sin líneas) en `test/capturas/`.
 - [ ] **Probar en la pista** que tapando la cámara el auto frena, y que no frena justo antes de una intersección (ahí las líneas desaparecen a propósito).
 - [ ] Mostrar el modo en el visor (A2-157); hoy se ve en la imagen de depuración.
+
+---
+
+## A2-153: búsqueda alrededor del polinomio previo
+
+Commit: ver el log de `prueba-jetson` ("A2-153: ...").
+
+### Descripción actualizada (para Jira)
+
+Antes, cada cuadro buscaba las líneas desde cero en toda la imagen (histograma y ventanas
+deslizantes): un reflejo o una mancha podía generar un pico falso. Ahora, si se conoce
+dónde estaba la línea en un cuadro anterior, se busca solo cerca.
+
+- `LaneTracker` guarda el polinomio de cada línea **válida** (según los chequeos de A2-152)
+  y se lo pasa al detector en el cuadro siguiente: `detect(bgr, previas)`. El detector
+  sigue sin memoria.
+- **`prior_search`:** se toman solo los píxeles de la máscara a menos de
+  `search_margin_m` (0,05 m) en horizontal del polinomio previo, y se ajusta el polinomio
+  nuevo con ellos.
+- **Vuelta a `sliding_windows`, por línea** (si la izquierda se pierde y la derecha no,
+  solo la izquierda se reinicia):
+  - no hay polinomio previo (arranque);
+  - lo encontrado cerca no pasa los chequeos de la línea: se prueban las ventanas **en el
+    mismo cuadro**;
+  - la línea lleva más de `lost_timeout_s` sin ser válida;
+  - el chequeo de ancho descartó esa línea (lo encontrado cerca no era la línea);
+  - se rehizo el detector por un cambio de parámetros (el polinomio está en píxeles de
+    la vista vieja).
+- **Depuración:** la imagen muestra el método de cada línea
+  (`busqueda: izq prior_search  der sliding_windows`).
+- Parámetro nuevo: `search_margin_m`.
+
+### Diferencias con el ticket original, y por qué
+
+| Ticket original | Cómo quedó | Por qué |
+|---|---|---|
+| Guardar los polinomios en `lane_detection_logic.py` | Los guarda `LaneTracker` y se pasan como argumento | El nodo rehace el detector en cada cambio de parámetro: la memoria se borraba. El detector queda puro y fácil de testear |
+| `reinit_after_frames` (en cuadros) | Se reusa `lost_timeout_s` (en segundos) | Los cuadros por segundo bajan cuando la Jetson está cargada; es el mismo concepto ("cuánto se le cree a una medición vieja") y queda un parámetro menos, en unidades SI |
+| — | Si el chequeo de ancho descarta la línea, su previo se olvida enseguida | Evita que la búsqueda quede "enganchada" a una línea equivocada que pasa sus chequeos |
+| — | Al rehacer el detector se olvidan los previos | Están en píxeles de la vista cenital vieja |
+| El método en el debug **y en el log** | Solo en la imagen de depuración | Agregarlo a `LaneState` sería un segundo cambio de interfaz seguido; el criterio de aceptación es verlo en el visor |
+| — | Sin reinicialización periódica | El chequeo de ancho ya cubre el caso "enganchado"; sería complejidad sin necesidad |
+
+### Pendiente
+
+- [ ] **Correr los tests** de `bfmc_lane_detection` (no se corrieron): secuencias del ticket (corrimiento de 2 cm, reflejo lejano, línea perdida) y reglas de los previos en `LaneTracker`.
+- [ ] **Medir en la Jetson** que el tiempo por cuadro no empeora: `ros2 topic hz /perception/lane` en la misma zona, antes (commit `32a97f2`) y después.
+- [ ] **En la pista:** en marcha normal, el visor debería mostrar `prior_search` casi todo el tiempo, y `sliding_windows` solo al arrancar o después de perder una línea.
+- [ ] Afinar `search_margin_m` (0,05 m, sin medir).
+- [ ] Mostrar el método en el visor (A2-157); hoy se ve en la imagen de depuración.

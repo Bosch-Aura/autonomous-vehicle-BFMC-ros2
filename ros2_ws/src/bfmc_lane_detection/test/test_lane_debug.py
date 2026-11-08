@@ -21,7 +21,7 @@ def detector():
         warp_height=ALTO, lane_width_m=0.4, view_width_m=0.8, view_length_m=0.8,
         n_windows=8, window_margin_px=20, min_pixels=30, reference_row_fraction=0.0,
         min_windows=3, max_residual_m=0.02, min_curve_radius_m=0.4,
-        lane_width_tolerance_m=0.05, width_check_fractions=(0.1, 0.5, 0.9),
+        lane_width_tolerance_m=0.05, width_check_fractions=(0.1, 0.5, 0.9), search_margin_m=0.05,
         full_confidence_pixels=1000, intersection_band_top_fraction=0.5,
         intersection_row_fraction=0.6, intersection_min_rows=5))
 

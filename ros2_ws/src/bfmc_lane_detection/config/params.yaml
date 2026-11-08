@@ -44,6 +44,11 @@ lane_detection:
     lane_width_tolerance_m: 0.05     # [m]
     width_check_fractions: [0.1, 0.5, 0.9]   # alturas donde se mide el ancho (0 = cerca, 1 = lejos)
 
+    # 4d. Búsqueda alrededor del polinomio del cuadro anterior (A2-153): solo se toman los
+    # píxeles a menos de esta distancia de él. Sin previo, o si lo encontrado no pasa los
+    # chequeos, se buscan las ventanas deslizantes. El previo se olvida con lost_timeout_s.
+    search_margin_m: 0.05            # [m] [asumido: afinar en pista]
+
     # 4c. Fallback: sin líneas válidas se repite el último estado (MODE_PREDICTED) con la
     # confianza bajando hasta 0; pasado este tiempo, MODE_LOST y bfmc_decision frena.
     lost_timeout_s: 0.3              # [s] a 0,3 m/s son unos 9 cm a ciegas [asumido]

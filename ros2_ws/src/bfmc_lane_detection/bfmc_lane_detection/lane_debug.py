@@ -142,6 +142,8 @@ def _resumen(analisis, modo=''):
     lineas = [primera, segunda]
     if modo:
         lineas.insert(0, 'MODO: %s' % modo)
+    lineas.append('busqueda: izq %s  der %s' % (resultado.left_method or '-',
+                                                resultado.right_method or '-'))
     if resultado.failed_checks:
         lineas.append('fallo: %s' % resultado.failed_checks)
     if resultado.intersection_detected:

@@ -11,6 +11,13 @@ recuerda el último estado válido y decide el modo.
 - Ninguna por más de `lost_timeout_s`: MODE_LOST. `detected` es false, el desvío y el
   rumbo son NaN y la confianza 0.
 
+Además guarda el polinomio de cada línea válida para que el detector busque cerca en el
+cuadro siguiente (A2-153). Las reglas son por línea: el polinomio de una línea se olvida
+si lleva más de `lost_timeout_s` sin ser válida (el mismo plazo: cuánto se le cree a una
+medición vieja) o si el chequeo de ancho la descartó (lo encontrado cerca no era la
+línea). Mientras tanto se sigue usando, así un hueco de una línea punteada no obliga a
+buscar en toda la imagen.
+
 Es el patrón común de degradación gradual: seguir con una estimación por un tiempo
 acotado (el error de seguir a ciegas crece rápido) y después declarar el carril perdido
 para que bfmc_decision lleve el auto a una parada controlada.
@@ -52,6 +59,30 @@ class LaneTracker:
         self.lost_timeout_s = lost_timeout_s
         self._ultimo: Optional[LaneResult] = None
         self._instante_ultimo: Optional[float] = None
+        # Por lado ('left', 'right'): (polinomio, instante en que fue válido).
+        self._previas = {}
+
+    def previas(self, now: float) -> tuple:
+        """Los polinomios (izquierdo, derecho) vigentes en `now`, o None, para el detector."""
+        return tuple(self._vigente(lado, now) for lado in ('left', 'right'))
+
+    def olvidar_previas(self) -> None:
+        """Olvida los polinomios: por ejemplo, si cambió la vista cenital (están en sus px)."""
+        self._previas.clear()
+
+    def _vigente(self, lado, now):
+        guardada = self._previas.get(lado)
+        if guardada is None:
+            return None
+        polinomio, instante = guardada
+        return polinomio if 0.0 <= now - instante <= self._lost_timeout_s else None
+
+    def _recordar_lineas(self, medicion: LaneResult, now: float) -> None:
+        for lado, ajuste in (('left', medicion.left_fit), ('right', medicion.right_fit)):
+            if ajuste is not None:
+                self._previas[lado] = (ajuste, now)
+            elif medicion.width_discarded == lado:
+                self._previas.pop(lado, None)
 
     @property
     def lost_timeout_s(self) -> float:
@@ -65,6 +96,7 @@ class LaneTracker:
 
     def update(self, medicion: LaneResult, now: float) -> TrackedLane:
         """Devuelve el estado a publicar para la medición `medicion` tomada en `now` [s]."""
+        self._recordar_lineas(medicion, now)
         if medicion.detected:
             self._ultimo, self._instante_ultimo = medicion, now
             modo = (MODE_TWO_LINES if medicion.left_valid and medicion.right_valid

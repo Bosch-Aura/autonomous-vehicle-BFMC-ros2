@@ -59,7 +59,14 @@ Si las dos pasan pero no están a `lane_width_m` ± `lane_width_tolerance_m` ent
 
 Es el patrón común de degradación gradual: seguir con una estimación por un tiempo acotado (el error de seguir a ciegas crece rápido) y después una parada controlada. Cuando vuelven las líneas se recupera solo. La memoria está aparte del detector: cambiar un parámetro en vivo no la borra.
 
-En la imagen de depuración se ven el modo y qué chequeo falló. Para analizar una prueba en pista: `ros2 bag record /perception/lane`.
+**Búsqueda alrededor del polinomio previo (A2-153).** `LaneTracker` guarda el polinomio de cada línea válida y se lo pasa al detector en el cuadro siguiente. Con previo, el detector toma solo los píxeles a menos de `search_margin_m` de él (`prior_search`): un reflejo o una mancha lejos de la línea no la confunde, y es más barato que las ventanas. Vuelve a las ventanas deslizantes en toda la mitad de la imagen (`sliding_windows`), **por línea**:
+
+- si no hay polinomio previo (al arrancar);
+- si lo encontrado cerca no pasa los chequeos de la línea (en el mismo cuadro, sin perderlo);
+- si la línea lleva más de `lost_timeout_s` sin ser válida, o si el chequeo de ancho la descartó (lo encontrado no era la línea: así no se queda "enganchada" a otra);
+- si se rehace el detector por un cambio de parámetros (el polinomio está en píxeles de la vista vieja).
+
+En la imagen de depuración se ven el modo, qué chequeo falló y el método de búsqueda de cada línea. Para analizar una prueba en pista: `ros2 bag record /perception/lane`.
 
 **Tests con capturas reales:** guardá cuadros de la pista como PNG en `test/capturas/`, con el modo esperado al principio del nombre (`dos_lineas__recta_01.png`, `una_linea__reflejo_02.png`, `perdido__tapada_01.png`). `test_capturas.py` los corre todos; sin capturas, se saltea.
 
@@ -99,6 +106,8 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 | Guardar | `save_service`, `persist_file` |
 | Estado del auto | `hardware_status_topic` |
 | Líneas | `n_windows`, `window_margin_px`, `min_pixels` |
+| Chequeos (A2-152) | `min_windows`, `max_residual_m`, `min_curve_radius_m`, `lane_width_tolerance_m`, `width_check_fractions` |
+| Fallback y búsqueda (A2-152, A2-153) | `lost_timeout_s`, `search_margin_m` |
 | Medición | `reference_row_fraction`, `full_confidence_pixels` |
 | Intersección | `intersection_band_top_fraction`, `intersection_row_fraction`, `intersection_min_rows` |
 | Depuración | `publish_debug`, `debug_max_fps`, `debug_overlay_topic`, `debug_birdview_topic` |

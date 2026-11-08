@@ -37,7 +37,7 @@ PARAMETROS_DECIMALES = (
     'roi_top_fraction', 'lane_width_m',
     'reference_row_fraction', 'intersection_band_top_fraction', 'intersection_row_fraction',
     'debug_max_fps', 'max_residual_m', 'min_curve_radius_m', 'lane_width_tolerance_m',
-    'lost_timeout_s',
+    'lost_timeout_s', 'search_margin_m',
 )
 PARAMETROS_ARREGLOS = ('white_hsv_min', 'white_hsv_max')
 
@@ -274,6 +274,8 @@ class LaneDetectionNode(Node):
             except ValueError as error:
                 return SetParametersResult(successful=False, reason=str(error))
             self._detector = detector
+            # Los polinomios previos están en píxeles de la vista vieja: se buscan de nuevo.
+            self._tracker.olvidar_previas()
             self.get_logger().info(
                 'detector actualizado: %s' % ', '.join(de_la_vision), throttle_duration_sec=1.0)
         return SetParametersResult(successful=True)
@@ -492,20 +494,21 @@ class LaneDetectionNode(Node):
 
         detector = self._detector
         depurar = self._toca_depurar()
+        # El tiempo es el de la imagen: el fallback mide cuánto hace que no hay líneas
+        # válidas en el reloj de la cámara, no en el del procesamiento.
+        instante = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        previas = self._tracker.previas(instante)
         try:
             if depurar:
-                analisis = detector.analizar(bgr)
+                analisis = detector.analizar(bgr, previas)
                 resultado = analisis.resultado
             else:
-                resultado = detector.detect(bgr)
+                resultado = detector.detect(bgr, previas)
         except (cv2.error, np.linalg.LinAlgError) as error:
             self.get_logger().error(
                 'imagen descartada: falló la visión: %s' % error, throttle_duration_sec=5.0)
             return
 
-        # El tiempo es el de la imagen: el fallback mide cuánto hace que no hay líneas
-        # válidas en el reloj de la cámara, no en el del procesamiento.
-        instante = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         carril = self._tracker.update(resultado, instante)
 
         estado = LaneState()

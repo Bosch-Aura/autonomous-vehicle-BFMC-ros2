@@ -8,8 +8,11 @@ Pipeline:
 2. Región de interés: se descarta la parte alta de la imagen (cielo, fondo).
 3. Vista cenital: una transformación de perspectiva "aplana" el piso, así las
    líneas paralelas del carril quedan paralelas y las distancias son uniformes.
-4. Ajuste: se buscan las líneas izquierda y derecha con ventanas deslizantes y se
-   ajusta un polinomio de segundo grado a cada una.
+4. Ajuste: se buscan las líneas izquierda y derecha y se ajusta un polinomio de segundo
+   grado a cada una. Si se conoce el polinomio de la línea en un cuadro anterior, se
+   toman solo los píxeles cercanos a él (A2-153, `prior_search`): un reflejo lejano no
+   la confunde. Si no hay previo, o lo encontrado cerca no pasa los chequeos, se busca
+   en toda la imagen con ventanas deslizantes (`sliding_windows`).
 5. Chequeos (A2-152): cada línea se descarta si tiene pocas ventanas con píxeles, si el
    polinomio ajusta mal (residuo) o si es más curva que la curva más cerrada de la pista.
    Si las dos pasan pero no están a un ancho de carril entre sí (medido perpendicular a
@@ -20,8 +23,9 @@ Pipeline:
 Convenciones (las de bfmc_interfaces): unidades SI, y un desvío o ángulo positivo
 es hacia la izquierda del auto.
 
-El detector no tiene memoria: el fallback cuando no hay líneas válidas (repetir el último
-estado, perder el carril) está en lane_tracker.py.
+El detector no tiene memoria: los polinomios previos se los pasa quien llama, y el
+fallback cuando no hay líneas válidas (repetir el último estado, perder el carril) está
+en lane_tracker.py.
 
 `detect` devuelve solo el resultado. `analizar` hace lo mismo pero además devuelve lo
 que el detector vio por el camino (la máscara de blancos, las ventanas, las curvas),
@@ -33,6 +37,10 @@ from typing import NamedTuple, Optional, Sequence
 
 import cv2
 import numpy as np
+
+# Método con el que se encontró cada línea (para la depuración).
+SLIDING_WINDOWS = 'sliding_windows'
+PRIOR_SEARCH = 'prior_search'
 
 # Un cuadrilátero de warp_src con un giro menor a esto (producto vectorial de dos lados
 # consecutivos, en fracciones de la imagen) se toma por degenerado o cruzado.
@@ -76,6 +84,7 @@ class LaneConfig:
     min_curve_radius_m: float           # radio de la curva más cerrada de la pista [m]
     lane_width_tolerance_m: float       # cuánto puede diferir el ancho medido de lane_width_m
     width_check_fractions: Sequence[float]  # alturas (0 = cerca, 1 = lejos) donde se mide
+    search_margin_m: float              # distancia al polinomio previo para buscar cerca (A2-153)
     reference_row_fraction: float
     full_confidence_pixels: int
     intersection_band_top_fraction: float
@@ -112,6 +121,8 @@ class LaneConfig:
         if min(self.max_residual_m, self.min_curve_radius_m, self.lane_width_tolerance_m) <= 0:
             raise ValueError('max_residual_m, min_curve_radius_m y lane_width_tolerance_m '
                              'deben ser positivos')
+        if self.search_margin_m <= 0.0:
+            raise ValueError('search_margin_m debe ser positivo')
         if not self.width_check_fractions or not all(
                 0.0 <= f <= 1.0 for f in self.width_check_fractions):
             raise ValueError('width_check_fractions debe tener al menos un valor entre 0 y 1')
@@ -138,6 +149,15 @@ class LaneResult:
     left_valid: bool = False
     right_valid: bool = False
     failed_checks: str = ''      # qué chequeos fallaron, para la depuración ('' si ninguno)
+    # Polinomios (a, b, c) de las líneas válidas, en píxeles de la vista cenital, para
+    # buscar cerca en el cuadro siguiente. None si la línea no es válida.
+    left_fit: Optional[tuple] = None
+    right_fit: Optional[tuple] = None
+    left_method: str = ''        # cómo se buscó la línea: SLIDING_WINDOWS o PRIOR_SEARCH
+    right_method: str = ''
+    # 'left' o 'right' si el chequeo de ancho descartó esa línea: lo que se encontró no
+    # es esa línea, así que su polinomio previo tampoco sirve más.
+    width_discarded: str = ''
 
 
 class Linea(NamedTuple):
@@ -169,6 +189,19 @@ class Analisis:
     derecha: Optional[tuple]
     trazas: dict
     centro: Optional[dict]
+
+
+def _ajustar_polinomio(ys, xs):
+    """Polinomio x(y) de segundo grado y su residuo: el error medio |x ajustada - x| [px]."""
+    y = np.asarray(ys, dtype=np.float64)
+    x = np.asarray(xs, dtype=np.float64)
+    coeficientes = np.polyfit(y, x, 2)
+    return coeficientes, float(np.mean(np.abs(np.polyval(coeficientes, y) - x)))
+
+
+def _como_tupla(linea: Optional[Linea]) -> Optional[tuple]:
+    """Los coeficientes como tupla de floats (así LaneResult se puede comparar con ==)."""
+    return None if linea is None else tuple(float(v) for v in linea.coef)
 
 
 class LaneDetector:
@@ -208,27 +241,35 @@ class LaneDetector:
         return self._matrices[clave]
 
     # --- detección ------------------------------------------------------------------
-    def detect(self, bgr: np.ndarray) -> LaneResult:
-        """Devuelve el estado del carril. `bgr` es una imagen alto x ancho x 3 de uint8."""
-        return self._procesar(bgr, None).resultado
+    def detect(self, bgr: np.ndarray, previas=(None, None)) -> LaneResult:
+        """Devuelve el estado del carril. `bgr` es una imagen alto x ancho x 3 de uint8.
 
-    def analizar(self, bgr: np.ndarray) -> Analisis:
+        `previas` son los polinomios (a, b, c) de la línea izquierda y derecha en un cuadro
+        anterior, o None: con ellos se busca cerca en vez de en toda la imagen.
+        """
+        return self._procesar(bgr, None, previas).resultado
+
+    def analizar(self, bgr: np.ndarray, previas=(None, None)) -> Analisis:
         """Igual que `detect`, pero devuelve además lo que el detector vio."""
-        return self._procesar(bgr, {})
+        return self._procesar(bgr, {}, previas)
 
-    def _procesar(self, bgr, trazas):
+    def _procesar(self, bgr, trazas, previas):
         if bgr.ndim != 3 or bgr.shape[2] != 3:
             raise ValueError('se esperaba una imagen BGR de alto x ancho x 3')
         alto, ancho = bgr.shape[:2]
         mascara = self._mascara_blanca(bgr)
         cenital = self._vista_cenital(mascara, ancho, alto)
 
-        izquierda, derecha = self._buscar_lineas(cenital, trazas)
+        (izquierda, metodo_izq), (derecha, metodo_der) = self._buscar_lineas(
+            cenital, trazas, previas)
         interseccion = self._hay_interseccion(cenital)
-        izquierda_ok, derecha_ok, fallos = self._validar(izquierda, derecha)
+        izquierda_ok, derecha_ok, fallos, descartada = self._validar(izquierda, derecha)
         centro = self._centro(izquierda_ok, derecha_ok)
         validas = {'left_valid': izquierda_ok is not None, 'right_valid': derecha_ok is not None,
-                   'failed_checks': '; '.join(fallos)}
+                   'failed_checks': '; '.join(fallos),
+                   'left_fit': _como_tupla(izquierda_ok), 'right_fit': _como_tupla(derecha_ok),
+                   'left_method': metodo_izq, 'right_method': metodo_der,
+                   'width_discarded': descartada}
         if centro is None:
             resultado = LaneResult(False, 0.0, 0.0, 0.0, interseccion, **validas)
         else:
@@ -255,26 +296,59 @@ class LaneDetector:
             flags=cv2.INTER_NEAREST)
 
     # --- líneas ---------------------------------------------------------------------
-    def _buscar_lineas(self, cenital, trazas=None):
-        """Devuelve (ajuste izquierdo, ajuste derecho). Cada uno es None o (coef, píxeles).
+    def _buscar_lineas(self, cenital, trazas=None, previas=(None, None)):
+        """Devuelve ((línea izquierda, método), (línea derecha, método)).
 
-        Si `trazas` es un diccionario, se completa con la columna de arranque y las
-        ventanas de cada lado.
+        Cada línea es None o una Linea. Con polinomio previo se busca cerca de él; si no
+        hay previo, o lo encontrado cerca no pasa los chequeos de la línea, se buscan las
+        ventanas deslizantes en la mitad de la imagen de ese lado. Las reglas son por
+        línea: perder una no reinicia la otra. Si `trazas` es un diccionario, se completa
+        con el método, la columna de arranque y las ventanas de cada lado.
         """
         cfg = self._config
-        ancho = cenital.shape[1]
-        histograma = (cenital[cenital.shape[0] // 2:] > 0).sum(axis=0)
+        alto, ancho = cenital.shape
         medio = ancho // 2
-
-        base_izquierda = self._base(histograma[:medio], 0)
-        base_derecha = self._base(histograma[medio:], medio)
-        ajustes = []
-        for lado, base in (('izq', base_izquierda), ('der', base_derecha)):
+        histograma = None
+        ys, xs = np.nonzero(cenital)
+        resultado = []
+        for lado, previa, desde, hasta in (('izq', previas[0], 0, medio),
+                                           ('der', previas[1], medio, ancho)):
+            if previa is not None:
+                linea = self._buscar_cerca(ys, xs, previa, alto)
+                if linea is not None and self._fallo_de_linea(linea) is None:
+                    resultado.append((linea, PRIOR_SEARCH))
+                    if trazas is not None:
+                        trazas[lado] = {'metodo': PRIOR_SEARCH, 'base': None, 'ventanas': [],
+                                        'previa': previa}
+                    continue
+            if histograma is None:
+                histograma = (cenital[alto // 2:] > 0).sum(axis=0)
+            base = self._base(histograma[desde:hasta], desde)
             ventanas = [] if trazas is not None else None
-            ajustes.append(None if base is None else self._ajustar(cenital, base, cfg, ventanas))
+            linea = None if base is None else self._ajustar(cenital, base, cfg, ventanas)
+            resultado.append((linea, SLIDING_WINDOWS))
             if trazas is not None:
-                trazas[lado] = {'base': base, 'ventanas': ventanas}
-        return ajustes[0], ajustes[1]
+                trazas[lado] = {'metodo': SLIDING_WINDOWS, 'base': base, 'ventanas': ventanas,
+                                'previa': None}
+        return resultado[0], resultado[1]
+
+    def _buscar_cerca(self, ys, xs, previa, alto) -> Optional[Linea]:
+        """Ajusta la línea con los píxeles a menos de search_margin_m del polinomio previo."""
+        cfg = self._config
+        margen_px = cfg.search_margin_m / self._mpp_x
+        cerca = np.abs(xs - np.polyval(previa, ys)) < margen_px
+        return self._ajustar_pixeles(ys[cerca], xs[cerca], alto)
+
+    def _ajustar_pixeles(self, ys, xs, alto) -> Optional[Linea]:
+        """Ajusta el polinomio a los píxeles dados, o None si no alcanzan."""
+        cfg = self._config
+        if ys.size < cfg.min_pixels or np.unique(ys).size < 3:
+            return None
+        coeficientes, residuo = _ajustar_polinomio(ys, xs)
+        # Ventanas con píxeles: las mismas franjas que usan las ventanas deslizantes.
+        paso = max(1, alto // cfg.n_windows)
+        ventanas = int(np.unique(np.minimum(ys // paso, cfg.n_windows - 1)).size)
+        return Linea(coeficientes, int(ys.size), ventanas, residuo)
 
     def _base(self, histograma, desplazamiento):
         if histograma.size == 0 or histograma.max() < self._config.min_pixels:
@@ -304,10 +378,7 @@ class LaneDetector:
 
         if len(ys) < cfg.min_pixels or len(set(ys)) < 3:
             return None
-        y = np.array(ys, dtype=np.float64)
-        x = np.array(xs, dtype=np.float64)
-        coeficientes = np.polyfit(y, x, 2)
-        residuo = float(np.mean(np.abs(np.polyval(coeficientes, y) - x)))
+        coeficientes, residuo = _ajustar_polinomio(ys, xs)
         return Linea(coeficientes, len(ys), con_pixeles, residuo)
 
     # --- medición -------------------------------------------------------------------
@@ -350,12 +421,13 @@ class LaneDetector:
                 'base_confianza': base_confianza, 'y_px': y, 'modo': modo}
 
     def _validar(self, izquierda, derecha):
-        """Aplica los chequeos. Devuelve (izquierda válida, derecha válida, fallos).
+        """Aplica los chequeos. Devuelve (izquierda, derecha, fallos, descartada).
 
-        Cada una es la Linea o None. Una línea que no pasa sus chequeos se descarta. Si las
-        dos pasan pero no están a un ancho de carril entre sí, se descarta la que ajusta peor
-        (mayor residuo; a igual residuo, la de menos píxeles): una mancha de reflejo puede
-        tener muchos píxeles, pero no tiene forma de línea.
+        Cada línea es la Linea válida o None. `descartada` es 'left' o 'right' si el
+        chequeo de ancho descartó esa línea, o ''. Una línea que no pasa sus chequeos se
+        descarta. Si las dos pasan pero no están a un ancho de carril entre sí, se
+        descarta la que ajusta peor (mayor residuo; a igual residuo, la de menos píxeles):
+        una mancha de reflejo puede tener muchos píxeles, pero no tiene forma de línea.
         """
         fallos = []
         validas = []
@@ -365,15 +437,16 @@ class LaneDetector:
                 fallos.append('%s: %s' % (nombre, motivo))
             validas.append(None if motivo is not None else linea)
         izquierda, derecha = validas
+        descartada = ''
         if izquierda is not None and derecha is not None and not self._ancho_ok(
                 izquierda, derecha):
             fallos.append('ancho de carril')
             if (izquierda.residuo_px, -izquierda.pixeles) > (derecha.residuo_px,
                                                               -derecha.pixeles):
-                izquierda = None
+                izquierda, descartada = None, 'left'
             else:
-                derecha = None
-        return izquierda, derecha, fallos
+                derecha, descartada = None, 'right'
+        return izquierda, derecha, fallos, descartada
 
     def _fallo_de_linea(self, linea: Linea) -> Optional[str]:
         """El motivo por el que la línea no pasa sus chequeos, o None si los pasa."""
