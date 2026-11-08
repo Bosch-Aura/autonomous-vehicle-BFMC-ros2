@@ -8,6 +8,57 @@ Rama: `prueba-jetson`.
 
 ---
 
+## Sin ticket: giro en las curvas (control)
+
+**No tiene ticket de Jira**: el proyecto `A2` no estaba accesible desde la cuenta de Jira
+conectada y se decidió avanzar sin él. Si se crea, completar acá el número.
+
+Origen: grabación del 2026-11-08 (`~/bags/lane_20261108_124206`, 6,3 min, 75 s con el ESP32
+en RUNNING, `algorithm: pid`, `cruise_speed_mps: 0.44` en vivo). Se analizó el bag en lazo
+abierto: pasando el `LaneState` grabado por `ControlLogic` con la configuración de ese momento
+se reproduce el `/control/lane_cmd` grabado (mediana de la diferencia 0,00°, p95 0,06°), así
+que los cambios se comparan contra lo que de verdad pasó.
+
+### Qué se vio
+
+- **Endereza en plena curva.** En t=91–94 s y t=136 s la línea sale de la vista, el detector
+  predice y la confianza cae debajo de `min_confidence` (0,15): el control manda 0° y el
+  auto se va de la pista (carril perdido durante 40 s).
+- **Se queda corto en las curvas.** En t=311 s pide 9–20° con curvatura ~1,5 1/m (hacen falta
+  ~21°). El PID solo mira desvío y rumbo a 0,37 m, donde la curva todavía casi no se nota,
+  y el desvío hacia adentro de la curva le resta al rumbo.
+- **30° en recta** (t=231–235 y 253 s): la búsqueda alrededor del polinomio previo de la línea
+  izquierda se enganchó a la derecha. Es de `bfmc_lane_detection` y queda para otro cambio.
+
+### Decisiones
+
+| Decisión | Alternativa descartada | Por qué |
+|---|---|---|
+| Seguir con el PID | Pure Pursuit por defecto (A2-155) | Pure Pursuit baja la velocidad por diseño (curva y confianza) y se pidió no frenar para doblar; con más Ld corta más las curvas y en pista ya se ve que dobla un poco antes. Sigue disponible en vivo |
+| Sostener el último giro `hold_steer_s` al perder el carril | Enderezar (lo de antes) | Perder el carril en curva es casi siempre la línea saliendo de la vista; enderezar saca al auto de la pista |
+
+### Riesgos
+
+- **Sostener un giro equivocado** (por ejemplo el de una línea confundida) durante
+  `hold_steer_s` más. Se acota con un tiempo corto (0,5 s ≈ 22 cm a 0,44 m/s), el límite de
+  velocidad de giro, y `hold_steer_s: 0` vuelve a lo de antes, en vivo. El frenado por
+  obstáculo del ESP32 no cambia.
+
+### Commits
+
+1. `bfmc_control`: sostener el giro al perder el carril (`hold_steer_s`). En el bag, en
+   t=91–92 s el giro queda entre 9° y 25° donde antes caía a 0°.
+
+### Pendiente
+
+- [ ] **En pista:** repetir la vuelta grabando y comparar salidas de carril con y sin
+  `hold_steer_s` (se cambia en vivo con `ros2 param set /control hold_steer_s 0.0`).
+- [ ] **Tests:** se corrieron con `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest test`
+  dentro del paquete: en esta Jetson `colcon test` corre 0 tests (usa unittest) y el
+  plugin `anyio` de `~/.local` rompe pytest. Correr `docker compose run --rm test` antes del PR.
+
+---
+
 ## A2-151: calibración de la vista cenital con la profundidad
 
 Commit `705f806`.

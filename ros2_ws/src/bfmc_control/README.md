@@ -21,7 +21,7 @@ Calcular el comando de seguimiento de carril. **No decide** si el auto frena o m
 4. La salida se satura a `max_steer_rad`, se filtra con `filter_alpha` y se limita su velocidad de cambio a `max_steer_rate_rad_s`.
 5. La velocidad baja al girar: `cruise_speed_mps * (1 - slowdown_gain * |giro| / max_steer_rad)`.
 
-**Si el carril no se detecta** (o la confianza es menor a `min_confidence`), el PID se reinicia, la dirección vuelve al centro respetando el límite de giro y la velocidad baja a `cruise_speed_mps * lost_speed_factor`. Si pasa más de `max_dt_s` entre dos mediciones, también se reinicia.
+**Si el carril no se detecta** (o la confianza es menor a `min_confidence`), el PID se reinicia, se sostiene el último giro con carril durante `hold_steer_s` y después la dirección vuelve al centro respetando el límite de giro; la velocidad baja a `cruise_speed_mps * lost_speed_factor`. Sostener el giro evita enderezar en plena curva cuando la línea sale de la vista (pasaba en la grabación del 2026-11-08); con `hold_steer_s: 0` se endereza enseguida. Si pasa más de `max_dt_s` entre dos mediciones, también se reinicia.
 
 Si el nodo deja de recibir mensajes de carril, **no publica nada**: `bfmc_decision` interpreta esa ausencia como entrada vencida.
 
@@ -62,6 +62,7 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 | `min_confidence` | — | Confianza mínima para usar el carril |
 | `lost_speed_factor` | — | Fracción de la velocidad de crucero sin carril. Con 1 no baja: el carril solo orienta y, sin él, el auto sigue a ciegas con la dirección al centro |
 | `max_dt_s` | s | Pausa máxima entre mediciones antes de reiniciar el PID |
+| `hold_steer_s` | s | Cuánto se sostiene el último giro con carril al perderlo. 0 = enderezar enseguida |
 | `algorithm` | — | `pid` o `pure_pursuit` |
 | `wheelbase_m`, `camera_to_rear_axle_m` | m | Medidas del auto para Pure Pursuit |
 | `lookahead_min_m`, `lookahead_max_m`, `lookahead_gain_s` | m, m, s | Distancia de mirada |

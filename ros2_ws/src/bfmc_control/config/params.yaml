@@ -33,6 +33,11 @@ control:
                                        # mientras lane_detection predice (lost_timeout_s, 1 s), se siga girando con la última estimación
     lost_speed_factor: 1.0             # [0, 1] fracción de la velocidad de crucero sin carril: 1 = no baja, el carril solo orienta
     max_dt_s: 0.5                      # [s] una pausa mayor entre mediciones reinicia el PID [asumido]
+    # Al perder el carril se sostiene el último giro con carril durante este tiempo y después
+    # se endereza. En la grabación del 2026-11-08 el auto enderezaba en plena curva (la línea
+    # salía de la vista y la confianza caía debajo de min_confidence) y se iba de la pista.
+    # A 0,44 m/s, 0,5 s son 22 cm. 0 = enderezar enseguida (lo de antes).
+    hold_steer_s: 0.5                  # [s] [asumido: afinar en pista]
 
     # Algoritmo de dirección: pid (A2-138, el de siempre) o pure_pursuit (A2-155). El PID queda
     # por defecto hasta validar Pure Pursuit en pista. Se puede cambiar en vivo.

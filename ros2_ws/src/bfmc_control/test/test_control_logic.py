@@ -144,6 +144,49 @@ def test_al_perder_el_carril_la_direccion_vuelve_al_centro_con_el_limite_de_giro
     assert control.update(carril(detectado=False), now=0.25).steering_rad == pytest.approx(0.25)
 
 
+def test_al_perder_el_carril_se_sostiene_el_ultimo_giro_durante_hold_steer_s():
+    control = logica(kp=1.0, hold_steer_s=0.5)
+    control.update(carril(lateral=0.25), now=0.0)
+    assert control.update(carril(detectado=False), now=0.25).steering_rad == pytest.approx(0.25)
+    assert control.update(carril(detectado=False), now=0.5).steering_rad == pytest.approx(0.25)
+
+
+def test_pasado_hold_steer_s_la_direccion_vuelve_al_centro():
+    control = logica(kp=1.0, hold_steer_s=0.5)
+    control.update(carril(lateral=0.25), now=0.0)
+    control.update(carril(detectado=False), now=0.25)
+    assert control.update(carril(detectado=False), now=0.75).steering_rad == 0.0
+
+
+def test_la_baja_confianza_tambien_sostiene_el_giro():
+    control = logica(kp=1.0, hold_steer_s=0.5)
+    control.update(carril(lateral=-0.25), now=0.0)
+    salida = control.update(carril(lateral=0.4, confianza=0.1), now=0.25)
+    assert salida.steering_rad == pytest.approx(-0.25)
+    assert salida.speed_mps == pytest.approx(0.5)
+
+
+def test_sin_carril_desde_el_arranque_no_hay_giro_que_sostener():
+    assert logica(hold_steer_s=0.5).update(carril(detectado=False), now=0.0).steering_rad == 0.0
+
+
+def test_al_recuperar_el_carril_manda_el_carril_y_no_el_giro_sostenido():
+    control = logica(kp=1.0, hold_steer_s=0.5)
+    control.update(carril(lateral=0.25), now=0.0)
+    control.update(carril(detectado=False), now=0.1)
+    assert control.update(carril(lateral=-0.1), now=0.2).steering_rad == pytest.approx(-0.1)
+
+
+def test_el_giro_sostenido_respeta_el_limite_de_velocidad_de_giro():
+    control = logica(kp=1.0, hold_steer_s=1.0, max_steer_rate_rad_s=1.0)
+    control.update(carril(lateral=0.0), now=0.0)
+    control.update(carril(lateral=0.1), now=0.1)          # llega a 0,1 (tope 0,1 por paso)
+    control.update(carril(detectado=False), now=0.2)
+    control.update(carril(detectado=False), now=1.1)      # último instante del sostén
+    # Pasado el sostén va al centro de a 1 rad/s, no de golpe: 0,05 s después baja 0,05.
+    assert control.update(carril(detectado=False), now=1.15).steering_rad == pytest.approx(0.05)
+
+
 # --- velocidad -----------------------------------------------------------------------
 
 def test_sin_giro_se_mantiene_la_velocidad_de_crucero():
@@ -169,6 +212,7 @@ def test_al_girar_al_maximo_la_velocidad_baja_segun_la_ganancia():
     {'lost_speed_factor': 1.5},
     {'slowdown_gain': 1.0},
     {'max_dt_s': 0.0},
+    {'hold_steer_s': -0.1},
     {'cruise_speed_mps': -1.0},
 ])
 def test_una_configuracion_invalida_se_rechaza(cambio):

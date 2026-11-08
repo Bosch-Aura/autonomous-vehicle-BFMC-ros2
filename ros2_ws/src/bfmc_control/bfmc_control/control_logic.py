@@ -61,6 +61,7 @@ class ControlConfig:
     lost_speed_factor: float
     slowdown_gain: float
     max_dt_s: float
+    hold_steer_s: float = 0.0            # [s] giro sostenido al perder el carril (0: al centro ya)
     algorithm: str = PID
     pure_pursuit: Optional[PurePursuitConfig] = None
 
@@ -87,6 +88,8 @@ class ControlConfig:
             raise ValueError('slowdown_gain debe estar en [0, 1)')
         if self.max_dt_s <= 0.0:
             raise ValueError('max_dt_s debe ser positivo')
+        if self.hold_steer_s < 0.0:
+            raise ValueError('hold_steer_s no puede ser negativo')
         if self.algorithm not in (PID, PURE_PURSUIT):
             raise ValueError('algorithm debe ser "%s" o "%s"' % (PID, PURE_PURSUIT))
         if self.algorithm == PURE_PURSUIT and self.pure_pursuit is None:
@@ -105,6 +108,8 @@ class ControlLogic:
         self._reset_pid()
         self._last_steer = None
         self._last_time = None
+        self._ultimo_giro_usable = 0.0
+        self._ultimo_instante_usable = None
 
     @property
     def config(self) -> ControlConfig:
@@ -132,9 +137,28 @@ class ControlLogic:
 
         if not usable:
             self._reset_pid()
-            steer = self._dar_forma(0.0, now)
+            steer = self._dar_forma(self._giro_sin_carril(now), now)
             return ControlOutput(steer, cfg.cruise_speed_mps * cfg.lost_speed_factor)
 
+        salida = self._con_carril(lane, now)
+        self._ultimo_giro_usable = salida.steering_rad
+        self._ultimo_instante_usable = now
+        return salida
+
+    def _giro_sin_carril(self, now):
+        """Giro objetivo sin carril: el último usable durante hold_steer_s, después el centro.
+
+        Perder el carril en plena curva suele ser porque las líneas salieron de la vista: si
+        se endereza en ese momento el auto se va de la pista. Sostener el giro un rato le da
+        tiempo a volver a ver las líneas.
+        """
+        ultimo = self._ultimo_instante_usable
+        if ultimo is not None and 0.0 <= now - ultimo <= self._config.hold_steer_s:
+            return self._ultimo_giro_usable
+        return 0.0
+
+    def _con_carril(self, lane: LaneInput, now: float) -> ControlOutput:
+        cfg = self._config
         if cfg.algorithm == PURE_PURSUIT:
             return self._pure_pursuit(lane, now)
 
