@@ -120,12 +120,13 @@ igual residuo, la de menos píxeles). El ancho se mide **perpendicular** a las l
 - [ ] **Guardar capturas PNG** de casos reales (bueno, reflejo, una línea, sin líneas) en `test/capturas/`.
 - [ ] **Probar en la pista** que tapando la cámara el auto frena, y que no frena justo antes de una intersección (ahí las líneas desaparecen a propósito).
 - [ ] Mostrar el modo en el visor (A2-157); hoy se ve en la imagen de depuración.
+- [x] **Bug corregido en A2-154:** `dibujar_cenital` usaba una variable `modo` que no existía (un reemplazo de texto cambió dos llamadas en vez de una). El nodo se caía al mirar la vista desde arriba. Desde A2-154, antes de cada commit se corre `pyflakes`, que lo detecta en segundos.
 
 ---
 
 ## A2-153: búsqueda alrededor del polinomio previo
 
-Commit: ver el log de `prueba-jetson` ("A2-153: ...").
+Commit `f5a745a`.
 
 ### Descripción actualizada (para Jira)
 
@@ -170,3 +171,52 @@ dónde estaba la línea en un cuadro anterior, se busca solo cerca.
 - [ ] **En la pista:** en marcha normal, el visor debería mostrar `prior_search` casi todo el tiempo, y `sliding_windows` solo al arrancar o después de perder una línea.
 - [ ] Afinar `search_margin_m` (0,05 m, sin medir).
 - [ ] Mostrar el método en el visor (A2-157); hoy se ve en la imagen de depuración.
+
+---
+
+## A2-154: filtro de Kalman del estado del carril
+
+Commit: el de "A2-154: ..." en `prueba-jetson` (el hash se completa en el próximo ticket).
+
+### Descripción actualizada (para Jira)
+
+El estado del carril se filtra en percepción (`lane_kalman.py`, lógica pura), que es quien
+sabe qué tan buena es cada medición. Es la práctica estándar en sistemas de asistencia:
+el desvío, el rumbo y la curvatura se siguen con un Kalman dentro del módulo de visión.
+
+- **Estado** `x = [d, ψ, κ]`: desvío (m), rumbo (rad) y curvatura (1/m), positivos a la
+  izquierda, **en la fila de medición** (dentro de la vista cenital).
+- **Predicción** con el avance del auto `v·dt`: `d' = d + v·dt·ψ`, `ψ' = ψ + v·dt·κ`,
+  `κ' = κ`. `dt` sale de los stamps de las imágenes y `v` de `/cmd/drive` (comandada; no hay odometría).
+- **Corrección** con la medición completa (`H = I`). R según el modo: `kalman_r_two_lines` o
+  `kalman_r_one_line`. En `MODE_PREDICTED` y `MODE_LOST` solo predice.
+- **Rechazo de outliers:** distancia de Mahalanobis al cuadrado mayor a `kalman_gate_chi2`
+  (11,34: 99 % de una chi-cuadrado con 3 grados de libertad).
+- **Reinicio:** al salir de `MODE_LOST` con dos líneas, al rehacer el detector, y si
+  descarta mediciones seguidas por más de `lost_timeout_s`.
+- **Confianza:** `1 − σ_d / kalman_max_std_m`, acotada a [0, 1].
+- **`LaneState.curvature`** (1/m, positiva a la izquierda): la mide el detector siempre, con
+  o sin filtro. La necesita Pure Pursuit.
+- **`kalman_enabled`** (apagado por defecto) para comparar con y sin filtro.
+- **Depuración:** el estado filtrado junto al medido y su centro marcado en blanco.
+
+### Diferencias con el ticket original, y por qué
+
+| Ticket original | Cómo quedó | Por qué |
+|---|---|---|
+| Medición "evaluada en el punto del auto" | En la fila de medición (0,575 m de la cámara) | La vista cubre de 0,45 a 0,95 m: medir en el auto obliga a extrapolar el polinomio 0,45 m fuera de los datos. Un error de curvatura de 0,5 m⁻¹ daría ~5 cm de error de desvío |
+| Restar el giro propio del auto (opcional) | No se hizo | Necesita la distancia entre ejes, que todavía no está medida y vive en `bfmc_control`: habría que duplicar un parámetro. Se agrega si en la pista se ve atraso en las curvas |
+| Rechazo de outliers | + reinicio si rechaza por más de `lost_timeout_s` | Patrón común (contador de rechazos como detector de divergencia): sin él, después de un cambio real de golpe el filtro rechazaría todo para siempre |
+| Q en unidades por cuadro | Q por segundo (`Q·dt`) | El filtro se comporta igual aunque cambien los cuadros por segundo |
+| — | Filtro apagado por defecto | No cambiar cómo maneja el auto hasta medir R y Q y coordinar con `bfmc_control` |
+| Log liviano con el estado filtrado | No se agregó | `ros2 bag record /perception/lane` ya graba el estado publicado |
+
+### Pendiente
+
+- [ ] **Correr los tests** (no se corrieron): `test_lane_kalman.py` (converge, salto de 20 cm, 5 cuadros sin medición, reinicios), curvatura en `test_lane_detection_logic.py`, contrato de `LaneState` en `bfmc_interfaces`.
+- [ ] **Coordinar con quien mantiene `bfmc_control` (A2-138):** con el filtro activo, `filter_alpha: 1.0` para no filtrar dos veces (el límite de velocidad de giro se mantiene: protege el servo). Avisar también del campo nuevo `LaneState.curvature`.
+- [ ] **Medir R en la pista:** auto quieto en una recta, varianza de desvío, rumbo y curvatura medidos durante unos segundos; repetir en una curva.
+- [ ] **Ajustar Q en la pista:** subir desde valores chicos hasta que el filtrado siga las curvas sin atrasarse en el visor.
+- [ ] **Comparar con y sin filtro** (`kalman_enabled`) en las zonas del protocolo de A2-152.
+- [ ] **Medir el tiempo agregado por cuadro** en la Jetson (`ros2 topic hz /perception/lane`).
+- [ ] Encender el filtro por defecto cuando R y Q estén medidos.

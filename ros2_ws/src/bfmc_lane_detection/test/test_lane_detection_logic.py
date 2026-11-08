@@ -419,3 +419,23 @@ def test_si_no_hay_nada_cerca_del_previo_se_vuelve_a_las_ventanas_en_el_mismo_cu
 def test_el_ancho_descartado_se_informa_para_olvidar_ese_previo():
     imagen = zigzag(carril_cenital(ANCHO, ALTO, 40, None, grosor=2), 170, 3, grosor=4)
     assert detectar(imagen).width_discarded == 'right'
+
+
+# --- curvatura (A2-154) --------------------------------------------------------------
+
+def carril_curvo(k):
+    """Dos líneas x = x0 - k (ALTO - y)²: con k > 0 el carril dobla a la izquierda."""
+    imagen = lienzo(ANCHO, ALTO)
+    for x0 in (50, 150):
+        puntos = [(int(round(x0 - k * (ALTO - y) ** 2)), y) for y in range(ALTO, -1, -5)]
+        cv2.polylines(imagen, [np.array(puntos, dtype=np.int32).reshape(-1, 1, 2)], False,
+                      (255, 255, 255), 6)
+    return imagen
+
+
+@pytest.mark.parametrize('k, esperada', [(0.0005, 0.25), (-0.0005, -0.25), (0.0, 0.0)])
+def test_la_curvatura_es_positiva_si_el_carril_dobla_a_la_izquierda(k, esperada):
+    # En la fila de medición (abajo, pendiente 0): curvatura = 2 k [px⁻¹] / 0,004 m/px.
+    resultado = detectar(carril_curvo(k))
+    assert resultado.detected is True
+    assert resultado.curvature == pytest.approx(esperada, abs=0.05)

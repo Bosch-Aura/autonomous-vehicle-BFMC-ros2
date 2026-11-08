@@ -32,6 +32,7 @@ El encabezado del resultado es el de la imagen, así quien lo consume sabe de qu
 |---|---|
 | `lateral_error_m` | Positivo si el centro del carril queda a la **izquierda** del auto |
 | `heading_error_rad` | Positivo si el carril sigue hacia la **izquierda** |
+| `curvature` | [1/m] del centro del carril; positiva si dobla hacia la **izquierda** |
 | `mode` | `MODE_TWO_LINES`, `MODE_ONE_LINE`, `MODE_PREDICTED` o `MODE_LOST` (ver "Chequeos y fallback") |
 | `left_valid`, `right_valid` | Si cada línea pasó sus chequeos en esta imagen |
 | `confidence` | De 0 a 1. Con las dos líneas es mayor que con una; crece con los píxeles de línea hasta `full_confidence_pixels`; en `MODE_PREDICTED` baja hasta 0 |
@@ -66,7 +67,15 @@ Es el patrón común de degradación gradual: seguir con una estimación por un 
 - si la línea lleva más de `lost_timeout_s` sin ser válida, o si el chequeo de ancho la descartó (lo encontrado no era la línea: así no se queda "enganchada" a otra);
 - si se rehace el detector por un cambio de parámetros (el polinomio está en píxeles de la vista vieja).
 
-En la imagen de depuración se ven el modo, qué chequeo falló y el método de búsqueda de cada línea. Para analizar una prueba en pista: `ros2 bag record /perception/lane`.
+**Filtro de Kalman (A2-154, `kalman_enabled`).** Con el filtro activo, lo publicado es el estado filtrado `[desvío, rumbo, curvatura]` en la fila de medición (`lane_kalman.py`). Predice con el avance del auto (`d' = d + v·dt·ψ`, `ψ' = ψ + v·dt·κ`) y corrige con cada medición, con más peso con dos líneas (`kalman_r_two_lines`) que con una (`kalman_r_one_line`). En `MODE_PREDICTED` y `MODE_LOST` solo predice, y la confianza baja con la incertidumbre del desvío (`kalman_max_std_m`). Una medición fuera del 99 % (`kalman_gate_chi2`) se descarta: un reflejo o un salto no llega a lo publicado.
+
+- **Velocidad:** la comandada (`/cmd/drive`); no hay odometría. Sin comandos, 0: el estado se mantiene y su incertidumbre crece.
+- **Se reinicia** al salir de `MODE_LOST` con dos líneas, al rehacer el detector y si descarta mediciones seguidas por más de `lost_timeout_s` (la realidad cambió de golpe: sin reiniciar quedaría aferrado a su estimación vieja).
+- **No se resta el giro propio del auto** (necesitaría la distancia entre ejes): lo absorbe Q. Si en la pista se atrasa en las curvas, es la primera mejora a probar.
+- **Está apagado por defecto** hasta medir R y Q en la pista. Con el filtro activo, conviene `filter_alpha: 1.0` en `bfmc_control`, para no filtrar dos veces.
+- **Cómo medir R:** con el auto quieto en una recta, la varianza de lo medido durante unos segundos (repetir en una curva). **Q:** arrancar chico y subir hasta que el filtrado siga las curvas sin atrasarse en el visor.
+
+En la imagen de depuración se ven el modo, qué chequeo falló, el método de búsqueda de cada línea y, con el filtro, el estado filtrado junto al medido (y su centro, marcado en blanco). Para analizar una prueba en pista: `ros2 bag record /perception/lane`.
 
 **Tests con capturas reales:** guardá cuadros de la pista como PNG en `test/capturas/`, con el modo esperado al principio del nombre (`dos_lineas__recta_01.png`, `una_linea__reflejo_02.png`, `perdido__tapada_01.png`). `test_capturas.py` los corre todos; sin capturas, se saltea.
 

@@ -26,6 +26,9 @@ float32 lateral_error_m
 # Rumbo del carril respecto del auto [rad]. Positivo: el carril sigue hacia la izquierda.
 float32 heading_error_rad
 
+# Curvatura del centro del carril [1/m]. Positiva: el carril dobla hacia la izquierda.
+float32 curvature
+
 # Confianza de la detección, de 0.0 a 1.0.
 float32 confidence
 

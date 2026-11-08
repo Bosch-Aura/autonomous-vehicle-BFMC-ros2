@@ -39,10 +39,13 @@ def renderizar(detector: LaneDetector, bgr: np.ndarray):
 
 
 def dibujar_camara(detector: LaneDetector, bgr: np.ndarray, analisis: Analisis,
-                   modo: str = '') -> np.ndarray:
+                   modo: str = '', filtrado=None) -> np.ndarray:
     """Dibuja lo que vio el detector sobre la imagen de la cámara. No modifica `bgr`.
 
     `modo` es el modo del fallback (lane_tracker.py), que el detector no conoce.
+    `filtrado` es el estado filtrado por el Kalman (con `lateral_error_m`,
+    `heading_error_rad` y `curvature`), o None: se escribe junto a la medida y su centro
+    se marca en blanco en la fila de medición.
     """
     cfg = detector.config
     alto, ancho = bgr.shape[:2]
@@ -67,13 +70,20 @@ def dibujar_camara(detector: LaneDetector, bgr: np.ndarray, analisis: Analisis,
         carril = (centro['centro_px'], centro['y_px'])
         _polilinea(imagen, np.array([auto, carril], dtype=np.float64), inversa, MAGENTA, 3)
 
-    _escribir(imagen, _resumen(analisis, modo), 8, 8)
+    if filtrado is not None and centro is not None and filtrado.detected:
+        metros_por_px = cfg.view_width_m / cfg.warp_width
+        x = cfg.warp_width / 2.0 - filtrado.lateral_error_m / metros_por_px
+        marca = np.array([[x - 8, centro['y_px']], [x + 8, centro['y_px']]], dtype=np.float64)
+        _polilinea(imagen, marca, inversa, BLANCO, 4)
+
+    _escribir(imagen, _resumen(analisis, modo, filtrado), 8, 8)
     _escribir(imagen, ['rojo=blanco  amarillo=trapecio  cian=region  verde/azul=lineas'],
               8, alto - 24)
     return imagen
 
 
-def dibujar_cenital(detector: LaneDetector, analisis: Analisis) -> np.ndarray:
+def dibujar_cenital(detector: LaneDetector, analisis: Analisis, modo: str = '',
+                    filtrado=None) -> np.ndarray:
     """Dibuja la vista desde arriba con las ventanas, las curvas y la medición."""
     cfg = detector.config
     alto, ancho = analisis.cenital.shape
@@ -108,7 +118,7 @@ def dibujar_cenital(detector: LaneDetector, analisis: Analisis) -> np.ndarray:
         cv2.line(imagen, (0, y), (ancho - 1, y), NARANJA, 1)
         cv2.circle(imagen, (int(round(centro['centro_px'])), y), 6, MAGENTA, -1)
 
-    _escribir(imagen, _resumen(analisis, modo), 8, 8)
+    _escribir(imagen, _resumen(analisis, modo, filtrado), 8, 8)
     _escribir(imagen, ['amarillo=eje del auto  naranja=fila de medicion'], 8, alto - 24)
     return imagen
 
@@ -130,7 +140,7 @@ def _polilinea(imagen, puntos_cenital, inversa, color, grosor):
     cv2.polylines(imagen, [en_camara.reshape(-1, 1, 2)], False, color, grosor)
 
 
-def _resumen(analisis, modo=''):
+def _resumen(analisis, modo='', filtrado=None):
     resultado = analisis.resultado
     if resultado.detected:
         primera = 'carril: SI (%s)' % analisis.centro['modo']
@@ -140,6 +150,10 @@ def _resumen(analisis, modo=''):
         primera = 'carril: NO detectado'
         segunda = 'sin lineas validas'
     lineas = [primera, segunda]
+    if filtrado is not None and filtrado.detected:
+        lineas.append('filtrado %+.3f m  rumbo %+.3f rad  curv %+.2f 1/m  conf %.2f' % (
+            filtrado.lateral_error_m, filtrado.heading_error_rad, filtrado.curvature,
+            filtrado.confidence))
     if modo:
         lineas.insert(0, 'MODO: %s' % modo)
     lineas.append('busqueda: izq %s  der %s' % (resultado.left_method or '-',

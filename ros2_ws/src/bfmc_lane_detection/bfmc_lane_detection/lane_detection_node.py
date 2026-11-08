@@ -2,6 +2,7 @@
 import dataclasses
 import threading
 
+from ackermann_msgs.msg import AckermannDriveStamped
 from bfmc_interfaces.msg import HardwareStatus, LaneState
 from bfmc_lane_detection.ground_calibration import (
     calibrar_piso, CalibrationError, CAMPOS_CALCULADOS, GroundCalibrationConfig, GroundView,
@@ -10,6 +11,7 @@ from bfmc_lane_detection.ground_calibration import (
 from bfmc_lane_detection.image_utils import imagen_a_bgr, profundidad_a_metros
 from bfmc_lane_detection.lane_debug import dibujar_camara, dibujar_cenital
 from bfmc_lane_detection.lane_detection_logic import LaneConfig, LaneDetector
+from bfmc_lane_detection.lane_kalman import LaneKalman
 from bfmc_lane_detection.lane_tracker import LaneTracker, NOMBRES_DE_MODO
 from bfmc_lane_detection.param_store import guardar_parametros
 import cv2
@@ -28,7 +30,7 @@ from std_srvs.srv import Trigger
 PARAMETROS_TEXTO = (
     'image_topic', 'lane_topic', 'debug_overlay_topic', 'debug_birdview_topic',
     'depth_topic', 'depth_info_topic', 'hardware_status_topic', 'calibrate_service',
-    'save_service', 'persist_file')
+    'save_service', 'persist_file', 'cmd_drive_topic')
 PARAMETROS_ENTEROS = (
     'morph_kernel_px', 'warp_width', 'warp_height', 'n_windows', 'window_margin_px',
     'min_pixels', 'full_confidence_pixels', 'intersection_min_rows', 'min_windows',
@@ -37,7 +39,7 @@ PARAMETROS_DECIMALES = (
     'roi_top_fraction', 'lane_width_m',
     'reference_row_fraction', 'intersection_band_top_fraction', 'intersection_row_fraction',
     'debug_max_fps', 'max_residual_m', 'min_curve_radius_m', 'lane_width_tolerance_m',
-    'lost_timeout_s', 'search_margin_m',
+    'lost_timeout_s', 'search_margin_m', 'kalman_max_std_m', 'kalman_gate_chi2',
 )
 PARAMETROS_ARREGLOS = ('white_hsv_min', 'white_hsv_max')
 
@@ -74,6 +76,11 @@ PARAMETROS_DEL_DETECTOR = tuple(
 PARAMETROS_PERSISTENTES = (
     'lane_width_m',) + PARAMETROS_DE_GEOMETRIA + (
     'white_hsv_min', 'white_hsv_max', 'roi_top_fraction')
+
+# Filtro de Kalman del carril (A2-154): se rearma con cualquiera de estos cambios.
+PARAMETROS_DEL_FILTRO = (
+    'kalman_enabled', 'kalman_q', 'kalman_r_two_lines', 'kalman_r_one_line',
+    'kalman_max_std_m', 'kalman_gate_chi2')
 
 # Estado del ESP32 en el que el auto se mueve (bfmc_interfaces/HardwareStatus).
 ESTADO_EN_MARCHA = 'RUNNING'
@@ -170,12 +177,19 @@ class LaneDetectionNode(Node):
             self.declare_parameter(nombre, Parameter.Type.DOUBLE_ARRAY)
         self.declare_parameter('calib_check_on_start', Parameter.Type.BOOL)
         self.declare_parameter('width_check_fractions', Parameter.Type.DOUBLE_ARRAY)
+        self.declare_parameter('kalman_enabled', Parameter.Type.BOOL)
+        for nombre in ('kalman_q', 'kalman_r_two_lines', 'kalman_r_one_line'):
+            self.declare_parameter(nombre, Parameter.Type.DOUBLE_ARRAY)
         self._config_calibracion()   # falla al arrancar si la calibración está mal configurada
 
         self._detector = LaneDetector(self._configuracion())
         # La memoria del carril vive aparte del detector: rehacer el detector por un cambio
         # de parámetros no la borra.
         self._tracker = LaneTracker(self._valor('lost_timeout_s'))
+        self._configurar_filtro()   # falla al arrancar si los parámetros del filtro son inválidos
+        # Velocidad del auto para predecir: la comandada (/cmd/drive). No hay odometría.
+        # Sin comandos, 0: el filtro mantiene el estado y su incertidumbre crece.
+        self._velocidad_mps = 0.0
 
         # Las imágenes se leen con calidad "best effort" y cola de 1: si el nodo se
         # atrasa, conviene procesar la imagen más nueva y no acumular retraso.
@@ -206,6 +220,9 @@ class LaneDetectionNode(Node):
             Trigger, self._valor('save_service'), self._al_guardar,
             callback_group=self._grupo_calibracion)
         self._estado_esp32 = ''
+        self._suscripcion_comando = self.create_subscription(
+            AckermannDriveStamped, self._valor('cmd_drive_topic'), self._on_comando,
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
         self._suscripcion_estado = self.create_subscription(
             HardwareStatus, self._valor('hardware_status_topic'), self._on_estado,
             QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
@@ -225,6 +242,19 @@ class LaneDetectionNode(Node):
         return lane_config_desde_parametros({
             nombre: cambios.get(nombre, self._valor(nombre))
             for nombre in PARAMETROS_DEL_DETECTOR})
+
+    def _configurar_filtro(self, cambios=None):
+        """Arma el filtro con los parámetros (más `cambios`) y se lo da al tracker."""
+        cambios = cambios or {}
+        valor = {n: cambios.get(n, self._valor(n)) for n in PARAMETROS_DEL_FILTRO}
+        filtro = None
+        if valor['kalman_enabled']:
+            filtro = LaneKalman(valor['kalman_q'], valor['kalman_r_two_lines'],
+                                valor['kalman_r_one_line'], valor['kalman_gate_chi2'])
+        self._tracker.usar_kalman(filtro, valor['kalman_max_std_m'])
+
+    def _on_comando(self, msg: AckermannDriveStamped):
+        self._velocidad_mps = float(msg.drive.speed)
 
     def _on_estado(self, msg: HardwareStatus):
         self._estado_esp32 = msg.esp32_state
@@ -249,6 +279,11 @@ class LaneDetectionNode(Node):
         if 'lost_timeout_s' in cambios:
             try:
                 self._tracker.lost_timeout_s = cambios['lost_timeout_s']
+            except ValueError as error:
+                return SetParametersResult(successful=False, reason=str(error))
+        if any(nombre in PARAMETROS_DEL_FILTRO for nombre in cambios):
+            try:
+                self._configurar_filtro(cambios)
             except ValueError as error:
                 return SetParametersResult(successful=False, reason=str(error))
         if 'debug_max_fps' in cambios and not cambios['debug_max_fps'] > 0.0:
@@ -509,7 +544,7 @@ class LaneDetectionNode(Node):
                 'imagen descartada: falló la visión: %s' % error, throttle_duration_sec=5.0)
             return
 
-        carril = self._tracker.update(resultado, instante)
+        carril = self._tracker.update(resultado, instante, self._velocidad_mps)
 
         estado = LaneState()
         estado.header = msg.header
@@ -519,6 +554,7 @@ class LaneDetectionNode(Node):
         estado.right_valid = carril.right_valid
         estado.lateral_error_m = carril.lateral_error_m
         estado.heading_error_rad = carril.heading_error_rad
+        estado.curvature = carril.curvature
         estado.confidence = carril.confidence
         estado.intersection_detected = carril.intersection_detected
         self._publisher.publish(estado)
@@ -529,8 +565,10 @@ class LaneDetectionNode(Node):
     def _publicar_depuracion(self, detector, bgr, analisis, carril, encabezado):
         """Dibuja y publica las imágenes de depuración. Si falla, la detección sigue."""
         try:
-            camara = dibujar_camara(detector, bgr, analisis, NOMBRES_DE_MODO[carril.mode])
-            cenital = dibujar_cenital(detector, analisis)
+            modo = NOMBRES_DE_MODO[carril.mode]
+            filtrado = carril if self._valor('kalman_enabled') else None
+            camara = dibujar_camara(detector, bgr, analisis, modo, filtrado)
+            cenital = dibujar_cenital(detector, analisis, modo, filtrado)
         except (cv2.error, ValueError, np.linalg.LinAlgError) as error:
             self.get_logger().warning(
                 'no se pudo dibujar la depuración: %s' % error, throttle_duration_sec=5.0)

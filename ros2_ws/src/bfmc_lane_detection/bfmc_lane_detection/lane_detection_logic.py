@@ -147,6 +147,7 @@ class LaneResult:
     confidence: float
     intersection_detected: bool
     left_valid: bool = False
+    curvature: float = 0.0       # [1/m] del centro del carril; positiva: dobla a la izquierda
     right_valid: bool = False
     failed_checks: str = ''      # qué chequeos fallaron, para la depuración ('' si ninguno)
     # Polinomios (a, b, c) de las líneas válidas, en píxeles de la vista cenital, para
@@ -273,8 +274,9 @@ class LaneDetector:
         if centro is None:
             resultado = LaneResult(False, 0.0, 0.0, 0.0, interseccion, **validas)
         else:
-            lateral, rumbo, confianza = self._medir(centro)
-            resultado = LaneResult(True, lateral, rumbo, confianza, interseccion, **validas)
+            lateral, rumbo, confianza, curvatura = self._medir(centro)
+            resultado = LaneResult(True, lateral, rumbo, confianza, interseccion,
+                                   curvature=curvatura, **validas)
         return Analisis(resultado, mascara, cenital, izquierda, derecha,
                         trazas if trazas is not None else {}, centro)
 
@@ -407,17 +409,20 @@ class LaneDetector:
             x_der, pendiente_der = evaluar(derecha)
             centro = 0.5 * (x_izq + x_der)
             pendiente = 0.5 * (pendiente_izq + pendiente_der)
+            cuadratico = 0.5 * (izquierda.coef[0] + derecha.coef[0])
             pixeles = izquierda[1] + derecha[1]
             base_confianza = 1.0
             modo = 'ambas'
         else:
             ajuste, signo = (izquierda, +1.0) if izquierda is not None else (derecha, -1.0)
             x_linea, pendiente = evaluar(ajuste)
+            cuadratico = ajuste.coef[0]
             centro = x_linea + signo * 0.5 * ancho_carril_px
             pixeles = ajuste[1]
             base_confianza = 0.5
             modo = 'izquierda' if signo > 0 else 'derecha'
-        return {'centro_px': centro, 'pendiente': pendiente, 'pixeles': pixeles,
+        return {'centro_px': centro, 'pendiente': pendiente, 'cuadratico': cuadratico,
+                'pixeles': pixeles,
                 'base_confianza': base_confianza, 'y_px': y, 'modo': modo}
 
     def _validar(self, izquierda, derecha):
@@ -497,7 +502,13 @@ class LaneDetector:
         rumbo = math.atan(centro['pendiente'] * self._mpp_x / self._mpp_y)
         confianza = centro['base_confianza'] * min(
             1.0, centro['pixeles'] / cfg.full_confidence_pixels)
-        return lateral, rumbo, confianza
+        # En la vista cenital x crece a la derecha e y hacia el auto. Hacia adelante (-y)
+        # y a la izquierda (-x) la segunda derivada no cambia de signo por y pero sí por x:
+        # un carril que dobla a la izquierda tiene d²x/dy² < 0 y curvatura positiva.
+        pendiente_m = centro['pendiente'] * self._mpp_x / self._mpp_y
+        cuadratico_m = centro['cuadratico'] * self._mpp_x / (self._mpp_y ** 2)
+        curvatura = -2.0 * cuadratico_m / (1.0 + pendiente_m ** 2) ** 1.5
+        return lateral, rumbo, confianza, curvatura
 
     # --- intersección ---------------------------------------------------------------
     def _hay_interseccion(self, cenital) -> bool:

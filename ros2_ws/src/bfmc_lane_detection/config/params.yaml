@@ -49,6 +49,22 @@ lane_detection:
     # chequeos, se buscan las ventanas deslizantes. El previo se olvida con lost_timeout_s.
     search_margin_m: 0.05            # [m] [asumido: afinar en pista]
 
+    # 4e. Filtro de Kalman del carril (A2-154): estado [desvío, rumbo, curvatura] en la fila
+    # de medición. Predice con el avance del auto y corrige con cada medición.
+    # Apagado hasta medir R y Q en la pista y coordinar con bfmc_control (con el filtro
+    # activo conviene filter_alpha: 1.0 allá, para no filtrar dos veces).
+    kalman_enabled: false
+    cmd_drive_topic: /cmd/drive      # velocidad del auto para predecir: la comandada (no hay odometría)
+    # Varianzas [desvío m², rumbo rad², curvatura (1/m)²]. Todas [asumido]. Cómo medirlas:
+    # R: con el auto quieto en una recta, varianza de lo medido durante unos segundos (repetir
+    #    en una curva). Q: arrancar chico y subir hasta que en el visor el filtrado siga las
+    #    curvas sin atrasarse.
+    kalman_q: [0.0004, 0.01, 0.25]               # por segundo
+    kalman_r_two_lines: [0.0001, 0.0025, 0.25]   # ~1 cm, 0,05 rad, 0,5 1/m de desvío estándar
+    kalman_r_one_line: [0.0004, 0.01, 1.0]       # con una línea pesa menos (el doble de desvío)
+    kalman_gate_chi2: 11.34          # descarta mediciones fuera del 99 % (chi-cuadrado, 3 grados de libertad)
+    kalman_max_std_m: 0.1            # [m] incertidumbre del desvío con la que la confianza llega a 0
+
     # 4c. Fallback: sin líneas válidas se repite el último estado (MODE_PREDICTED) con la
     # confianza bajando hasta 0; pasado este tiempo, MODE_LOST y bfmc_decision frena.
     lost_timeout_s: 0.3              # [s] a 0,3 m/s son unos 9 cm a ciegas [asumido]
