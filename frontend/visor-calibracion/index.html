@@ -60,7 +60,9 @@
   .calibracion { overflow-y: auto; }
 
   table { width: 100%; border-collapse: collapse; }
-  td { padding: 3px 0; border-bottom: 1px solid var(--borde); }
+  td { padding: 2px 0; border-bottom: 1px solid var(--borde); }
+  aside td { font-size: 13px; }
+  aside .tarjeta { padding: 8px 10px; }
   td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
   .ok { color: var(--ok); } .mal { color: var(--mal); } .suave { color: var(--suave); }
   .barra { height: 6px; background: var(--borde); border-radius: 3px; overflow: hidden; margin-top: 4px; }
@@ -83,7 +85,9 @@
   details > summary { cursor: pointer; font-size: 13px; }
   details p { margin: 4px 0; font-size: 13px; }
   .mando { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
-  .mando button { padding: 12px 10px; font-size: 16px; font-weight: 600; }
+  .mando button { padding: 9px 10px; font-size: 16px; font-weight: 600; }
+  .fila.compacta { flex-wrap: nowrap; }
+  .fila.compacta button { flex: 1; padding: 5px 6px; font-size: 13px; white-space: nowrap; }
   button.frenar { background: var(--mal); }
   button.iniciar { background: var(--ok); }
   .aviso-mando { margin: 8px 0 0; padding: 6px 10px; border-radius: 6px; font-size: 13px;
@@ -93,12 +97,16 @@
   @media (min-width: 1000px) and (min-height: 600px) {
     body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
     main { flex: 1; min-height: 0; }
-    aside { overflow: hidden; }
+    /* Si en alguna pantalla igual no entrara, el panel scrollea en vez de cortar. */
+    aside { overflow-y: auto; }
   }
   /* Pantallas chicas (celular): una columna y scroll normal. */
   @media (max-width: 999px), (max-height: 599px) {
-    main { grid-template-columns: 1fr; }
-    .grilla { grid-template-columns: 1fr; grid-template-rows: none; }
+    /* minmax(0, 1fr): sin esto la columna se estira al ancho mínimo del contenido. */
+    main { grid-template-columns: minmax(0, 1fr); }
+    .grilla { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+    header input.largo { width: 100%; }
+    header label { flex: 1 1 100%; }
     .marco { container-type: normal; flex: none; }
     .marco img, .marco.cuadrado img { width: 100%; }
     .calibracion { overflow-y: visible; }
@@ -216,8 +224,8 @@
         <button id="iniciar" class="iniciar">Iniciar</button>
         <button id="frenar" class="frenar">Frenar</button>
       </div>
-      <div class="fila">
-        <button id="rearmar" class="sec">Rearmar tras una falla</button>
+      <div class="fila compacta">
+        <button id="rearmar" class="sec">Rearmar tras falla</button>
         <button id="destrabar" class="sec">Destrabar obstáculo</button>
       </div>
       <p class="aviso-mando" id="aviso-mando" hidden></p>
@@ -229,8 +237,7 @@
     <div class="tarjeta">
       <h2>Carril</h2>
       <table>
-        <tr><td>Modo</td><td id="d-modo">--</td></tr>
-        <tr><td>Carril detectado</td><td id="d-detected">--</td></tr>
+        <tr><td>Modo · detectado</td><td><span id="d-modo">--</span> · <span id="d-detected">--</span></td></tr>
         <tr><td>Líneas válidas</td><td id="d-lineas">--</td></tr>
         <tr><td>Desvío lateral [m] <small>(+ izq.)</small></td><td id="d-lateral">--</td></tr>
         <tr><td>Error de rumbo [rad] <small>(+ izq.)</small></td><td id="d-rumbo">--</td></tr>

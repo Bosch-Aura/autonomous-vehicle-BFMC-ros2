@@ -118,7 +118,9 @@ Si el detector no tiene esos servicios (una versión anterior a A2-151), la pág
 
 **Verificado en la Jetson real** (Orin, Ubuntu 22.04.5, aarch64, RealSense), antes de esta función: los paquetes existen en arm64, el script compila y lanza todo, la cámara publica en `RELIABLE` a 640 x 480, y la página muestra la imagen y los datos del carril.
 
-**Sin verificar (A2-157):** la distribución nueva y la tarjeta Calibración no se probaron en un navegador: falta comprobar que a 1366 × 768, 1440 × 900 y 1920 × 1080 no haya scroll, que la consola no muestre errores, y el flujo Calibrar / Deshacer / Guardar con el detector real (o un rosbridge simulado). Lo verificado más abajo es de la versión anterior (con el trapecio arrastrable).
+**Verificado (A2-157), con Chrome sin interfaz y la página sin conectar:** a 1000 × 600, 1366 × 768, 1440 × 900 y 1920 × 1080 la página no scrollea y el panel derecho entra entero (medido con `scrollHeight`); las imágenes mantienen 4:3 y 1:1 (por ejemplo, 393 × 295 y 277 × 277 a 1366 × 768); la tarjeta Calibración scrollea por dentro (tiene muchos controles). A 500 px de ancho no hay scroll horizontal (Chrome sin interfaz no permite menos de 500).
+
+**Sin verificar (A2-157):** el ancho de un celular real (~400 px), la consola sin errores con la página conectada, y el flujo Calibrar / Deshacer / Guardar con el detector real (o un rosbridge simulado). Lo verificado más abajo es de la versión anterior (con el trapecio arrastrable).
 
 **Sin verificar:**
 

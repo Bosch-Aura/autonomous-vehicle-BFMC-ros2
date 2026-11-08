@@ -324,7 +324,8 @@ válidas y la curvatura. Los valores NaN (carril perdido) se muestran como `--`.
 
 ### Pendiente
 
-- [ ] **Abrir el visor en un navegador** (no se probó): sin scroll a 1366 × 768, 1440 × 900 y 1920 × 1080, el panel derecho tampoco; sin errores en la consola.
+- [x] **Sin scroll** a 1000 × 600, 1366 × 768, 1440 × 900 y 1920 × 1080, ni en el panel derecho; imágenes con su proporción. Medido con Chrome sin interfaz (`scrollHeight` contra el alto visible). Se corrigió que a 1000 × 600 el panel derecho cortaba contenido y que en pantallas angostas la página quedaba más ancha que la pantalla.
+- [ ] Probar en un celular real (~400 px; Chrome sin interfaz no baja de 500) y revisar la consola con la página conectada.
 - [ ] **Con un rosbridge simulado o el detector real:** Calibrar con éxito (estado "calibrado", mensaje, Deshacer habilitado), Deshacer, auto en marcha (no llama y avisa), servicio inexistente (avisa y no cambia nada), Guardar.
 - [ ] **Que siga andando lo anterior:** conectar, imágenes, ajustes en vivo, Iniciar, Frenar, Rearmar y Destrabar.
-- [ ] Se verificó solo que el JavaScript compila (`node --check`) y que existen todos los `id` que usa.
+- [x] El JavaScript compila (`node --check`) y existen todos los `id` que usa.
