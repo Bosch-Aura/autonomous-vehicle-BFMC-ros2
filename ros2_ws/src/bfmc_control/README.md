@@ -17,7 +17,7 @@ Calcular el comando de seguimiento de carril. **No decide** si el auto frena o m
 
 1. El error es `desvío lateral + heading_weight_m_per_rad * error de rumbo`.
 2. Los errores menores a `deadband_m` se ignoran.
-3. PID: `kp * error + integral + kd * derivada`. El término integral está acotado por `integral_limit_rad` (anti-windup).
+3. PID: `kp * error + integral + kd * derivada`, más el término de curvatura `curvature_ff_gain * atan(wheelbase_m * curvatura)`: el giro que la curva pide aunque el auto vaya centrado. La curvatura solo se toma con confianza ≥ `curvature_ff_min_confidence` (dos líneas; con una es ruido), se limita a `curvature_ff_max` y la última se sostiene `curvature_ff_hold_s`. No cambia la velocidad. El término integral está acotado por `integral_limit_rad` (anti-windup).
 4. La salida se satura a `max_steer_rad`, se filtra con `filter_alpha` y se limita su velocidad de cambio a `max_steer_rate_rad_s`.
 5. La velocidad baja al girar: `cruise_speed_mps * (1 - slowdown_gain * |giro| / max_steer_rad)`.
 
@@ -62,6 +62,10 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 | `min_confidence` | — | Confianza mínima para usar el carril |
 | `lost_speed_factor` | — | Fracción de la velocidad de crucero sin carril. Con 1 no baja: el carril solo orienta y, sin él, el auto sigue a ciegas con la dirección al centro |
 | `max_dt_s` | s | Pausa máxima entre mediciones antes de reiniciar el PID |
+| `curvature_ff_gain` | — | Peso del término de curvatura del PID. 0 = sin término |
+| `curvature_ff_min_confidence` | — | Confianza mínima para tomar la curvatura |
+| `curvature_ff_max` | 1/m | Tope de la curvatura del término |
+| `curvature_ff_hold_s` | s | Cuánto se sostiene la última curvatura confiable |
 | `hold_steer_s` | s | Cuánto se sostiene el último giro con carril al perderlo. 0 = enderezar enseguida |
 | `algorithm` | — | `pid` o `pure_pursuit` |
 | `wheelbase_m`, `camera_to_rear_axle_m` | m | Medidas del auto para Pure Pursuit |

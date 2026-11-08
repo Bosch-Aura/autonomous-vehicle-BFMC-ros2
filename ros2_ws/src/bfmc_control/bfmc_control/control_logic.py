@@ -13,6 +13,7 @@ Convenciones (las mismas que bfmc_interfaces): unidades SI, y un error o un
 ángulo positivo es hacia la izquierda.
 """
 from dataclasses import dataclass
+import math
 from typing import Optional
 
 from bfmc_control.pure_pursuit import (
@@ -62,6 +63,11 @@ class ControlConfig:
     slowdown_gain: float
     max_dt_s: float
     hold_steer_s: float = 0.0            # [s] giro sostenido al perder el carril (0: al centro ya)
+    # Término de curvatura del PID: k · atan(wheelbase · curvatura). 0 = sin término.
+    curvature_ff_gain: float = 0.0
+    curvature_ff_min_confidence: float = 1.0  # confianza mínima para tomar la curvatura medida
+    curvature_ff_max: float = 1.0        # [1/m] tope de la curvatura que se usa
+    curvature_ff_hold_s: float = 0.0     # [s] cuánto se sigue usando la última curvatura confiable
     algorithm: str = PID
     pure_pursuit: Optional[PurePursuitConfig] = None
 
@@ -90,10 +96,19 @@ class ControlConfig:
             raise ValueError('max_dt_s debe ser positivo')
         if self.hold_steer_s < 0.0:
             raise ValueError('hold_steer_s no puede ser negativo')
+        if self.curvature_ff_gain < 0.0 or self.curvature_ff_hold_s < 0.0:
+            raise ValueError('curvature_ff_gain y curvature_ff_hold_s no pueden ser negativos')
+        if not 0.0 <= self.curvature_ff_min_confidence <= 1.0:
+            raise ValueError('curvature_ff_min_confidence debe estar en [0, 1]')
+        if self.curvature_ff_max <= 0.0:
+            raise ValueError('curvature_ff_max debe ser positivo')
         if self.algorithm not in (PID, PURE_PURSUIT):
             raise ValueError('algorithm debe ser "%s" o "%s"' % (PID, PURE_PURSUIT))
         if self.algorithm == PURE_PURSUIT and self.pure_pursuit is None:
             raise ValueError('pure_pursuit necesita sus parámetros')
+        if self.curvature_ff_gain > 0.0 and self.pure_pursuit is None:
+            raise ValueError('el término de curvatura necesita wheelbase_m (parámetros de '
+                             'pure_pursuit)')
 
 
 def _limitar(valor, maximo):
@@ -110,6 +125,8 @@ class ControlLogic:
         self._last_time = None
         self._ultimo_giro_usable = 0.0
         self._ultimo_instante_usable = None
+        self._curvatura_confiable = 0.0
+        self._instante_curvatura = None
 
     @property
     def config(self) -> ControlConfig:
@@ -177,13 +194,35 @@ class ControlLogic:
                 self._integral_rad + cfg.ki * error * dt, cfg.integral_limit_rad)
             derivative = cfg.kd * (error - self._prev_error) / dt
 
-        raw = _limitar(cfg.kp * error + self._integral_rad + derivative, cfg.max_steer_rad)
+        raw = _limitar(cfg.kp * error + self._integral_rad + derivative
+                       + self._termino_de_curvatura(lane, now), cfg.max_steer_rad)
         self._prev_error = error
         self._prev_time = now
 
         steer = self._dar_forma(raw, now)
         speed = cfg.cruise_speed_mps * (1.0 - cfg.slowdown_gain * abs(steer) / cfg.max_steer_rad)
         return ControlOutput(steer, speed)
+
+    def _termino_de_curvatura(self, lane: LaneInput, now: float) -> float:
+        """Giro que pide la curva por sí misma: k · atan(wheelbase · curvatura).
+
+        Es la parte del giro que el auto necesita para seguir un arco de esa curvatura
+        aunque vaya centrado y alineado; el PID corrige el resto. La curvatura con una sola
+        línea es ruido, así que solo se toma con confianza alta, se limita a la de la curva
+        más cerrada de la pista, y entre mediciones confiables se sostiene la última durante
+        curvature_ff_hold_s (si no, el término saltaría cada vez que se pierde una línea).
+        """
+        cfg = self._config
+        if cfg.curvature_ff_gain <= 0.0:
+            return 0.0
+        if lane.confidence >= cfg.curvature_ff_min_confidence and math.isfinite(lane.curvature):
+            self._curvatura_confiable = _limitar(lane.curvature, cfg.curvature_ff_max)
+            self._instante_curvatura = now
+        elif (self._instante_curvatura is None
+              or not 0.0 <= now - self._instante_curvatura <= cfg.curvature_ff_hold_s):
+            return 0.0
+        return cfg.curvature_ff_gain * math.atan(
+            cfg.pure_pursuit.wheelbase_m * self._curvatura_confiable)
 
     def _pure_pursuit(self, lane: LaneInput, now: float) -> ControlOutput:
         cfg = self._config

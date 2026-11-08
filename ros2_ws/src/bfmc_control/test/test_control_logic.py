@@ -1,9 +1,12 @@
 """Tests de la lógica del control: sin ROS y con el tiempo simulado."""
 from dataclasses import replace
 
+import math
+
 from bfmc_control.control_logic import (
     ControlConfig, ControlLogic, LaneInput,
 )
+from bfmc_control.pure_pursuit import PurePursuitConfig
 import pytest
 
 # Configuración neutra: cada test cambia solo lo que quiere probar.
@@ -187,6 +190,64 @@ def test_el_giro_sostenido_respeta_el_limite_de_velocidad_de_giro():
     assert control.update(carril(detectado=False), now=1.15).steering_rad == pytest.approx(0.05)
 
 
+# --- término de curvatura -------------------------------------------------------
+
+PP = PurePursuitConfig(wheelbase_m=0.25, camera_to_rear_axle_m=0.2, lookahead_min_m=0.7,
+                       lookahead_max_m=1.1, lookahead_gain_s=0.0, max_lateral_accel_mps2=1.0,
+                       speed_min_factor=0.5)
+FF = {'curvature_ff_gain': 1.0, 'curvature_ff_min_confidence': 0.9, 'curvature_ff_max': 2.0,
+      'curvature_ff_hold_s': 0.5, 'pure_pursuit': PP}
+
+
+def curva(kappa, confianza=1.0):
+    return LaneInput(detected=True, lateral_error_m=0.0, heading_error_rad=0.0,
+                     confidence=confianza, curvature=kappa)
+
+
+def test_centrado_en_una_curva_gira_lo_que_pide_la_curva():
+    salida = logica(**FF).update(curva(1.0), now=0.0)
+    assert salida.steering_rad == pytest.approx(math.atan(0.25 * 1.0))
+
+
+def test_la_curva_a_la_derecha_gira_a_la_derecha():
+    assert logica(**FF).update(curva(-1.0), now=0.0).steering_rad < 0.0
+
+
+def test_sin_ganancia_la_curvatura_no_cambia_nada():
+    control = logica(**{**FF, 'curvature_ff_gain': 0.0})
+    assert control.update(curva(1.0), now=0.0).steering_rad == 0.0
+
+
+def test_con_una_sola_linea_no_se_toma_la_curvatura():
+    assert logica(**FF).update(curva(1.0, confianza=0.5), now=0.0).steering_rad == 0.0
+
+
+def test_la_ultima_curvatura_confiable_se_sostiene_y_despues_se_olvida():
+    control = logica(**FF)
+    control.update(curva(1.0), now=0.0)
+    assert control.update(curva(-3.0, confianza=0.5), now=0.4).steering_rad == pytest.approx(
+        math.atan(0.25))
+    assert control.update(curva(-3.0, confianza=0.5), now=1.0).steering_rad == 0.0
+
+
+def test_la_curvatura_se_limita():
+    salida = logica(**FF).update(curva(10.0), now=0.0)
+    assert salida.steering_rad == pytest.approx(math.atan(0.25 * 2.0))
+
+
+def test_la_curvatura_no_finita_se_ignora():
+    assert logica(**FF).update(curva(float('nan')), now=0.0).steering_rad == 0.0
+
+
+def test_el_termino_de_curvatura_no_baja_la_velocidad():
+    assert logica(**FF).update(curva(2.0), now=0.0).speed_mps == pytest.approx(1.0)
+
+
+def test_el_termino_de_curvatura_sin_wheelbase_se_rechaza():
+    with pytest.raises(ValueError):
+        ControlConfig(**{**BASE, 'curvature_ff_gain': 0.5})
+
+
 # --- velocidad -----------------------------------------------------------------------
 
 def test_sin_giro_se_mantiene_la_velocidad_de_crucero():
@@ -213,6 +274,10 @@ def test_al_girar_al_maximo_la_velocidad_baja_segun_la_ganancia():
     {'slowdown_gain': 1.0},
     {'max_dt_s': 0.0},
     {'hold_steer_s': -0.1},
+    {'curvature_ff_gain': -0.1},
+    {'curvature_ff_min_confidence': 1.5},
+    {'curvature_ff_max': 0.0},
+    {'curvature_ff_hold_s': -0.1},
     {'cruise_speed_mps': -1.0},
 ])
 def test_una_configuracion_invalida_se_rechaza(cambio):

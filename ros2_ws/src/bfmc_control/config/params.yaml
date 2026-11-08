@@ -39,6 +39,15 @@ control:
     # A 0,44 m/s, 0,5 s son 22 cm. 0 = enderezar enseguida (lo de antes).
     hold_steer_s: 0.5                  # [s] [asumido: afinar en pista]
 
+    # Término de curvatura del PID: se suma curvature_ff_gain * atan(wheelbase_m * curvatura).
+    # El PID solo miraba desvío y rumbo y se quedaba corto en las curvas (grabación 2026-11-08).
+    # Con una línea la curvatura es ruido (desvío estándar 1,24 1/m contra 0,41 con dos), así
+    # que solo se toma con dos líneas y se sostiene la última entre mediciones. 0 = sin término.
+    curvature_ff_gain: 0.7             # [asumido: en el bag, 0,7 lleva la entrada de curva de 9° a ~25° y suma ~1° en recta]
+    curvature_ff_min_confidence: 0.9   # [0, 1] dos líneas dan confianza 1, una sola 0,5
+    curvature_ff_max: 2.2              # [1/m] centro de la curva más cerrada ~0,46 m (ver min_curve_radius_m de lane_detection)
+    curvature_ff_hold_s: 0.5           # [s] [asumido]
+
     # Algoritmo de dirección: pid (A2-138, el de siempre) o pure_pursuit (A2-155). El PID queda
     # por defecto hasta validar Pure Pursuit en pista. Se puede cambiar en vivo.
     algorithm: pid

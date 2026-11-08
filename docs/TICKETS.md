@@ -35,6 +35,8 @@ que los cambios se comparan contra lo que de verdad pasó.
 | Decisión | Alternativa descartada | Por qué |
 |---|---|---|
 | Seguir con el PID | Pure Pursuit por defecto (A2-155) | Pure Pursuit baja la velocidad por diseño (curva y confianza) y se pidió no frenar para doblar; con más Ld corta más las curvas y en pista ya se ve que dobla un poco antes. Sigue disponible en vivo |
+| Término de curvatura en el PID (`k · atan(L · κ)`), solo con dos líneas | Usar la curvatura siempre; subir `kp` | Con una línea la curvatura es ruido (desvío estándar 1,24 1/m, valores de ±3,9 contra 0,41 con dos). Subir `kp` haría oscilar en recta; el término actúa solo donde hay curva medida. No toca la velocidad |
+| `wheelbase_m` compartido con Pure Pursuit | Un parámetro nuevo | Es la misma medida del auto; duplicarla invita a que difieran |
 | Sostener el último giro `hold_steer_s` al perder el carril | Enderezar (lo de antes) | Perder el carril en curva es casi siempre la línea saliendo de la vista; enderezar saca al auto de la pista |
 
 ### Riesgos
@@ -44,15 +46,26 @@ que los cambios se comparan contra lo que de verdad pasó.
   velocidad de giro, y `hold_steer_s: 0` vuelve a lo de antes, en vivo. El frenado por
   obstáculo del ESP32 no cambia.
 
+- **Curvatura mal medida** (con dos líneas también puede fallar) daría un giro de más:
+  se limita a `curvature_ff_max` y la saturación de `max_steer_rad` sigue. `curvature_ff_gain: 0`
+  lo apaga en vivo.
+- **Sesgo en recta:** con dos líneas el detector mide ~0,15 1/m en recta (posible sesgo de
+  calibración); con 0,7 suma ~1° a la izquierda en promedio, que el PID corrige.
+- **`wheelbase_m` sin medir** (0,26 `[asumido]`): el error se absorbe en la ganancia.
+- **Lazo abierto:** el bag no muestra cómo habría reaccionado el auto; la validación real es en pista.
+
 ### Commits
 
 1. `bfmc_control`: sostener el giro al perder el carril (`hold_steer_s`). En el bag, en
    t=91–92 s el giro queda entre 9° y 25° donde antes caía a 0°.
+2. `bfmc_control`: término de curvatura en el PID. En el bag, con 0,7: entrada de curva en
+   t=90 s de 9° a 23–26°; t=258–260 s de 7–15° a 17–24°; t=312 s de 11–13° a 29–30°.
 
 ### Pendiente
 
 - [ ] **En pista:** repetir la vuelta grabando y comparar salidas de carril con y sin
-  `hold_steer_s` (se cambia en vivo con `ros2 param set /control hold_steer_s 0.0`).
+  `hold_steer_s` y `curvature_ff_gain` (se cambian en vivo con `ros2 param set /control ...`).
+  Si dobla antes de tiempo o se va adentro, bajar `curvature_ff_gain`.
 - [ ] **Tests:** se corrieron con `PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python3 -m pytest test`
   dentro del paquete: en esta Jetson `colcon test` corre 0 tests (usa unittest) y el
   plugin `anyio` de `~/.local` rompe pytest. Correr `docker compose run --rm test` antes del PR.
