@@ -33,6 +33,10 @@ class PurePursuitConfig:
     lookahead_gain_s: float            # Ld = gain · v (0: Ld fija en la mínima)
     max_lateral_accel_mps2: float      # aceleración lateral máxima en las curvas
     speed_min_factor: float            # fracción mínima de la velocidad por baja confianza
+    # Ld en las curvas (algoritmos/pure_pursuit.py): baja de la de recta a esta a medida que
+    # la curvatura llega a lookahead_curve_kappa. 0 = Ld no depende de la curvatura.
+    lookahead_curve_m: float = 0.0
+    lookahead_curve_kappa: float = 2.0  # [1/m] curvatura con la que Ld llega a la de curva
 
     def __post_init__(self):
         if self.wheelbase_m <= 0.0 or self.camera_to_rear_axle_m < 0.0:
@@ -45,6 +49,9 @@ class PurePursuitConfig:
                              'max_lateral_accel_mps2 debe ser positivo')
         if not 0.0 < self.speed_min_factor <= 1.0:
             raise ValueError('speed_min_factor debe estar en (0, 1]')
+        if self.lookahead_curve_m < 0.0 or self.lookahead_curve_kappa <= 0.0:
+            raise ValueError('lookahead_curve_m no puede ser negativa y lookahead_curve_kappa '
+                             'debe ser positiva')
 
 
 def distancia_de_mirada(cfg: PurePursuitConfig, velocidad_mps: float) -> float:

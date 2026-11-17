@@ -16,7 +16,7 @@ control:
     integral_limit_rad: 0.15           # [rad] tope del término integral (anti-windup) [asumido]
 
     # Forma de la salida.
-    max_steer_rad: 0.5236              # [rad] 30 grados, el tope del servo (igual que en bfmc_hardware_bridge) [por-verificar]
+    max_steer_rad: 0.436332            # [rad] 25 grados, el tope del servo según el informe (igual que en bfmc_hardware_bridge) [por-verificar: medir]
     max_steer_rate_rad_s: 3.0          # [rad/s] límite de velocidad de giro [asumido]
     filter_alpha: 0.6                  # (0, 1] 1 = sin filtro; menor = más suave [asumido]
 
@@ -58,8 +58,15 @@ control:
     # baja el giro de régimen en la curva (~17 % con 5 cm), así que se prueba aparte. 0 = apagado.
     error_shift_m: 0.0                 # [m] [asumido]
 
-    # Algoritmo de dirección: pid (A2-138, el de siempre) o pure_pursuit (A2-155). El PID queda
-    # por defecto hasta validar Pure Pursuit en pista. Se puede cambiar en vivo.
+    # Límite físico (informe 4.12.1): con el tope de 25° y wheelbase_m, R_min = L / tan(25°)
+    # ~ 0,56 m. Si el carril pide una curva más cerrada (curvatura confiable > 1 / R_min), la
+    # velocidad baja a esta fracción. 1 = apagado.
+    infeasible_curve_speed_factor: 0.7     # (0, 1] [asumido]
+
+    # Algoritmo de dirección (ADR-0004), cada uno en bfmc_control/algoritmos/: pid (A2-138, el
+    # de siempre) o pure_pursuit (A2-155). El PID queda por defecto hasta validar Pure Pursuit
+    # en pista. Se elige al lanzar (control_algorithm:=) o en el visor antes de conectar, y se
+    # puede cambiar en vivo: ros2 param set /control algorithm pure_pursuit
     algorithm: pid
 
     # Pure Pursuit. Marco del auto: origen en el eje trasero, x adelante. La vista cenital
@@ -67,9 +74,15 @@ control:
     # de lo que la cámara ve (eje trasero -> cámara + 0,45 a 0,95 m), si no se extrapola a ciegas.
     wheelbase_m: 0.26                  # [m] distancia entre ejes, centro a centro de las ruedas [asumido: medir]
     camera_to_rear_axle_m: 0.20        # [m] del eje trasero al pie de la cámara, hacia adelante [asumido: medir]
-    lookahead_min_m: 0.70              # [m] Ld mínima desde el eje trasero [asumido: afinar en pista]
+    lookahead_min_m: 0.80              # [m] Ld mínima desde el eje trasero: la de recta [asumido: afinar en pista]
     lookahead_max_m: 1.10              # [m] Ld máxima [asumido]
     lookahead_gain_s: 0.0              # [s] Ld = gain * v; 0 = Ld fija en la mínima (arrancar así)
+    # Ld en las curvas: baja de la de recta a lookahead_curve_m a medida que la curvatura llega
+    # a lookahead_curve_kappa. La curva más cerrada (~0,46 m de radio) pide Ld menor que ese
+    # radio; con Ld fija el auto corta camino. Más cerca que ~0,55 m (eje trasero -> cámara +
+    # calib_forward_near_m) el punto queda antes de lo que la cámara ve. 0 = apagado.
+    lookahead_curve_m: 0.55            # [m] [asumido: afinar en pista]
+    lookahead_curve_kappa: 2.0         # [1/m] radio 0,5 m [asumido]
     # Velocidad: en las curvas, la que no supera esta aceleración lateral (v = sqrt(a / |curvatura|)),
     # y con poca confianza baja hasta speed_min_factor de la de crucero.
     max_lateral_accel_mps2: 1.0        # [m/s²] [asumido: afinar en pista]

@@ -1,10 +1,16 @@
 """Lógica pura de bfmc_control: dirección y velocidad sobre el estado del carril.
 
-Dos algoritmos para el giro (`algorithm`): el PID sobre "desvío + peso × rumbo" (A2-138,
-el de siempre) y Pure Pursuit (A2-155, pure_pursuit.py). Los dos comparten lo demás: la
-saturación, el filtro y el límite de velocidad de giro de la salida, y qué hacer sin
-carril. El PID calcula la velocidad como siempre; Pure Pursuit la baja en las curvas y
-con poca confianza.
+El giro lo calcula un algoritmo intercambiable (`algorithm`, ADR-0004), cada uno en su
+archivo de algoritmos/: el PID sobre "desvío + peso × rumbo" (A2-138, pid.py) y Pure
+Pursuit (A2-155, pure_pursuit.py). Esta clase hace lo que es igual para todos, así una
+comparación entre algoritmos solo cambia el algoritmo:
+
+- Sin carril (o con poca confianza): sostiene el último giro hold_steer_s y después
+  endereza, a lost_speed_factor de la velocidad de crucero.
+- Límite físico: si la curva del carril es más cerrada que R_min = L / tan(max_steer_rad)
+  (informe, 4.12.1), baja la velocidad a infeasible_curve_speed_factor.
+- Forma de la salida: saturación en max_steer_rad, filtro exponencial y límite de
+  velocidad de giro.
 
 No importa ROS ni lee el reloj: recibe el instante actual como argumento, así el
 comportamiento en el tiempo se verifica sin esperar.
@@ -12,118 +18,13 @@ comportamiento en el tiempo se verifica sin esperar.
 Convenciones (las mismas que bfmc_interfaces): unidades SI, y un error o un
 ángulo positivo es hacia la izquierda.
 """
-from collections import deque
-from dataclasses import dataclass
 import math
-from typing import Optional
 
-from bfmc_control.pure_pursuit import (
-    angulo_de_direccion, distancia_de_mirada, punto_objetivo, PurePursuitConfig, velocidad,
+from bfmc_control import algoritmos
+from bfmc_control.algoritmos.base import limitar
+from bfmc_control.tipos import (  # noqa: F401 (se reexportan: los usan el nodo y los tests)
+    ALGORITMOS, ControlConfig, ControlOutput, LaneInput, PID, PURE_PURSUIT,
 )
-
-PID = 'pid'
-PURE_PURSUIT = 'pure_pursuit'
-
-
-@dataclass(frozen=True)
-class LaneInput:
-    """Lo que la lógica necesita del estado del carril."""
-
-    detected: bool
-    lateral_error_m: float
-    heading_error_rad: float
-    confidence: float
-    curvature: float = 0.0               # [1/m], positiva a la izquierda (lo usa Pure Pursuit)
-    reference_distance_m: float = 0.0    # del pie de la cámara al punto donde se midió
-
-
-@dataclass(frozen=True)
-class ControlOutput:
-    """Comando de conducción en unidades SI."""
-
-    steering_rad: float
-    speed_mps: float
-
-
-@dataclass(frozen=True)
-class ControlConfig:
-    """Parámetros de la lógica. Sus valores vienen de config/params.yaml."""
-
-    kp: float
-    ki: float
-    kd: float
-    heading_weight_m_per_rad: float
-    deadband_m: float
-    integral_limit_rad: float
-    max_steer_rad: float
-    max_steer_rate_rad_s: float
-    filter_alpha: float
-    min_confidence: float
-    cruise_speed_mps: float
-    lost_speed_factor: float
-    slowdown_gain: float
-    max_dt_s: float
-    hold_steer_s: float = 0.0            # [s] giro sostenido al perder el carril (0: al centro ya)
-    # Término de curvatura del PID: k · atan(wheelbase · curvatura). 0 = sin término.
-    curvature_ff_gain: float = 0.0
-    curvature_ff_min_confidence: float = 1.0  # confianza mínima para tomar la curvatura medida
-    curvature_ff_max: float = 1.0        # [1/m] tope de la curvatura que se usa
-    curvature_ff_hold_s: float = 0.0     # [s] cuánto se sigue usando la última curvatura confiable
-    # Espera antes de doblar [m]: la curvatura se mide delante del auto y el término de
-    # curvatura dobla apenas la ve. Con turn_delay_m > 0 ese término se retrasa
-    # turn_delay_m / v, el tiempo que el auto tarda en avanzar esa distancia. El giro en la
-    # curva ya establecida no cambia, solo cuándo empieza. 0 = como antes.
-    turn_delay_m: float = 0.0
-    # Además, evalúa el desvío y el rumbo esta distancia más cerca del auto sobre la misma
-    # línea. Cambia también el giro de régimen en la curva (queda menor). 0 = como antes.
-    error_shift_m: float = 0.0
-    algorithm: str = PID
-    pure_pursuit: Optional[PurePursuitConfig] = None
-
-    def __post_init__(self):
-        if min(self.kp, self.ki, self.kd) < 0.0:
-            raise ValueError('las ganancias kp, ki y kd no pueden ser negativas')
-        if self.heading_weight_m_per_rad < 0.0 or self.deadband_m < 0.0:
-            raise ValueError('heading_weight_m_per_rad y deadband_m no pueden ser negativos')
-        if self.integral_limit_rad < 0.0:
-            raise ValueError('integral_limit_rad no puede ser negativo')
-        if self.max_steer_rad <= 0.0:
-            raise ValueError('max_steer_rad debe ser positivo')
-        if self.max_steer_rate_rad_s <= 0.0:
-            raise ValueError('max_steer_rate_rad_s debe ser positivo')
-        if not 0.0 < self.filter_alpha <= 1.0:
-            raise ValueError('filter_alpha debe estar en (0, 1]')
-        if not 0.0 <= self.min_confidence <= 1.0:
-            raise ValueError('min_confidence debe estar en [0, 1]')
-        if self.cruise_speed_mps < 0.0:
-            raise ValueError('cruise_speed_mps no puede ser negativa')
-        if not 0.0 <= self.lost_speed_factor <= 1.0:
-            raise ValueError('lost_speed_factor debe estar en [0, 1]')
-        if not 0.0 <= self.slowdown_gain < 1.0:
-            raise ValueError('slowdown_gain debe estar en [0, 1)')
-        if self.max_dt_s <= 0.0:
-            raise ValueError('max_dt_s debe ser positivo')
-        if self.hold_steer_s < 0.0:
-            raise ValueError('hold_steer_s no puede ser negativo')
-        if self.curvature_ff_gain < 0.0 or self.curvature_ff_hold_s < 0.0:
-            raise ValueError('curvature_ff_gain y curvature_ff_hold_s no pueden ser negativos')
-        if not 0.0 <= self.curvature_ff_min_confidence <= 1.0:
-            raise ValueError('curvature_ff_min_confidence debe estar en [0, 1]')
-        if self.curvature_ff_max <= 0.0:
-            raise ValueError('curvature_ff_max debe ser positivo')
-        if not 0.0 <= self.turn_delay_m <= 0.5 or not 0.0 <= self.error_shift_m <= 0.5:
-            raise ValueError('turn_delay_m y error_shift_m deben estar en [0, 0,5] m')
-        if self.algorithm not in (PID, PURE_PURSUIT):
-            raise ValueError('algorithm debe ser "%s" o "%s"' % (PID, PURE_PURSUIT))
-        if self.algorithm == PURE_PURSUIT and self.pure_pursuit is None:
-            raise ValueError('pure_pursuit necesita sus parámetros')
-        if self.curvature_ff_gain > 0.0 and self.pure_pursuit is None:
-            raise ValueError('el término de curvatura necesita wheelbase_m (parámetros de '
-                             'pure_pursuit)')
-
-
-def _limitar(valor, maximo):
-    return max(-maximo, min(maximo, valor))
 
 
 class ControlLogic:
@@ -131,30 +32,31 @@ class ControlLogic:
 
     def __init__(self, config: ControlConfig):
         self._config = config
-        self._reset_pid()
+        self._algoritmo = algoritmos.crear(config.algorithm)
         self._last_steer = None
         self._last_time = None
         self._ultimo_giro_usable = 0.0
         self._ultimo_instante_usable = None
-        self._curvatura_confiable = 0.0
-        self._instante_curvatura = None
-        # Curvaturas confiables medidas (instante, valor), de la más vieja a la más nueva: el
-        # término de curvatura usa la que ya "llegó" tras el retraso de turn_delay_m.
-        self._muestras_curvatura = deque(maxlen=512)
 
     @property
     def config(self) -> ControlConfig:
         """Configuración en uso."""
         return self._config
 
-    def set_config(self, config: ControlConfig) -> None:
-        """Cambia la configuración sin reiniciar el PID ni el filtro de la salida."""
-        self._config = config
+    @property
+    def algoritmo(self):
+        """El algoritmo de giro en uso (una instancia de algoritmos.AlgoritmoDeGiro)."""
+        return self._algoritmo
 
-    def _reset_pid(self):
-        self._integral_rad = 0.0
-        self._prev_error = None
-        self._prev_time = None
+    def set_config(self, config: ControlConfig) -> None:
+        """Cambia la configuración sin reiniciar el filtro de la salida.
+
+        Si cambia el algoritmo, el nuevo arranca limpio (sin integral ni curvatura vieja).
+        Si no, sigue con su estado: cambiar una ganancia en vivo no reinicia el PID.
+        """
+        if config.algorithm != self._config.algorithm:
+            self._algoritmo = algoritmos.crear(config.algorithm)
+        self._config = config
 
     def update(self, lane: LaneInput, now: float) -> ControlOutput:
         """Calcula el comando para el estado del carril recibido.
@@ -167,14 +69,37 @@ class ControlLogic:
         usable = lane.detected and lane.confidence >= cfg.min_confidence
 
         if not usable:
-            self._reset_pid()
+            self._algoritmo.al_perder_el_carril()
             steer = self._dar_forma(self._giro_sin_carril(now), now)
             return ControlOutput(steer, cfg.cruise_speed_mps * cfg.lost_speed_factor)
 
-        salida = self._con_carril(lane, now)
-        self._ultimo_giro_usable = salida.steering_rad
+        objetivo, velocidad = self._algoritmo.calcular(cfg, lane, now)
+        steer = self._dar_forma(limitar(objetivo, cfg.max_steer_rad), now)
+        if cfg.algorithm == PID:
+            # El PID baja la velocidad según cuánto gira (slowdown_gain), como siempre.
+            velocidad = cfg.cruise_speed_mps * (
+                1.0 - cfg.slowdown_gain * abs(steer) / cfg.max_steer_rad)
+        velocidad *= self._factor_curva_imposible(lane)
+        self._ultimo_giro_usable = steer
         self._ultimo_instante_usable = now
-        return salida
+        return ControlOutput(steer, velocidad)
+
+    def curvatura_maxima(self) -> float:
+        """Curvatura más cerrada que el auto puede seguir: tan(max_steer_rad) / L [1/m]."""
+        cfg = self._config
+        if cfg.pure_pursuit is None:
+            return math.inf
+        return math.tan(cfg.max_steer_rad) / cfg.pure_pursuit.wheelbase_m
+
+    def _factor_curva_imposible(self, lane: LaneInput) -> float:
+        cfg = self._config
+        if cfg.infeasible_curve_speed_factor >= 1.0:
+            return 1.0
+        # Solo con la curvatura confiable: con una línea es ruido y frenaría en las rectas.
+        if (lane.confidence >= cfg.curvature_ff_min_confidence and math.isfinite(lane.curvature)
+                and abs(lane.curvature) > self.curvatura_maxima()):
+            return cfg.infeasible_curve_speed_factor
+        return 1.0
 
     def _giro_sin_carril(self, now):
         """Giro objetivo sin carril: el último usable durante hold_steer_s, después el centro.
@@ -188,111 +113,6 @@ class ControlLogic:
             return self._ultimo_giro_usable
         return 0.0
 
-    def _con_carril(self, lane: LaneInput, now: float) -> ControlOutput:
-        cfg = self._config
-        if cfg.algorithm == PURE_PURSUIT:
-            return self._pure_pursuit(lane, now)
-
-        curvatura = self._curvatura_confiable_ahora(lane, now)
-        desvio, rumbo = self._error_mas_cerca(lane, curvatura)
-        error = desvio + cfg.heading_weight_m_per_rad * rumbo
-        if abs(error) < cfg.deadband_m:
-            error = 0.0
-
-        dt = None if self._prev_time is None else now - self._prev_time
-        if dt is None or dt <= 0.0 or dt > cfg.max_dt_s:
-            self._reset_pid()
-            dt = None
-
-        derivative = 0.0
-        if dt is not None:
-            self._integral_rad = _limitar(
-                self._integral_rad + cfg.ki * error * dt, cfg.integral_limit_rad)
-            derivative = cfg.kd * (error - self._prev_error) / dt
-
-        raw = _limitar(cfg.kp * error + self._integral_rad + derivative
-                       + self._termino_de_curvatura(now), cfg.max_steer_rad)
-        self._prev_error = error
-        self._prev_time = now
-
-        steer = self._dar_forma(raw, now)
-        speed = cfg.cruise_speed_mps * (1.0 - cfg.slowdown_gain * abs(steer) / cfg.max_steer_rad)
-        return ControlOutput(steer, speed)
-
-    def _curvatura_confiable_ahora(self, lane: LaneInput, now: float) -> float:
-        """Curvatura confiable de ahora: la medida con dos líneas, o la última sostenida.
-
-        La curvatura con una sola línea es ruido, así que solo se toma con confianza alta y
-        se limita a la de la curva más cerrada de la pista. Entre mediciones confiables se
-        sostiene la última durante curvature_ff_hold_s (si no, el término saltaría cada vez
-        que se pierde una línea). 0 si no hay ninguna vigente.
-        """
-        cfg = self._config
-        if (self._muestras_curvatura and self._muestras_curvatura[-1][0] > now):
-            self._muestras_curvatura.clear()    # el reloj volvió atrás (otra grabación)
-            self._instante_curvatura = None
-        if lane.confidence >= cfg.curvature_ff_min_confidence and math.isfinite(lane.curvature):
-            self._curvatura_confiable = _limitar(lane.curvature, cfg.curvature_ff_max)
-            self._instante_curvatura = now
-            self._muestras_curvatura.append((now, self._curvatura_confiable))
-        elif (self._instante_curvatura is None
-              or not 0.0 <= now - self._instante_curvatura <= cfg.curvature_ff_hold_s):
-            return 0.0
-        return self._curvatura_confiable
-
-    def _error_mas_cerca(self, lane: LaneInput, curvatura: float) -> tuple:
-        """Desvío y rumbo evaluados error_shift_m más cerca del auto, sobre la misma línea.
-
-        El carril se midió en un punto delante del auto: con s = -error_shift_m, el centro del
-        carril ahí es y(s) = d + psi * s + curvatura * s^2 / 2, y su rumbo es psi + curvatura * s.
-        """
-        corrimiento = self._config.error_shift_m
-        if corrimiento <= 0.0:
-            return lane.lateral_error_m, lane.heading_error_rad
-        s = -corrimiento
-        desvio = (lane.lateral_error_m + lane.heading_error_rad * s
-                  + 0.5 * curvatura * s * s)
-        return desvio, lane.heading_error_rad + curvatura * s
-
-    def _termino_de_curvatura(self, now: float) -> float:
-        """Giro que pide la curva por sí misma: k · atan(wheelbase · curvatura).
-
-        Es la parte del giro que el auto necesita para seguir un arco de esa curvatura
-        aunque vaya centrado y alineado; el PID corrige el resto. La curvatura se mide delante
-        del auto: con turn_delay_m se usa la que se midió hace turn_delay_m / v, así el giro
-        de la curva empieza cuando el auto llega a ella y no cuando aparece en la imagen.
-        """
-        cfg = self._config
-        if cfg.curvature_ff_gain <= 0.0:
-            return 0.0
-        curvatura = self._curvatura_con_retraso(now)
-        return cfg.curvature_ff_gain * math.atan(cfg.pure_pursuit.wheelbase_m * curvatura)
-
-    def _curvatura_con_retraso(self, now: float) -> float:
-        """La última curvatura confiable medida hasta hace turn_delay_m / v segundos."""
-        cfg = self._config
-        retraso_s = cfg.turn_delay_m / max(cfg.cruise_speed_mps, 0.1)
-        objetivo = now - retraso_s
-        elegida = None
-        for instante, curvatura in self._muestras_curvatura:
-            if instante > objetivo:
-                break
-            elegida = (instante, curvatura)
-        if elegida is None or objetivo - elegida[0] > cfg.curvature_ff_hold_s:
-            return 0.0
-        return elegida[1]
-
-    def _pure_pursuit(self, lane: LaneInput, now: float) -> ControlOutput:
-        cfg = self._config
-        pp = cfg.pure_pursuit
-        self._reset_pid()     # si se vuelve al PID, que arranque limpio
-        rapidez = velocidad(pp, cfg.cruise_speed_mps, lane.curvature, lane.confidence)
-        ld = distancia_de_mirada(pp, rapidez)
-        x, y = punto_objetivo(pp, lane.lateral_error_m, lane.heading_error_rad,
-                              lane.curvature, lane.reference_distance_m, ld)
-        giro = _limitar(angulo_de_direccion(pp, x, y), cfg.max_steer_rad)
-        return ControlOutput(self._dar_forma(giro, now), rapidez)
-
     def _dar_forma(self, objetivo, now):
         """Filtra la salida y limita su velocidad de cambio."""
         cfg = self._config
@@ -303,9 +123,9 @@ class ControlLogic:
             dt = now - self._last_time
             if dt > 0.0:
                 maximo = cfg.max_steer_rate_rad_s * dt
-                filtrado = self._last_steer + _limitar(filtrado - self._last_steer, maximo)
+                filtrado = self._last_steer + limitar(filtrado - self._last_steer, maximo)
             steer = filtrado
-        steer = _limitar(steer, cfg.max_steer_rad)
+        steer = limitar(steer, cfg.max_steer_rad)
         self._last_steer = steer
         self._last_time = now
         return steer

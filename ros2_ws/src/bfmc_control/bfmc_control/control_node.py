@@ -1,4 +1,4 @@
-"""Nodo ROS2 de bfmc_control: conecta el estado del carril con la lógica del PID."""
+"""Nodo ROS2 de bfmc_control: conecta el estado del carril con la lógica de control."""
 from ackermann_msgs.msg import AckermannDriveStamped
 from bfmc_control.control_logic import (
     ControlConfig, ControlLogic, LaneInput,
@@ -16,19 +16,21 @@ PARAMETROS_DE_LA_LOGICA = (
     'max_steer_rad', 'max_steer_rate_rad_s', 'filter_alpha', 'min_confidence',
     'cruise_speed_mps', 'lost_speed_factor', 'slowdown_gain', 'max_dt_s', 'hold_steer_s',
     'curvature_ff_gain', 'curvature_ff_min_confidence', 'curvature_ff_max', 'curvature_ff_hold_s',
-    'turn_delay_m', 'error_shift_m',
+    'turn_delay_m', 'error_shift_m', 'infeasible_curve_speed_factor',
 )
 # Pure Pursuit (A2-155): nombre del parámetro = campo de PurePursuitConfig.
 PARAMETROS_DE_PURE_PURSUIT = (
     'wheelbase_m', 'camera_to_rear_axle_m', 'lookahead_min_m', 'lookahead_max_m',
     'lookahead_gain_s', 'max_lateral_accel_mps2', 'speed_min_factor',
+    'lookahead_curve_m', 'lookahead_curve_kappa',
 )
 
 
 class ControlNode(Node):
     """Lee /perception/lane y publica el comando de dirección en /control/lane_cmd.
 
-    `algorithm` elige el PID o Pure Pursuit (se puede cambiar en vivo). El encabezado del
+    `algorithm` elige el algoritmo de giro de algoritmos/ (pid o pure_pursuit, ADR-0004). Se
+    puede cambiar en vivo: el visor lo manda al conectarse. El encabezado del
     comando lleva el instante de la imagen de la que salió (el de LaneState), así se
     puede medir la latencia de punta a punta en /cmd/drive.
 

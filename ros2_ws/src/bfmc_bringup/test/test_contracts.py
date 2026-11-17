@@ -100,6 +100,12 @@ def test_el_limite_de_giro_del_puente_cubre_el_maximo_del_control(p):
     assert p['control']['max_steer_rad'] <= p['bridge']['max_steer_rad'] + 1e-3
 
 
+def test_control_y_puente_usan_el_mismo_tope_de_direccion(p):
+    # El puente convierte max_steer_rad al tope del servo. Si control cree que el tope es
+    # otro, todo giro sale escalado (con 30° en uno y 25° en el otro, ~17 % de error).
+    assert p['control']['max_steer_rad'] == pytest.approx(p['bridge']['max_steer_rad'], abs=1e-4)
+
+
 def test_las_velocidades_de_las_maniobras_no_superan_el_limite_del_puente(p):
     velocidades = [p['maneuvers']['stop']['exit_speed_mps'],
                    p['maneuvers']['intersection']['speed_mps']]
