@@ -7,11 +7,16 @@ sign_detection:
     color_topic: /camera/color/image_raw
     depth_topic: /camera/aligned_depth_to_color/image_raw   # profundidad ALINEADA al color
     signs_topic: /perception/signs
+    debug_topic: /perception/signs_debug/overlay   # imagen de color con las cajas dibujadas
 
     # Arranca apagado: no carga el modelo ni lee imágenes (no gasta CPU ni GPU). Se prende con el
     # nodo andando, desde el visor o con `ros2 param set /sign_detection enabled true`. Si falta
     # Ultralytics o el modelo, el cambio se rechaza con el motivo. Con `true` arranca prendido.
     enabled: false
+
+    # Imagen de depuración para el visor. Solo se dibuja si alguien está suscripto al topic.
+    publish_debug: true
+    debug_max_fps: 5.0             # [Hz] tope de la imagen de depuración [asumido]
 
     # Modelo. Se baja con el comando `descargar_modelo`.
     model_path: ~/.cache/bfmc/senales/best.pt

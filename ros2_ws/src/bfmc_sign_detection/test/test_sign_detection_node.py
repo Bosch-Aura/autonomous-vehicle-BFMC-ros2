@@ -241,6 +241,39 @@ def test_al_apagarlo_deja_de_publicar(ros):
         entorno.cerrar()
 
 
+def suscribir_depuracion(entorno):
+    imagenes = []
+    topic = entorno.nodo.get_parameter('debug_topic').value
+    entorno.auxiliar.create_subscription(Image, topic, imagenes.append, BEST_EFFORT)
+    return imagenes
+
+
+def test_con_alguien_suscripto_publica_la_imagen_con_las_cajas(ros):
+    entorno = Entorno([STOP], activo=True)
+    try:
+        imagenes = suscribir_depuracion(entorno)
+        limite = time.monotonic() + TIMEOUT_S
+        while not imagenes and time.monotonic() < limite:
+            entorno.salidas.clear()
+            entorno.publicar_y_esperar(con_profundidad=False, espera_s=0.3)
+        assert imagenes
+        imagen = imagenes[0]
+        assert (imagen.height, imagen.width, imagen.encoding) == (ALTO, ANCHO, 'bgr8')
+        pixeles = np.frombuffer(bytes(imagen.data), dtype=np.uint8)
+        assert pixeles.any()  # la entrada era negra: lo que hay es la caja dibujada
+    finally:
+        entorno.cerrar()
+
+
+def test_sin_suscriptores_no_dibuja_la_imagen(ros):
+    entorno = Entorno([STOP], activo=True)
+    try:
+        assert entorno.publicar_y_esperar(con_profundidad=False) is not None
+        assert entorno.nodo._ultima_depuracion_s is None
+    finally:
+        entorno.cerrar()
+
+
 def test_prenderlo_de_nuevo_no_vuelve_a_cargar_el_modelo(ros):
     entorno = Entorno([STOP], activo=True)
     try:

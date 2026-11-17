@@ -60,6 +60,9 @@
   .marco img { display: block; width: min(100cqw, 100cqh * 4 / 3); aspect-ratio: 4 / 3;
                background: #222; border-radius: 6px; object-fit: fill; }
   .marco.cuadrado img { width: min(100cqw, 100cqh); aspect-ratio: 1 / 1; }
+  /* En la columna angosta de la derecha el marco no tiene alto propio: la imagen usa todo el ancho. */
+  .marco.angosto { flex: none; container-type: normal; }
+  .marco.angosto img { width: 100%; }
   .calibracion { overflow-y: auto; }
 
   table { width: 100%; border-collapse: collapse; }
@@ -140,6 +143,7 @@
       <label for="topic-imagen">Topic de la imagen</label><input id="topic-imagen" type="text" class="largo" value="/camera/color/image_raw">
       <label for="topic-carril">Topic del carril</label><input id="topic-carril" type="text" class="largo" value="/perception/lane">
       <label for="topic-overlay">Imagen del detector</label><input id="topic-overlay" type="text" class="largo" value="/perception/lane_debug/overlay">
+      <label for="topic-senales">Imagen de las señales</label><input id="topic-senales" type="text" class="largo" value="/perception/signs_debug/overlay">
       <label for="topic-cenital">Vista desde arriba</label><input id="topic-cenital" type="text" class="largo" value="/perception/lane_debug/birdview">
       <label for="nodo">Nodo del detector</label><input id="nodo" type="text" class="largo" value="/lane_detection">
     </div>
@@ -280,6 +284,8 @@
         <button id="senales-toggle" class="sec" disabled>Activar detección</button>
       </div>
       <p class="aviso-mando" id="aviso-senales" hidden></p>
+      <div class="marco angosto"><img id="senales-img" alt=""></div>
+      <p>Imagen con las cajas: <small id="estado-senales-img">sin conexión</small></p>
       <table>
         <tr><td>Vistas ahora</td><td id="s-lista">--</td></tr>
         <tr><td>Último dato</td><td id="s-edad">--</td></tr>
@@ -350,6 +356,8 @@ let poseAnterior = null;            // la pose de antes de calibrar, para "Desha
 let medidasAuto = Object.assign({}, INICIAL_AUTO);
 let delDetector = null;             // lo que el detector tenía al conectar
 let autoEnMarcha = false;           // según /hardware/status
+let configuracionVideo = null;       // la de la conexión actual (para pedir la imagen de señales)
+let videoSenalesPedido = false;
 let senalesActivas = null;          // null: no se sabe o el nodo no está lanzado
 let ultimaSenalMs = 0;
 let controlLanzado = null;          // null: no se sabe todavía; false: el nodo /control no existe
@@ -802,12 +810,30 @@ function mostrarEstadoSenales() {
   if (senalesActivas === null) {
     boton.disabled = true;
     boton.textContent = 'Activar detección';
+    mostrarVideoSenales();
     return;
   }
   boton.disabled = false;
   boton.textContent = senalesActivas ? 'Apagar detección' : 'Activar detección';
   fijarEstado('estado-senales', senalesActivas ? 'activa' : 'apagada', senalesActivas ? 'ok' : 'suave');
   if (!senalesActivas) { $('s-lista').textContent = '--'; ultimaSenalMs = 0; }
+  mostrarVideoSenales();
+}
+
+// La imagen con las cajas solo se pide con la detección prendida y el visor conectado: si no, el
+// nodo no tiene suscriptores y no la dibuja (no gasta CPU).
+function mostrarVideoSenales() {
+  const debePedir = senalesActivas === true && configuracionVideo !== null;
+  if (debePedir && !videoSenalesPedido) {
+    pedirVideo('senales-img', 'estado-senales-img', configuracionVideo, configuracionVideo.topicSenales);
+    videoSenalesPedido = true;
+  } else if (!debePedir && videoSenalesPedido) {
+    soltarVideo('senales-img', 'estado-senales-img');
+    videoSenalesPedido = false;
+    if (configuracionVideo) fijarEstado('estado-senales-img', 'detección apagada', 'suave');
+  } else if (!debePedir) {
+    fijarEstado('estado-senales-img', configuracionVideo ? 'detección apagada' : 'sin conexión', 'suave');
+  }
 }
 
 function avisoDeSenales(texto) {
@@ -920,6 +946,7 @@ function leerConfiguracion() {
     topicImagen: $('topic-imagen').value.trim(),
     topicCarril: $('topic-carril').value.trim(),
     topicOverlay: $('topic-overlay').value.trim(),
+    topicSenales: $('topic-senales').value.trim(),
     topicCenital: $('topic-cenital').value.trim(),
   };
 }
@@ -959,6 +986,8 @@ function conectar() {
   pedirVideo('video', 'estado-video', cfg, cfg.topicImagen);
   pedirVideo('overlay', 'estado-overlay', cfg, cfg.topicOverlay);
   pedirVideo('cenital', 'estado-cenital', cfg, cfg.topicCenital);
+  configuracionVideo = cfg;
+  videoSenalesPedido = false;
 
   fijarEstado('estado-datos', 'conectando…', 'suave');
   socket = new WebSocket('ws://' + cfg.host + ':' + cfg.puertoRosbridge);
@@ -1028,6 +1057,7 @@ function desconectar() {
   controlLanzado = null;
   avisoDelMando('');
   senalesActivas = null;
+  configuracionVideo = null;
   avisoDeSenales('');
   fijarEstado('estado-senales', 'sin conexión', 'suave');
   mostrarEstadoSenales();

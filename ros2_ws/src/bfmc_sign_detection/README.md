@@ -13,6 +13,7 @@ Detectar señales y medir su distancia. **No ejecuta maniobras**: no decide qué
 | Se suscribe | `color_topic` | `/camera/color/image_raw` | `sensor_msgs/Image` (`bgr8` o `rgb8`) |
 | Se suscribe | `depth_topic` | `/camera/aligned_depth_to_color/image_raw` | `sensor_msgs/Image` (`16UC1` en milímetros o `32FC1` en metros) |
 | Publica | `signs_topic` | `/perception/signs` | `bfmc_interfaces/SignDetectionArray` |
+| Publica (depuración) | `debug_topic` | `/perception/signs_debug/overlay` | `sensor_msgs/Image` (bgr8): la cámara con una caja y el texto (`etiqueta confianza \| distancia`) por señal. Solo se dibuja si `publish_debug` está en `true` y hay alguien suscripto (el visor), a lo sumo `debug_max_fps` veces por segundo |
 
 Publica **un mensaje por cada imagen de color, también vacío** cuando no hay señales: así quien lo consume sabe que el detector sigue vivo. El encabezado es el de la imagen de color.
 
@@ -88,6 +89,7 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 | Parámetro | Unidad | Descripción |
 |---|---|---|
 | `enabled` | — | `false`: apagado (arranca así). Se cambia en vivo |
+| `publish_debug`, `debug_topic`, `debug_max_fps` | — | Imagen de depuración con las cajas (ver arriba) |
 | `color_topic`, `depth_topic`, `signs_topic` | — | Topics |
 | `model_path` | — | Dónde está el modelo |
 | `device` | — | `cuda`, `cpu` o vacío para que Ultralytics elija |

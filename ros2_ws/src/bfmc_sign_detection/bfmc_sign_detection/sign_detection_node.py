@@ -1,6 +1,7 @@
 """Nodo ROS2 de bfmc_sign_detection: detecta señales y estima su distancia."""
 from bfmc_interfaces.msg import SignDetection, SignDetectionArray
 from bfmc_sign_detection.image_utils import imagen_a_bgr, profundidad_a_metros
+from bfmc_sign_detection.sign_debug import dibujar_senales
 from bfmc_sign_detection.sign_detection_logic import (
     parse_class_map, SignConfig, SignProcessor,
 )
@@ -12,10 +13,11 @@ from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image
 
-PARAMETROS_TEXTO = ('color_topic', 'depth_topic', 'signs_topic', 'model_path', 'device')
+PARAMETROS_TEXTO = (
+    'color_topic', 'depth_topic', 'signs_topic', 'debug_topic', 'model_path', 'device')
 PARAMETROS_DECIMALES = (
     'yolo_confidence', 'min_confidence', 'depth_window_fraction', 'min_depth_m',
-    'max_depth_m', 'depth_unit_m', 'max_depth_age_s',
+    'max_depth_m', 'depth_unit_m', 'max_depth_age_s', 'debug_max_fps',
 )
 
 
@@ -38,6 +40,10 @@ class SignDetectionNode(Node):
     prender es instantáneo. Si arranca con `enabled: true`, un modelo que falta es un error
     de arranque, como siempre.
 
+    Imagen de depuración: con `publish_debug` prendido y alguien suscripto a `debug_topic`
+    (el visor, a través de web_video_server), publica la imagen de color con las cajas dibujadas,
+    a lo sumo `debug_max_fps` veces por segundo. Sin suscriptores no dibuja nada.
+
     Args:
         detector_factory: función (model_path, device, confidence) que devuelve un
             detector. Por defecto crea el de YOLO; los tests inyectan uno falso.
@@ -54,6 +60,7 @@ class SignDetectionNode(Node):
         self.declare_parameter('min_depth_pixels', Parameter.Type.INTEGER)
         self.declare_parameter('class_map', Parameter.Type.STRING_ARRAY)
         self.declare_parameter('enabled', Parameter.Type.BOOL)
+        self.declare_parameter('publish_debug', Parameter.Type.BOOL)
 
         self._detector_factory = detector_factory
         self._procesador = None
@@ -61,10 +68,15 @@ class SignDetectionNode(Node):
         self._sub_profundidad = None
         self._profundidad = None
         self._profundidad_instante = None
+        self._ultima_depuracion_s = None
 
         resultados = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
         self._publisher = self.create_publisher(
             SignDetectionArray, self._valor('signs_topic'), resultados)
+
+        self._publisher_debug = self.create_publisher(
+            Image, self._valor('debug_topic'), QoSProfile(
+                depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
 
         if self._valor('enabled'):
             self._activar()
@@ -169,6 +181,31 @@ class SignDetectionNode(Node):
             deteccion.x_max, deteccion.y_max = senal.x_max, senal.y_max
             salida.detections.append(deteccion)
         self._publisher.publish(salida)
+        if self._toca_depurar():
+            self._publicar_depuracion(msg, bgr, senales)
+
+    def _toca_depurar(self):
+        if not self._valor('publish_debug'):
+            return False
+        if self._publisher_debug.get_subscription_count() == 0:
+            return False
+        ahora = self._now_s()
+        minimo_s = 1.0 / self._valor('debug_max_fps')
+        if (self._ultima_depuracion_s is not None
+                and ahora - self._ultima_depuracion_s < minimo_s):
+            return False
+        self._ultima_depuracion_s = ahora
+        return True
+
+    def _publicar_depuracion(self, msg, bgr, senales):
+        dibujada = dibujar_senales(bgr, senales)
+        imagen = Image()
+        imagen.header = msg.header
+        imagen.height, imagen.width = dibujada.shape[:2]
+        imagen.encoding = 'bgr8'
+        imagen.step = imagen.width * 3
+        imagen.data = dibujada.tobytes()
+        self._publisher_debug.publish(imagen)
 
 
 def main(args=None):
