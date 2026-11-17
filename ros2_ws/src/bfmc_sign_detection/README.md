@@ -28,6 +28,8 @@ El nodo **arranca apagado** (`enabled: false`): no carga el modelo, no lee imág
 
 Al prenderlo por primera vez carga el modelo (unos segundos en la Jetson). Si falta Ultralytics o el modelo, el cambio **se rechaza con el motivo** y el nodo sigue apagado; ver "El modelo" más abajo. Una vez cargado, el modelo queda en memoria, así que volver a prender es instantáneo. El visor no guarda el estado: al reiniciar vuelve a arrancar apagado.
 
+**El modelo se baja solo con `calibrar.sh`:** antes de lanzar corre `descargar_modelo`, que no hace nada si el modelo ya está y su checksum es correcto (tampoco necesita internet en ese caso). Si no puede bajarlo, avisa y sigue: la detección de señales queda sin poder activarse. También avisa si falta Ultralytics, pero no lo instala. No se baja al compilar (`colcon build`): compilar tiene que andar sin red.
+
 `system.launch.py` lanza este nodo siempre (`signs:=false` para no lanzarlo) y `calibrar.sh` también, los dos apagado.
 
 **Con el auto andando**, YOLO comparte la Jetson con la detección de carril: prendelo con el auto frenado la primera vez y mirá la latencia (`ros2 run bfmc_bringup medir_latencia`).

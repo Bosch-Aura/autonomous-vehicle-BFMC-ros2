@@ -33,10 +33,11 @@ frontend/visor-calibracion/calibrar.sh
 El script:
 
 1. Carga ROS 2 Humble y compila el workspace si todavía no está compilado (`--compilar` fuerza una compilación limpia, por ejemplo tras cambiar de rama).
-2. Comprueba que estén instalados `realsense2_camera`, `web_video_server` y `rosbridge_server`. Si falta alguno, dice qué `apt install` correr y termina.
-3. Lanza la cámara, `lane_detection`, `sign_detection` (apagado), `web_video_server` y `rosbridge`, cada uno con su log en `/tmp/visor-calibracion/`.
-4. Espera a que aparezcan los topics, muestra la política de calidad de servicio de la imagen y la IP de la Jetson.
-5. **Ctrl+C detiene todo.** Si un proceso se cae, avisa cuál y muestra las últimas líneas de su log.
+2. Baja el modelo de señales si no está (`descargar_modelo`; no hace nada si ya está) y avisa si falta Ultralytics. Si no se puede, sigue sin la detección de señales.
+3. Comprueba que estén instalados `realsense2_camera`, `web_video_server` y `rosbridge_server`. Si falta alguno, dice qué `apt install` correr y termina.
+4. Lanza la cámara, `lane_detection`, `sign_detection` (apagado), `web_video_server` y `rosbridge`, cada uno con su log en `/tmp/visor-calibracion/`.
+5. Espera a que aparezcan los topics, muestra la política de calidad de servicio de la imagen y la IP de la Jetson.
+6. **Ctrl+C detiene todo.** Si un proceso se cae, avisa cuál y muestra las últimas líneas de su log.
 
 Necesita `sudo apt install ros-humble-web-video-server ros-humble-rosbridge-server` la primera vez.
 

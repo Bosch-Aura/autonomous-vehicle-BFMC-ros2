@@ -78,6 +78,19 @@ if $compilar || [ ! -f "$WS/install/setup.bash" ]; then
 fi
 source "$WS/install/setup.bash"
 
+# Modelo de la detección de señales (opcional: sin él solo no se puede activar esa detección).
+# El comando no descarga nada si el modelo ya está y su checksum es correcto, y funciona sin
+# internet en ese caso. No se baja al compilar: compilar tiene que andar sin red y sin 52 MB.
+echo "== Modelo de señales"
+if ! timeout 180 ros2 run bfmc_sign_detection descargar_modelo; then
+  echo "Aviso: no se pudo obtener el modelo de señales. Sigo sin él: la detección de señales no" >&2
+  echo "       se va a poder activar. Reintentá con:  ros2 run bfmc_sign_detection descargar_modelo" >&2
+fi
+if ! python3 -c "import ultralytics" > /dev/null 2>&1; then
+  echo "Aviso: falta Ultralytics (la detección de señales no se va a poder activar). Instalalo con:" >&2
+  echo "       pip install ultralytics   (en la Jetson, sin reemplazar el PyTorch de JetPack)" >&2
+fi
+
 faltan=()
 for paquete in realsense2_camera web_video_server rosbridge_server; do
   ros2 pkg prefix "$paquete" > /dev/null 2>&1 || faltan+=("ros-humble-${paquete//_/-}")
