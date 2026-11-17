@@ -74,6 +74,16 @@ class ControlConfig:
     # la velocidad baja a esta fracción: no hay controlador que la tome, así que se entra más
     # despacio para que el error sea menor. 1 = apagado.
     infeasible_curve_speed_factor: float = 1.0
+    # Estado de giro (estado_de_giro.py): recuerda que el auto está en una curva y no deja girar
+    # al lado contrario por una medición suelta. 0 en curve_enter_heading_rad = apagado.
+    curve_enter_heading_rad: float = 0.0   # [rad] rumbo con el que se entra a la curva
+    curve_enter_s: float = 0.0             # [s] cuánto tiene que sostenerse para entrar
+    curve_exit_heading_rad: float = 0.0    # [rad] rumbo menor a esto se toma como recto
+    curve_exit_s: float = 0.0              # [s] cuánto tiene que sostenerse para salir
+    curve_reverse_s: float = 0.0           # [s] rumbo contrario sostenido: curva en S
+    curve_max_s: float = 0.0               # [s] tope de duración de la curva
+    curve_hold_s: float = 0.0              # [s] cuánto se usa el último buen giro
+    curve_lost_hold_s: float = 0.0         # [s] sostén del giro al perder el carril en una curva
     algorithm: str = PID
     pure_pursuit: Optional[PurePursuitConfig] = None
 
@@ -112,6 +122,18 @@ class ControlConfig:
             raise ValueError('turn_delay_m y error_shift_m deben estar en [0, 0,5] m')
         if not 0.0 < self.infeasible_curve_speed_factor <= 1.0:
             raise ValueError('infeasible_curve_speed_factor debe estar en (0, 1]')
+        tiempos = (self.curve_enter_s, self.curve_exit_s, self.curve_reverse_s,
+                   self.curve_max_s, self.curve_hold_s, self.curve_lost_hold_s)
+        if self.curve_enter_heading_rad < 0.0 or self.curve_exit_heading_rad < 0.0 \
+                or min(tiempos) < 0.0:
+            raise ValueError('los parámetros curve_* no pueden ser negativos')
+        if self.curve_enter_heading_rad > 0.0:
+            if self.curve_exit_heading_rad >= self.curve_enter_heading_rad:
+                raise ValueError('curve_exit_heading_rad debe ser menor que '
+                                 'curve_enter_heading_rad')
+            if self.curve_max_s <= 0.0:
+                raise ValueError('curve_max_s debe ser positivo si el estado de giro está '
+                                 'prendido')
         if self.algorithm not in ALGORITMOS:
             raise ValueError('algorithm debe ser uno de: %s' % ', '.join(ALGORITMOS))
         if self.algorithm == PURE_PURSUIT and self.pure_pursuit is None:

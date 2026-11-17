@@ -27,6 +27,8 @@ Si el nodo deja de recibir mensajes de carril, **no publica nada**: `bfmc_decisi
 
 ## Algoritmos intercambiables (ADR-0004)
 
+**Estado de giro** (`estado_de_giro.py`, igual para los dos algoritmos). En la prueba 1, con una sola línea el detector cambió de lado a mitad de curva y el giro objetivo pasó de +25° a −16,5° en menos de un segundo. Ahora el control se acuerda de que está en una curva: mientras dura, un giro al lado contrario se reemplaza por el último buen giro (`curve_hold_s`) y después por 0, y al perder el carril se sostiene `curve_lost_hold_s`. Los valores son una primera propuesta. Se apaga en vivo con `ros2 param set /control curve_enter_heading_rad 0.0`.
+
 `algorithm` elige el giro: `pid` (el de siempre, por defecto hasta validar el otro en pista) o `pure_pursuit`. Cada uno es una clase en `algoritmos/` que hereda de `AlgoritmoDeGiro` y devuelve giro y velocidad. Lo demás lo hace `ControlLogic` igual para todos: qué hacer sin carril, la saturación, el filtro y el límite de velocidad de giro de la salida, y el **límite de la curva imposible**: si la curvatura medida supera `tan(max_steer_rad) / wheelbase_m` (radio mínimo ≈ 0,56 m con 25° y 0,26 m), la velocidad se multiplica por `infeasible_curve_speed_factor`.
 
 Se elige al lanzar (`ros2 launch bfmc_control control.launch.py algorithm:=pure_pursuit`, o `control_algorithm:=` en `bfmc_bringup/system.launch.py`), desde el visor antes de Conectar, o en vivo (`ros2 param set /control algorithm pure_pursuit`): el algoritmo nuevo arranca sin estado y el filtro de la salida sigue, así no hay salto.
@@ -77,6 +79,12 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 | `hold_steer_s` | s | Cuánto se sostiene el último giro con carril al perderlo. 0 = enderezar enseguida |
 | `turn_delay_m` | m | Espera antes de doblar: el término de curvatura se retrasa `turn_delay_m / cruise_speed_mps`. La curva empieza más tarde y el giro de régimen no cambia. 0 = como antes. Solo en el PID |
 | `error_shift_m` | m | Evalúa el desvío y el rumbo esta distancia más cerca del auto sobre la misma línea. Baja también el giro de régimen en la curva. 0 = apagado. Solo en el PID |
+| `curve_enter_heading_rad`, `curve_enter_s` | rad, s | Estado de giro: entra a "curva" si el rumbo del carril supera el umbral (0,25 rad) durante ese tiempo (0,15 s). **0 en el umbral = apagado** |
+| `curve_exit_heading_rad`, `curve_exit_s` | rad, s | Sale con el rumbo bajo el umbral (0,10 rad) durante ese tiempo (0,3 s) |
+| `curve_reverse_s` | s | Rumbo contrario sostenido este tiempo: es una curva en S y cambia de lado |
+| `curve_max_s` | s | Tope de duración del estado de giro |
+| `curve_hold_s` | s | Cuánto se usa el último buen giro cuando la medición pide girar al lado contrario; después, 0 |
+| `curve_lost_hold_s` | s | Cuánto se sostiene el giro al perder el carril dentro de una curva |
 | `algorithm` | — | `pid` o `pure_pursuit` |
 | `wheelbase_m`, `camera_to_rear_axle_m` | m | Medidas del auto para Pure Pursuit |
 | `lookahead_min_m`, `lookahead_max_m`, `lookahead_gain_s` | m, m, s | Distancia de mirada |

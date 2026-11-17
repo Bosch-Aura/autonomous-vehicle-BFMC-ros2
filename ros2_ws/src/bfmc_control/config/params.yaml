@@ -63,6 +63,23 @@ control:
     # velocidad baja a esta fracción. 1 = apagado.
     infeasible_curve_speed_factor: 0.7     # (0, 1] [asumido]
 
+    # Estado de giro (prueba 1: con una sola línea el detector cambiaba de lado a mitad de curva
+    # y el giro objetivo pasaba de +25° a -16,5° en menos de un segundo). Si el rumbo del carril
+    # se mantiene sobre curve_enter_heading_rad durante curve_enter_s, el control se acuerda de
+    # que está en una curva: un giro al lado contrario se reemplaza por el último buen giro
+    # (curve_hold_s) y después por 0, y al perder el carril se sostiene curve_lost_hold_s. Sale
+    # con el rumbo bajo curve_exit_heading_rad durante curve_exit_s, o a los curve_max_s. Con el
+    # rumbo del lado contrario curve_reverse_s es una curva en S y cambia de lado.
+    # Se apaga en vivo con: ros2 param set /control curve_enter_heading_rad 0.0
+    curve_enter_heading_rad: 0.25      # [rad] 14° [asumido: sale del video de la prueba 1]
+    curve_enter_s: 0.15                # [s] [asumido]
+    curve_exit_heading_rad: 0.10       # [rad] [asumido]
+    curve_exit_s: 0.3                  # [s] [asumido]
+    curve_reverse_s: 0.6               # [s] [asumido]
+    curve_max_s: 5.0                   # [s] [asumido]
+    curve_hold_s: 0.5                  # [s] [asumido]
+    curve_lost_hold_s: 1.0             # [s] [asumido]
+
     # Algoritmo de dirección (ADR-0004), cada uno en bfmc_control/algoritmos/: pid (A2-138, el
     # de siempre) o pure_pursuit (A2-155). El PID queda por defecto hasta validar Pure Pursuit
     # en pista. Se elige al lanzar (control_algorithm:=) o en el visor antes de conectar, y se

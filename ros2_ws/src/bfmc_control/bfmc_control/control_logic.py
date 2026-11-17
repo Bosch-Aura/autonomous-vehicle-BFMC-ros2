@@ -9,6 +9,8 @@ comparación entre algoritmos solo cambia el algoritmo:
   endereza, a lost_speed_factor de la velocidad de crucero.
 - Límite físico: si la curva del carril es más cerrada que R_min = L / tan(max_steer_rad)
   (informe, 4.12.1), baja la velocidad a infeasible_curve_speed_factor.
+- Estado de giro (estado_de_giro.py): recuerda que está en una curva y no deja girar al lado
+  contrario por una medición suelta; con el carril perdido en la curva sostiene el giro más.
 - Forma de la salida: saturación en max_steer_rad, filtro exponencial y límite de
   velocidad de giro.
 
@@ -22,6 +24,7 @@ import math
 
 from bfmc_control import algoritmos
 from bfmc_control.algoritmos.base import limitar
+from bfmc_control.estado_de_giro import EstadoDeGiro
 from bfmc_control.tipos import (  # noqa: F401 (se reexportan: los usan el nodo y los tests)
     ALGORITMOS, ControlConfig, ControlOutput, LaneInput, PID, PURE_PURSUIT,
 )
@@ -33,6 +36,7 @@ class ControlLogic:
     def __init__(self, config: ControlConfig):
         self._config = config
         self._algoritmo = algoritmos.crear(config.algorithm)
+        self._giro_de_curva = EstadoDeGiro()
         self._last_steer = None
         self._last_time = None
         self._ultimo_giro_usable = 0.0
@@ -74,7 +78,9 @@ class ControlLogic:
             return ControlOutput(steer, cfg.cruise_speed_mps * cfg.lost_speed_factor)
 
         objetivo, velocidad = self._algoritmo.calcular(cfg, lane, now)
-        steer = self._dar_forma(limitar(objetivo, cfg.max_steer_rad), now)
+        objetivo = limitar(objetivo, cfg.max_steer_rad)
+        self._giro_de_curva.actualizar(cfg, lane.heading_error_rad, now)
+        steer = self._dar_forma(self._giro_de_curva.corregir(cfg, objetivo, now), now)
         if cfg.algorithm == PID:
             # El PID baja la velocidad según cuánto gira (slowdown_gain), como siempre.
             velocidad = cfg.cruise_speed_mps * (
@@ -109,7 +115,8 @@ class ControlLogic:
         tiempo a volver a ver las líneas.
         """
         ultimo = self._ultimo_instante_usable
-        if ultimo is not None and 0.0 <= now - ultimo <= self._config.hold_steer_s:
+        sostener_s = self._giro_de_curva.sostener_s(self._config, now)
+        if ultimo is not None and 0.0 <= now - ultimo <= sostener_s:
             return self._ultimo_giro_usable
         return 0.0
 
