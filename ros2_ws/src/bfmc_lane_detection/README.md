@@ -23,7 +23,7 @@ El encabezado del resultado es el de la imagen, así quien lo consume sabe de qu
 
 ## Cómo funciona
 
-1. **Umbral de color:** se aíslan las marcas **blancas** (HSV).
+1. **Segmentación:** se aíslan las marcas **blancas**. Cómo, lo decide el detector elegido (ver "Detectores intercambiables").
 2. **Región de interés:** se descarta la parte alta de la imagen.
 3. **Vista cenital:** una transformación de perspectiva "aplana" el piso, así las líneas del carril quedan paralelas y las distancias son uniformes.
 4. **Ajuste:** se buscan las líneas izquierda y derecha con ventanas deslizantes y se les ajusta un polinomio de segundo grado.
@@ -40,6 +40,21 @@ El encabezado del resultado es el de la imagen, así quien lo consume sabe de qu
 | `confidence` | De 0 a 1. Con las dos líneas es mayor que con una; crece con los píxeles de línea hasta `full_confidence_pixels`; en `MODE_PREDICTED` baja hasta 0 |
 | `detected` | `false` **solo** en `MODE_LOST`; entonces el desvío y el rumbo son NaN y la confianza 0 |
 | `intersection_detected` | Hay una franja horizontal blanca que cruza la vista cercana al auto |
+
+## Detectores intercambiables (ADR-0004)
+
+El parámetro `detector` elige cómo se separan las marcas del piso. Todo lo demás (vista cenital, ventanas, chequeos, Kalman, medición) es común, y `LaneState` es el mismo.
+
+| `detector` | Segmentación | Cuándo |
+|---|---|---|
+| `hsv_ventanas` | Umbral fijo en HSV (`white_hsv_min`, `white_hsv_max`). El de siempre. | Luz pareja |
+| `l_adaptativo` | Canal L de HLS; un píxel es línea si es `l_offset` más claro que el promedio de su zona de `l_block_size_px` **y** su L es ≥ `l_min`. CLAHE opcional (`clahe_clip` > 0). | Sombras y sol directo (informe, 4.3 y 5.2.4.4) |
+
+Se elige al lanzar (`ros2 launch bfmc_lane_detection lane_detection.launch.py detector:=l_adaptativo`, o `lane_detector:=` en `bfmc_bringup/system.launch.py`), desde el visor antes de Conectar, o en vivo con `ros2 param set /lane_detection detector l_adaptativo`. Con el ESP32 en `RUNNING` el cambio se rechaza.
+
+Para agregar uno: una clase en `detectores/` que herede de `LaneDetector` y reemplace `_segmentar`, una línea en `detectores.REGISTRO`, sus parámetros en el YAML y en el nodo. `test/test_detectores.py` le corre el contrato a todo el registro.
+
+**Vista ampliada.** La vista cenital mide 0,80 m de ancho (`calib_half_width_m: 0.40`, `warp_width: 640`), con la misma escala de 1,25 mm/px que la de 0,50 m: en las curvas cerradas la línea de afuera ya no se sale de la vista. `intersection_row_fraction` bajó a 0.35 porque es una fracción del ancho de la vista.
 
 ## Chequeos y fallback (A2-152)
 
@@ -110,7 +125,9 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 | Grupo | Parámetros |
 |---|---|
 | Topics | `image_topic`, `lane_topic` |
-| Color | `white_hsv_min`, `white_hsv_max`, `morph_kernel_px` |
+| Detector (ADR-0004) | `detector` |
+| Color (`hsv_ventanas`) | `white_hsv_min`, `white_hsv_max`, `morph_kernel_px` |
+| Canal L (`l_adaptativo`) | `l_block_size_px`, `l_offset`, `l_min`, `clahe_clip` |
 | Imagen | `roi_top_fraction`, `warp_width`, `warp_height` |
 | Pista | `lane_width_m` (no cambia la escala) |
 | Geometría | `calib_height_m`, `calib_pitch_deg`, `calib_roll_deg`, `camera_intrinsics`, `calib_forward_near_m`, `calib_forward_far_m`, `calib_half_width_m` |
@@ -180,9 +197,9 @@ O con el botón **Calibrar** del visor (A2-157). Tarda menos de un segundo despu
 ros2 service call /lane_detection/save_params std_srvs/srv/Trigger
 ```
 
-O el botón **Guardar** del visor. Escribe en `persist_file` (`~/.config/bfmc/lane_detection.yaml`) **solo** estas medidas y ajustes: `lane_width_m`, la geometría (pose, intrínsecos y rectángulo) y el color y la región (`white_hsv_min`, `white_hsv_max`, `roi_top_fraction`). Los launch (`lane_detection.launch.py` y `bfmc_bringup/system.launch.py`) cargan ese archivo **después** del `params.yaml`, así le gana.
+O el botón **Guardar** del visor. Escribe en `persist_file` (`~/.config/bfmc/lane_detection.yaml`) **solo** estas medidas y ajustes: `lane_width_m`, la geometría (pose, intrínsecos y rectángulo) el color y la región (`white_hsv_min`, `white_hsv_max`, `roi_top_fraction`) y los ajustes del canal L (`l_block_size_px`, `l_offset`, `l_min`, `clahe_clip`). El `detector` no se guarda: se elige al lanzar o en el visor. Los launch (`lane_detection.launch.py` y `bfmc_bringup/system.launch.py`) cargan ese archivo **después** del `params.yaml`, así le gana.
 
-**Predeterminados.** `ros2 service call /lane_detection/reset_params std_srvs/srv/Trigger`, o el botón del visor, vuelve en vivo `white_hsv_min`, `white_hsv_max`, `roi_top_fraction`, el rectángulo (`calib_forward_near_m`, `calib_forward_far_m`, `calib_half_width_m`) y `lane_width_m` a los valores del `params.yaml` del paquete, todos juntos y con la misma validación (con el auto andando se rechaza). **No** toca la pose ni los intrínsecos, que son medidas de la cámara real (para eso, Calibrar), ni el archivo guardado: para que quede al reiniciar, Guardar.
+**Predeterminados.** `ros2 service call /lane_detection/reset_params std_srvs/srv/Trigger`, o el botón del visor, vuelve en vivo `white_hsv_min`, `white_hsv_max`, `roi_top_fraction`, el rectángulo (`calib_forward_near_m`, `calib_forward_far_m`, `calib_half_width_m`) `lane_width_m` y los ajustes del canal L a los valores del `params.yaml` del paquete, todos juntos y con la misma validación (con el auto andando se rechaza). **No** toca la pose ni los intrínsecos, que son medidas de la cámara real (para eso, Calibrar), ni el archivo guardado: para que quede al reiniciar, Guardar.
 
 - **Por qué fuera del repo:** con `--symlink-install`, el `params.yaml` instalado es un enlace al del repo. Escribirlo dejaría cambios sin commitear en la Jetson y conflictos en cada `git pull`.
 - **Escritura atómica:** se escribe un temporal y se lo renombra. Un corte de luz deja el archivo anterior entero, nunca uno a medias.
@@ -215,7 +232,8 @@ Que la configuración sea la correcta para la cámara y la iluminación reales s
 
 ## Estructura
 
-- `lane_detection_logic.py`: el pipeline, sin ROS. Cada imagen se procesa sola. `detect` devuelve el resultado; `analizar` devuelve además lo que el detector vio (máscara, ventanas, curvas).
+- `detectores/`: un detector por archivo (`hsv_ventanas.py`, `l_adaptativo.py`) y el registro (`__init__.py`, `crear`). ADR-0004.
+- `lane_detection_logic.py`: el pipeline común, sin ROS. Cada imagen se procesa sola. `detect` devuelve el resultado; `analizar` devuelve además lo que el detector vio (máscara, ventanas, curvas).
 - `lane_debug.py`: dibuja las dos imágenes de depuración a partir de ese análisis, sin ROS.
 - `image_utils.py`: convierte un mensaje de imagen a un arreglo BGR, y una profundidad a metros, sin `cv_bridge`.
 - `ground_calibration.py`: mide la pose de la cámara con la profundidad (plano del piso con RANSAC) y calcula el trapecio y la escala con la pose, los intrínsecos y el rectángulo, sin ROS.

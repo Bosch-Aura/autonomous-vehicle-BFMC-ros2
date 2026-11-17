@@ -38,7 +38,7 @@ Reenviar velocidad y dirección en cada ciclo alimenta el **watchdog** del firmw
 
 **Obstáculo:** el nodo lo detecta con `EVENT:OBSTACLE_DETECTED:<cm>` y lo publica en `obstacle_stop` hasta `OBSTACLE_CLEARED` o un reinicio de la placa (el bloqueo del firmware no depende del estado: sobrevive a un FAULT o a desarmar). La distancia va en `obstacle_distance_m` (`NaN` si el firmware no la informó). **El puente no manda ningún freno por esto**: frena el firmware, y `bfmc_decision` decide qué hacer. Al despejarse, el firmware pide un `C:SET_SPEED` nuevo; como el puente envía la velocidad en cada ciclo, el auto retoma apenas `bfmc_decision` vuelva a pedir movimiento.
 
-**Destrabe del obstáculo (ADR-0003):** el firmware solo suelta el bloqueo con 3 lecturas válidas a 35 cm o más. Si el obstáculo se va de costado y adelante no queda nada al alcance del sensor (4 m), no llegan lecturas válidas y el auto queda detenido; a los 2 s el firmware avisa `EVENT:ULTRASONIC_SILENT`. Con `auto_obstacle_reset: true`, el puente manda entonces `M:OBSTACLE_RESET:0` **una sola vez por frenada**. Si el obstáculo seguía ahí, el ESP32 vuelve a bloquear en unos 150 ms; si eso pasa antes de `obstacle_reblock_window_s`, el puente no insiste y el auto queda detenido hasta que alguien llame a `/hardware/obstacle_reset` (o el botón "Destrabar obstáculo" del visor). Un despeje del propio firmware o un destrabe a mano vuelven a habilitar el automático.
+**Destrabe del obstáculo (ADR-0003):** desde el firmware del 07/11, el ESP32 suelta solo el bloqueo con 3 lecturas válidas a 35 cm o más, o cuando el obstáculo se va y adelante no queda nada al alcance (2 s sin eco). Con el sensor desconectado **no** lo suelta, a propósito. Por eso `auto_obstacle_reset` va en `false`: el puente no distingue un sensor sin eco de uno desconectado y destrabaría el auto a ciegas. Queda para el firmware viejo: con `auto_obstacle_reset: true`, al llegar `EVENT:ULTRASONIC_SILENT` el puente manda `M:OBSTACLE_RESET:0` **una sola vez por frenada**. Si el obstáculo seguía ahí, el ESP32 vuelve a bloquear en unos 150 ms; si eso pasa antes de `obstacle_reblock_window_s`, el puente no insiste y el auto queda detenido hasta que alguien llame a `/hardware/obstacle_reset` (o el botón "Destrabar obstáculo" del visor). Un despeje del propio firmware o un destrabe a mano vuelven a habilitar el automático.
 
 ```bash
 ros2 service call /hardware/obstacle_reset std_srvs/srv/Trigger
@@ -53,7 +53,9 @@ ros2 service call /hardware/stop std_srvs/srv/SetBool "{data: true}"    # detene
 ros2 service call /hardware/stop std_srvs/srv/SetBool "{data: false}"   # arrancar
 ```
 
-**FAULT:** el ESP32 entra en FAULT por watchdog o E-STOP, frena y no sale solo. El nodo lo publica en `watchdog_tripped` y lo registra como error, pero **nunca rearma solo**. Para seguir:
+**Estado al reconectar:** si el puerto se abre con el ESP32 ya armado, el armado se confirma sin `STATE_CHANGED`; el puente pide `M:STATUS:0` hasta recibir `EVENT:STATUS:<estado>:SYS_STOP=..:OBSTACLE=..:SPEED=..:HELD=..` y toma de ahí el estado y el obstáculo.
+
+**FAULT:** el ESP32 entra en FAULT por watchdog o E-STOP y frena. Desde el firmware del 08/11, el FAULT **por watchdog** se levanta solo cuando el enlace vuelve estable 500 ms (`EVENT:WATCHDOG_RECOVERED`), con la velocidad en 0: el puente refleja el estado nuevo y el auto sigue con el próximo comando. El de **E-STOP** no sale solo. El nodo publica el FAULT en `watchdog_tripped` y lo registra como error, pero **nunca rearma solo**. Para seguir:
 
 ```bash
 ros2 service call /hardware/arm std_srvs/srv/Trigger
@@ -80,14 +82,14 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 | `send_rate_hz` | Hz | Frecuencia del ciclo. Su período tiene que quedar bien por debajo del watchdog de 300 ms del firmware |
 | `arm_retry_s` | s | Espera entre reintentos de armar, detener, arrancar o destrabar mientras el ESP32 no confirme |
 | `heartbeat_period_s` | s | Cada cuánto se reenvía el stop vigente como latido. Menor que `link_timeout_s`. **Asumido** (0,3 s) |
-| `auto_obstacle_reset` | bool | Si el puente destraba solo un obstáculo cuando el sensor se queda sin lecturas |
+| `auto_obstacle_reset` | bool | Si el puente destraba solo un obstáculo cuando el sensor se queda sin lecturas. `false`: con el firmware del 07/11 en adelante lo hace el ESP32, y el puente lo haría también con el sensor desconectado |
 | `obstacle_reblock_window_s` | s | Si el ESP32 vuelve a bloquear antes de esto tras un destrabe automático, no se insiste. **Asumido** (3 s) |
 | `start_stopped` | bool | Si el auto arranca detenido hasta que se pida arrancar en `/hardware/stop` |
 | `reconnect_period_s` | s | Espera entre intentos de reabrir el puerto |
 | `cmd_timeout_s` | s | Antigüedad máxima de un comando. **Asumido** (0,25 s) |
 | `link_timeout_s` | s | Tiempo sin eventos para dar el enlace por caído. **Asumido** (1 s) |
 | `max_speed_mps` | m/s | Velocidad que corresponde a `duty_max`. **Asumido**: no hay calibración |
-| `max_steer_rad` | rad | Ángulo de las ruedas con el servo en un tope (`servo_left` o `servo_right`). **Por verificar** (30°) |
+| `max_steer_rad` | rad | Ángulo de las ruedas con el servo en un tope (`servo_left` o `servo_right`). 25° (informe Etapa I), el mismo que el de `bfmc_control`. **Por verificar** en el auto |
 | `duty_start`, `duty_max` | duty | Umbral de arranque y máximo del motor |
 | `servo_left`, `servo_center`, `servo_right` | servo | Topes del servo |
 | `*_topic`, `*_service`, `status_frame_id`, `status_rate_hz` | — | Nombres y frecuencia del estado |

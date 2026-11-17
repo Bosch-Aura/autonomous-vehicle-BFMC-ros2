@@ -62,15 +62,17 @@ Los nombres van sin el prefijo `bfmc_`: el paquete real de `camera` es `bfmc_cam
 |---|---|---|---|
 | `bfmc_interfaces` | Mensajes y acciones propios del proyecto. | — | — |
 | `bfmc_camera` | Entrega color y profundidad (alineada al color) de la RealSense, con el driver oficial. | — | `/camera/color/image_raw`, `/camera/aligned_depth_to_color/image_raw` |
-| `bfmc_lane_detection` | Imagen → estado del carril. No calcula comandos. | `/camera/color/image_raw`, `/hardware/status` (solo para no calibrar con el auto andando) | `/perception/lane`, servicios `/lane_detection/calibrate_ground` y `/lane_detection/save_params` |
+| `bfmc_lane_detection` | Imagen → estado del carril. No calcula comandos. El detector se elige con el parámetro `detector` (`hsv_ventanas` o `l_adaptativo`, [ADR-0004](adr/0004-algoritmos-intercambiables-por-parametro.md)). | `/camera/color/image_raw`, `/hardware/status` (solo para no calibrar con el auto andando) | `/perception/lane`, servicios `/lane_detection/calibrate_ground` y `/lane_detection/save_params` |
 | `bfmc_sign_detection` | Detecta señales con YOLO y estima su distancia. No ejecuta maniobras. | `/camera/color/image_raw`, `/camera/aligned_depth_to_color/image_raw` | `/perception/signs` |
-| `bfmc_control` | Estado del carril → ángulo de dirección (PID con filtro). | `/perception/lane` | `/control/lane_cmd` |
+| `bfmc_control` | Estado del carril → ángulo de dirección y velocidad. El algoritmo se elige con el parámetro `algorithm` (`pid` o `pure_pursuit`, [ADR-0004](adr/0004-algoritmos-intercambiables-por-parametro.md)); el filtro y los límites son comunes. | `/perception/lane` | `/control/lane_cmd` |
 | `bfmc_maneuvers` | Ejecuta una maniobra puntual (stop, intersección) cuando se la piden. Patrón Strategy: una clase por maniobra. | — | `/maneuver/cmd`, action `ManeuverExecute` |
 | `bfmc_decision` | Único nodo que decide. Arbitra por prioridad y publica el comando final. | `/perception/lane`, `/perception/signs`, `/control/lane_cmd`, `/maneuver/cmd`, `/hardware/status` | `/cmd/drive`, `/vehicle/state` |
 | `bfmc_hardware_bridge` | Único dueño del puerto serial. Traduce unidades, envía comandos y publica lo que reporta el ESP32, incluido el obstáculo que lo detuvo. | `/cmd/drive` | `/hardware/status`, servicios `/hardware/arm`, `/hardware/stop` y `/hardware/obstacle_reset` |
 | `bfmc_bringup` | Launch files y parámetros de todo el sistema. | — | — |
 
 El dashboard vive en `frontend/`. Se conecta por `rosbridge_websocket`, solo lee `/vehicle/state` y no arranca ni controla nodos.
+
+El visor de calibración (`frontend/visor-calibracion/`) es una herramienta de pista, no el dashboard: también por `rosbridge_websocket`, lee el carril y el estado del ESP32, cambia parámetros de `lane_detection` y `control` (con `set_parameters`, incluido qué detector y qué algoritmo corren, elegidos antes de conectar) y llama a los servicios del puente (Iniciar, Frenar, Rearmar, Destrabar). No publica topics ni arranca nodos, y la seguridad no depende de él.
 
 ## 5. Contratos
 
@@ -111,10 +113,10 @@ Las dos detecciones de intersección (por señal y por geometría del carril) en
 ## 7. Seguridad
 
 - **Arranque detenido:** el puente deja al ESP32 en `STOPPED` apenas lo arma (`start_stopped`). El auto se mueve cuando alguien llama a `/hardware/stop` con `false`; hoy lo hace el botón Iniciar del visor, que además fija la velocidad de crucero de `bfmc_control`. Frenar es la misma llamada con `true`.
-- **Watchdog en el ESP32:** si pasan 300 ms sin un comando válido de la Jetson, frena, centra la dirección y queda en FAULT hasta que lo rearmen. Funciona aunque se caiga todo el software de la Jetson.
+- **Watchdog en el ESP32:** si pasan 300 ms sin un comando válido de la Jetson, frena, centra la dirección y queda en FAULT. Desde el firmware del 08/11 (`embedded` `839cfee`) sale solo cuando el enlace vuelve estable 500 ms (`WATCHDOG_RECOVERED`), con la velocidad en 0; un FAULT por E-STOP sigue necesitando `/hardware/arm`. Funciona aunque se caiga todo el software de la Jetson.
 - **Enlace vivo:** el ESP32 solo habla cuando algo cambia, así que el puente reenvía cada 0,3 s el stop vigente y el ESP32 lo confirma. Si pasa 1 s sin ningún evento, `link_up` cae y `bfmc_decision` entra en emergencia ([ADR-0002](adr/0002-protocolo-serial-del-firmware-embedded.md)).
 - **Frenado por obstáculo en el ESP32:** si el ultrasónico detecta algo a menos de 30 cm (3 lecturas válidas), el firmware pasa a `STOPPED` y bloquea el avance por su cuenta (la dirección sigue obedeciendo), y vuelve a `RUNNING` con 3 lecturas válidas a 35 cm o más. No es FAULT: no hay que rearmar. **Es la única autoridad ante obstáculos**: no hay un segundo detector en la Jetson ([ADR-0003](adr/0003-el-esp32-es-la-autoridad-ante-obstaculos.md)). Los umbrales viven en el firmware, así que cambiarlos exige volver a flashear.
-- **Destrabe:** las lecturas sin eco no cuentan, así que si el obstáculo se va y no queda nada al alcance del sensor, el bloqueo no se suelta solo. A los 2 s sin lecturas el puente manda `M:OBSTACLE_RESET` una vez por frenada; si el ESP32 vuelve a bloquear enseguida, el auto queda detenido hasta un destrabe a mano (`/hardware/obstacle_reset`).
+- **Destrabe:** desde el firmware del 07/11, si el obstáculo se va y no queda nada al alcance, el ESP32 suelta solo el bloqueo (2 s sin eco). Con el sensor desconectado **no** lo suelta, a propósito. El puente ya no manda `M:OBSTACLE_RESET` por su cuenta (`auto_obstacle_reset: false`): lo haría también con el sensor muerto. El destrabe a mano (`/hardware/obstacle_reset`, botón del visor) sigue disponible.
 - **La Jetson se entera, no frena:** `bfmc_hardware_bridge` informa el obstáculo en `/hardware/status` apenas cambia, y `bfmc_decision` lo trata como emergencia: el comando queda en cero y se cancela la maniobra en curso. Al despejarse, el firmware pide un `C:SET_SPEED` nuevo y el puente lo manda en cada ciclo, así que el auto retoma apenas `bfmc_decision` vuelve a seguir el carril.
 - La seguridad no depende del dashboard ni de ningún cliente de red.
 

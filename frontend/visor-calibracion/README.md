@@ -4,7 +4,7 @@ Una página de un solo archivo (`index.html`) para **calibrar `bfmc_lane_detecti
 
 - **Lee, calibra y manda.** Se suscribe a `/perception/lane`, `/hardware/status` y `/vehicle/state`, pide imágenes y llama a servicios: `get_parameters`, `set_parameters`, `set_parameters_atomically`, `calibrate_ground` y `save_params` del detector; `get_parameters` y `set_parameters` del control; y `/hardware/stop`, `/hardware/arm` y `/hardware/obstacle_reset` del puente. No publica ningún topic.
 
-**Distribución (A2-157).** Encabezado de una línea (título, IP, Conectar, Desconectar y el estado de la conexión; puertos, topics y nodo plegados en "Conexión avanzada"). A la izquierda, una grilla de 2 × 2: Cámara, Lo que ve el detector, Vista desde arriba y Calibración. A la derecha, un panel de 340 px con el Mando del auto y el Carril. Desde 1000 × 600 px la página entra en la pantalla sin scroll: las imágenes se achican para entrar en su celda y mantienen la proporción (container queries). En pantallas chicas todo se apila en una columna.
+**Distribución (A2-157).** Encabezado de una línea (título, IP, los selectores **Carril** y **Control**, Conectar, Desconectar y el estado de la conexión; puertos, topics y nodo plegados en "Conexión avanzada"). A la izquierda, una grilla de 2 × 2: Cámara, Lo que ve el detector, Vista desde arriba y Calibración. A la derecha, un panel de 340 px con el Mando del auto y el Carril. Desde 1000 × 600 px la página entra en la pantalla sin scroll: las imágenes se achican para entrar en su celda y mantienen la proporción (container queries). En pantallas chicas todo se apila en una columna.
 - **Sin dependencias.** No usa librerías ni internet: habla el protocolo de `rosbridge` (JSON por WebSocket) directamente. Funciona en una red sin salida a internet.
 - **No es un paquete ROS.** `colcon` no la compila ni la testea.
 
@@ -70,7 +70,11 @@ Servila desde esta carpeta (es la forma con la que se probó):
 python -m http.server 8000
 ```
 
-Abrí `http://localhost:8000/index.html`, escribí la IP de la Jetson y apretá **Conectar**. Al conectar, la página **lee del detector los valores que tiene en ese momento** (trapecio, color y región) y empieza desde ahí.
+Abrí `http://localhost:8000/index.html`, escribí la IP de la Jetson, **elegí el detector de carril y el algoritmo de control** y apretá **Conectar**. Al conectar, la página manda a cada nodo el módulo elegido (`detector` a `/lane_detection`, `algorithm` a `/control`, [ADR-0004](../../docs/adr/0004-algoritmos-intercambiables-por-parametro.md)), **lee del detector los valores que tiene en ese momento** (trapecio, color y región) y empieza desde ahí. El estado de la conexión dice qué quedó corriendo.
+
+Corre **uno de cada uno**: mientras está conectada, los selectores quedan bloqueados; para probar otro, Desconectar, elegir y Conectar. La página recuerda la última elección. Si el auto está andando, el detector rechaza el cambio y el estado lo muestra en rojo. Sin el control lanzado (`calibrar.sh` sin `--auto`) dice "control sin lanzar" y no es un error. Con **Canal L adaptativo**, la sección "Color y región" muestra sus deslizadores (cuánto más claro que la zona, brillo mínimo, tamaño de la zona y CLAHE) en lugar de los de HSV.
+
+También se pueden elegir al lanzar: `calibrar.sh --lane l_adaptativo` y, con `--auto`, `--control pure_pursuit`.
 
 Si la imagen se queda en "conectando…" y el panel del carril sí funciona, el pedido de la imagen no está recibiendo cuadros: abrí `http://<IP>:8080` y mirá si el topic figura en la lista, y probá `http://<IP>:8080/stream_viewer?topic=/camera/color/image_raw`.
 

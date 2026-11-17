@@ -5,6 +5,7 @@
 - **Ticket:** A2-146
 - **Ajustado por:** el [ADR-0003](0003-el-esp32-es-la-autoridad-ante-obstaculos.md), que decide qué hace el sistema con los eventos de obstáculo.
 - **Actualizado:** 2026-11-07, para el firmware de `embedded` `main` (`3f4113a`, 2026-11-06). Esa versión reescribió el firmware: ya no existen `CMD_RECEIVED`, `STATE_AUTO_TRANSITION`, `FAULT_TRIGGERED` ni el estado `ARMED`, solo emite eventos cuando algo cambia y agrega `M:OBSTACLE_RESET`. La versión anterior de este ADR describía el firmware del 2026-10-24 (`440b63a`).
+- **Actualizado:** 2026-11-17, para el firmware del 08/11 (`839cfee`): `M:STATUS` y la salida automática del FAULT por watchdog (sección 5).
 
 ## Contexto
 
@@ -73,7 +74,11 @@ Alternativas descartadas: `M:PING:0` alimenta el watchdog pero no tiene respuest
 Otros nodos detienen o arrancan el auto con el servicio `/hardware/stop` (`std_srvs/SetBool`): `true` envía `M:SYS_STOP:0` y `false` `M:SYS_RESUME:0`. El bridge guarda el último pedido, lo reintenta cada `arm_retry_s` hasta que llegue `EVENT:CMD_EXECUTED:SYS_STOP`/`SYS_RESUME`, después lo sigue mandando como latido, y si el ESP32 se reinicia (y olvida el stop) se lo vuelve a enviar antes de armarlo. Arrancar no mueve el auto por sí solo: avanza con el próximo `/cmd/drive`, y con un obstáculo delante sigue en `STOPPED`.
 
 
-El firmware entra en `FAULT` por watchdog o por E-STOP, y **no sale solo**. El bridge arma al abrir el puerto y cuando el ESP32 se reinicia (`SYSTEM_READY`), pero **nunca rearma después de un FAULT**. Para eso está el servicio `/hardware/arm` (`std_srvs/Trigger`). `/hardware/status` publica el FAULT en `watchdog_tripped`.
+Desde el firmware del 08/11, el FAULT **por watchdog** se levanta solo cuando el enlace vuelve estable 500 ms: el ESP32 avisa `EVENT:WATCHDOG_RECOVERED` y `STATE_CHANGED`, con la velocidad en 0. El bridge solo refleja el estado nuevo, y el auto se mueve con el próximo comando de `/cmd/drive`.
+
+**Estado al reconectar:** si el puerto se abre con el ESP32 ya armado (sin reiniciar la placa), el armado se confirma sin `STATE_CHANGED`. El bridge pide entonces `M:STATUS:0` (reintenta cada `arm_retry_s`) y lee la respuesta `EVENT:STATUS:<estado>:SYS_STOP=..:OBSTACLE=..:SPEED=..:HELD=..`, de la que toma el estado y el obstáculo. En la prioridad de comandos de gestión va después del reset de obstáculo y antes del latido.
+
+Lo que sigue describe el FAULT por E-STOP, y el de watchdog en el firmware anterior al 08/11: el firmware entra en `FAULT` por watchdog o por E-STOP, y **no sale solo**. El bridge arma al abrir el puerto y cuando el ESP32 se reinicia (`SYSTEM_READY`), pero **nunca rearma después de un FAULT**. Para eso está el servicio `/hardware/arm` (`std_srvs/Trigger`). `/hardware/status` publica el FAULT en `watchdog_tripped`.
 
 ### 6. Unidades
 

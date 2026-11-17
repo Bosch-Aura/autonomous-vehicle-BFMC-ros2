@@ -25,17 +25,24 @@ Calcular el comando de seguimiento de carril. **No decide** si el auto frena o m
 
 Si el nodo deja de recibir mensajes de carril, **no publica nada**: `bfmc_decision` interpreta esa ausencia como entrada vencida.
 
-## Pure Pursuit (A2-155)
+## Algoritmos intercambiables (ADR-0004)
 
-`algorithm` elige el giro: `pid` (el de siempre, por defecto hasta validar el otro en pista) o `pure_pursuit` (`pure_pursuit.py`). Los dos comparten la saturación, el filtro y el límite de velocidad de giro de la salida, y qué hacer sin carril. Se puede cambiar en vivo (`ros2 param set /control algorithm pure_pursuit`).
+`algorithm` elige el giro: `pid` (el de siempre, por defecto hasta validar el otro en pista) o `pure_pursuit`. Cada uno es una clase en `algoritmos/` que hereda de `AlgoritmoDeGiro` y devuelve giro y velocidad. Lo demás lo hace `ControlLogic` igual para todos: qué hacer sin carril, la saturación, el filtro y el límite de velocidad de giro de la salida, y el **límite de la curva imposible**: si la curvatura medida supera `tan(max_steer_rad) / wheelbase_m` (radio mínimo ≈ 0,56 m con 25° y 0,26 m), la velocidad se multiplica por `infeasible_curve_speed_factor`.
+
+Se elige al lanzar (`ros2 launch bfmc_control control.launch.py algorithm:=pure_pursuit`, o `control_algorithm:=` en `bfmc_bringup/system.launch.py`), desde el visor antes de Conectar, o en vivo (`ros2 param set /control algorithm pure_pursuit`): el algoritmo nuevo arranca sin estado y el filtro de la salida sigue, así no hay salto.
+
+Para agregar uno: una clase en `algoritmos/`, una línea en `algoritmos.REGISTRO` y su nombre en `tipos.ALGORITMOS`. `test/test_algoritmos.py` le corre el contrato a todo el registro.
+
+## Pure Pursuit (A2-155)
 
 Marco del auto: origen en el eje trasero, x adelante, y a la izquierda.
 
 1. **Dónde se midió el carril.** `LaneState` trae desvío, rumbo y curvatura medidos a `reference_distance_m` del pie de la cámara, no en el auto: el punto de medición está a `x_ref = camera_to_rear_axle_m + reference_distance_m` del eje trasero.
 2. **Punto objetivo** a `Ld` del eje trasero: `y = d + ψ·s + κ·s²/2`, con `s = Ld − x_ref`. El desvío ya es la posición del centro respecto del auto (positivo a la izquierda): no se le cambia el signo.
 3. **Giro:** `δ = atan(2·L·sin α / l)`, con `α = atan2(y, Ld)`, `l` la distancia al punto y `L = wheelbase_m`.
-4. **Ld** `= clamp(lookahead_gain_s · v, lookahead_min_m, lookahead_max_m)`. Arrancar con `lookahead_gain_s: 0` (Ld fija). Ld tiene que caer dentro de lo que ve la cámara: con la vista de 0,45 a 0,95 m delante de la cámara, de `camera_to_rear_axle_m + 0,45` a `camera_to_rear_axle_m + 0,95`; más cerca se extrapola a ciegas.
-5. **Velocidad:** en las curvas, la que no supera `max_lateral_accel_mps2` (`v = √(a / |κ|)`, la práctica común de adaptación en curvas); y con poca confianza baja hasta `speed_min_factor` de la de crucero.
+4. **Ld** `= clamp(lookahead_gain_s · v, lookahead_min_m, lookahead_max_m)`, y en las curvas baja hacia `lookahead_curve_m` a medida que |curvatura| llega a `lookahead_curve_kappa` (0 = sin acortar). Con Ld fija en 0,70 m y la curva más cerrada de ~0,46 m de radio, el punto objetivo caía más lejos que el radio y el auto cortaba camino. Arrancar con `lookahead_gain_s: 0` (Ld fija). Ld tiene que caer dentro de lo que ve la cámara: con la vista de 0,45 a 0,95 m delante de la cámara, de `camera_to_rear_axle_m + 0,45` a `camera_to_rear_axle_m + 0,95`; más cerca se extrapola a ciegas.
+5. **Curvatura:** la misma que el término del PID (solo con confianza alta: con una línea es ruido).
+6. **Velocidad:** en las curvas, la que no supera `max_lateral_accel_mps2` (`v = √(a / |κ|)`, la práctica común de adaptación en curvas); y con poca confianza baja hasta `speed_min_factor` de la de crucero.
 
 **Pendiente de medir en el auto:** `wheelbase_m` (centro de la rueda de adelante al de la de atrás, ruedas derechas, los dos lados) y `camera_to_rear_axle_m` (del eje trasero a la vertical de la cámara).
 
@@ -54,7 +61,8 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 | `heading_weight_m_per_rad` | m/rad | Peso del error de rumbo frente al desvío |
 | `deadband_m` | m | Zona muerta |
 | `integral_limit_rad` | rad | Tope del término integral |
-| `max_steer_rad` | rad | Ángulo máximo (25° según el ADR-0001) |
+| `max_steer_rad` | rad | Ángulo máximo de las ruedas: 25° (informe Etapa I), el mismo que el del puente. **Por verificar** en el auto |
+| `infeasible_curve_speed_factor` | — | Factor de velocidad cuando la curva pide más giro que `max_steer_rad`, en (0, 1] |
 | `max_steer_rate_rad_s` | rad/s | Límite de velocidad de giro |
 | `filter_alpha` | — | Filtro de la salida, en (0, 1]. 1 = sin filtro |
 | `cruise_speed_mps` | m/s | Velocidad de crucero |
@@ -72,6 +80,7 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 | `algorithm` | — | `pid` o `pure_pursuit` |
 | `wheelbase_m`, `camera_to_rear_axle_m` | m | Medidas del auto para Pure Pursuit |
 | `lookahead_min_m`, `lookahead_max_m`, `lookahead_gain_s` | m, m, s | Distancia de mirada |
+| `lookahead_curve_m`, `lookahead_curve_kappa` | m, 1/m | Ld en la curva más cerrada y curvatura con la que se llega a ella |
 | `max_lateral_accel_mps2` | m/s² | Aceleración lateral máxima en curvas (Pure Pursuit) |
 | `speed_min_factor` | — | Fracción mínima de la velocidad con poca confianza (Pure Pursuit) |
 
@@ -100,8 +109,11 @@ ros2 launch bfmc_control control.launch.py
 
 ## Estructura
 
-- `bfmc_control/control_logic.py`: el PID, sin ROS. El tiempo entra como argumento.
+- `bfmc_control/control_logic.py`: lo común a todos los algoritmos (sin carril, saturación, filtro, límites), sin ROS. El tiempo entra como argumento.
+- `bfmc_control/algoritmos/`: un algoritmo por archivo (`pid.py`, `pure_pursuit.py`), la base (`base.py`) y el registro (`__init__.py`). ADR-0004.
+- `bfmc_control/tipos.py`: `LaneInput`, `ControlOutput` y `ControlConfig`.
+- `bfmc_control/pure_pursuit.py`: las cuentas de Pure Pursuit (punto objetivo, ley de control, velocidad).
 - `bfmc_control/control_node.py`: conecta mensajes con la lógica.
 - `config/params.yaml`: parámetros.
-- `launch/control.launch.py`: arranca el nodo con sus parámetros.
+- `launch/control.launch.py`: arranca el nodo con sus parámetros (`algorithm:=` elige el algoritmo).
 - `test/`: tests de la lógica (con tiempo simulado), del nodo y de estilo.

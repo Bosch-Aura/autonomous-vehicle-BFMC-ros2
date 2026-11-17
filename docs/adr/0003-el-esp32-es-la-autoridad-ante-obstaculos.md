@@ -4,6 +4,7 @@
 - **Ajusta:** el [ADR-0001](0001-hardware-de-control-y-protocolo-serial.md) (la referencia a `bfmc_safety` en el watchdog) y las consecuencias del [ADR-0002](0002-protocolo-serial-del-firmware-embedded.md) (`/hardware/ultrasonic` y `bfmc_safety`).
 - **Ticket:** por asignar.
 - **Actualizado:** 2026-11-07, para el firmware de `embedded` `main` (`3f4113a`): cómo se libera el obstáculo y el destrabe automático (decisión 6).
+- **Actualizado:** 2026-11-17, para el firmware del 08/11 (`839cfee`): el ESP32 suelta solo en espacio abierto y el destrabe automático del puente se apaga (decisión 6).
 
 ## Contexto
 
@@ -22,9 +23,11 @@ Sin lecturas, `bfmc_safety` declaraba emergencia (`SENSOR_STALE`) y `bfmc_decisi
 3. **El puente informa el obstáculo** en `HardwareStatus`: `obstacle_stop` (verdadero mientras el ESP32 bloquea el avance) y `obstacle_distance_m` (la distancia a la que lo vio, `NaN` si no la informó). Lo toma de `OBSTACLE_DETECTED` y lo borra con `OBSTACLE_CLEARED` o si la placa se reinicia. También informa `ultrasonic_silent`. Se publica **al instante** cuando cambia, además de a `status_rate_hz`.
 4. **`bfmc_decision` trata `obstacle_stop` como emergencia:** comando en cero y cancelación de la maniobra en curso. Ya no espera ningún estado de seguridad para salir de `STARTING`.
 5. **El puente no manda `E:BRAKE_NOW` por un obstáculo:** el firmware ya frenó. El comando sigue existiendo en el protocolo.
-6. **Destrabe automático, una vez por frenada.** Si el ESP32 está bloqueado por un obstáculo y llega `ULTRASONIC_SILENT`, el puente manda `M:OBSTACLE_RESET:0` (parámetro `auto_obstacle_reset`, activado). Si el ESP32 vuelve a bloquear antes de `obstacle_reblock_window_s` (3 s), el puente no insiste y el auto queda detenido hasta un destrabe a mano: el servicio `/hardware/obstacle_reset` o el botón del visor. Un despeje del propio firmware o un destrabe a mano vuelven a habilitar el automático.
+6. **(Reemplazada el 2026-11-17, ver abajo.) Destrabe automático, una vez por frenada.** Si el ESP32 está bloqueado por un obstáculo y llega `ULTRASONIC_SILENT`, el puente manda `M:OBSTACLE_RESET:0` (parámetro `auto_obstacle_reset`, activado). Si el ESP32 vuelve a bloquear antes de `obstacle_reblock_window_s` (3 s), el puente no insiste y el auto queda detenido hasta un destrabe a mano: el servicio `/hardware/obstacle_reset` o el botón del visor. Un despeje del propio firmware o un destrabe a mano vuelven a habilitar el automático.
 
    Por qué: en una pista abierta, cuando el obstáculo se va no queda nada al alcance del sensor, y sin esto el auto se quedaría esperando a una persona. El reset **no le quita la autoridad al ESP32**: solo borra el bloqueo y el firmware vuelve a mirar. Si el obstáculo sigue ahí, lo detecta y frena en unos 150 ms. La Jetson nunca decide que el camino está libre; solo pide que se vuelva a comprobar, y solo cuando el sensor no tiene ninguna lectura válida (si hubiera algo al alcance, habría lecturas).
+
+   **Desde el firmware del 07/11 (`a500792`) esto lo hace el ESP32:** con 2 s sin eco suelta solo el bloqueo, y con el sensor desconectado no lo suelta. El destrabe del puente, en cambio, no distingue un sensor sin eco de un sensor desconectado: mandaría `M:OBSTACLE_RESET` también con el cable suelto y el auto seguiría a ciegas. Por eso `auto_obstacle_reset` queda en `false`. El código se conserva para el firmware viejo y el destrabe a mano no cambia.
 
 ## Alternativas descartadas
 
