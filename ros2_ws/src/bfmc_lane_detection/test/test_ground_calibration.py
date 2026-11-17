@@ -194,10 +194,11 @@ def test_cambiar_el_rectangulo_reproyecta_el_trapecio_sin_medir_de_nuevo(cfg, pa
     cenital = cv2.perspectiveTransform(
         np.array([[pixel_real(0.70, 0.10)]], dtype=np.float64),
         detector.warp_matrix(ANCHO, ALTO))[0, 0]
-    mm_x = vista.width_m / 400
-    mm_y = vista.length_m / 400
-    assert cenital[0] == pytest.approx(200.0 - 0.10 / mm_x, abs=4.0)
-    assert cenital[1] == pytest.approx(400.0 - (0.70 - vista.near_m) / mm_y, abs=4.0)
+    ancho, alto = parametros['warp_width'], parametros['warp_height']
+    mm_x = vista.width_m / ancho
+    mm_y = vista.length_m / alto
+    assert cenital[0] == pytest.approx(ancho / 2 - 0.10 / mm_x, abs=4.0)
+    assert cenital[1] == pytest.approx(alto - (0.70 - vista.near_m) / mm_y, abs=4.0)
 
 
 def test_los_parametros_de_la_calibracion_traen_pose_e_intrinsecos(cfg):

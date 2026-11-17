@@ -14,7 +14,8 @@ from bfmc_lane_detection.ground_calibration import (
 )
 from bfmc_lane_detection.image_utils import imagen_a_bgr, profundidad_a_metros
 from bfmc_lane_detection.lane_debug import dibujar_camara, dibujar_cenital
-from bfmc_lane_detection.lane_detection_logic import LaneConfig, LaneDetector
+from bfmc_lane_detection import detectores
+from bfmc_lane_detection.lane_detection_logic import LaneConfig
 from bfmc_lane_detection.lane_kalman import LaneKalman
 from bfmc_lane_detection.lane_tracker import LaneTracker, NOMBRES_DE_MODO
 from bfmc_lane_detection.param_store import guardar_parametros, leer_parametros
@@ -39,15 +40,18 @@ PARAMETROS_TEXTO = (
 PARAMETROS_ENTEROS = (
     'morph_kernel_px', 'warp_width', 'warp_height', 'n_windows', 'window_margin_px',
     'min_pixels', 'full_confidence_pixels', 'intersection_min_rows', 'min_windows',
+    'l_block_size_px', 'l_offset', 'l_min',
 )
 PARAMETROS_DECIMALES = (
     'roi_top_fraction', 'lane_width_m',
     'reference_row_fraction', 'intersection_band_top_fraction', 'intersection_row_fraction',
     'debug_max_fps', 'max_residual_m', 'min_curve_radius_m', 'lane_width_tolerance_m',
     'lost_timeout_s', 'search_margin_m', 'kalman_max_std_m', 'kalman_gate_chi2',
-    'side_memory_s',
+    'side_memory_s', 'clahe_clip',
 )
 PARAMETROS_ARREGLOS = ('white_hsv_min', 'white_hsv_max')
+# Ajustes del detector l_adaptativo (sección 1b del params.yaml).
+PARAMETROS_DEL_CANAL_L = ('l_block_size_px', 'l_offset', 'l_min', 'clahe_clip')
 
 # Calibración con la profundidad (ver ground_calibration.py): nombre del parámetro -> campo
 # de GroundCalibrationConfig. Se pueden cambiar en vivo; un valor inválido se rechaza.
@@ -81,14 +85,14 @@ PARAMETROS_DEL_DETECTOR = tuple(
 # Lo que guarda el botón Guardar: las medidas y lo que se ajusta en el visor. Nada más.
 PARAMETROS_PERSISTENTES = (
     'lane_width_m',) + PARAMETROS_DE_GEOMETRIA + (
-    'white_hsv_min', 'white_hsv_max', 'roi_top_fraction')
+    'white_hsv_min', 'white_hsv_max', 'roi_top_fraction') + PARAMETROS_DEL_CANAL_L
 
 # Lo que vuelve a los valores del params.yaml del paquete el botón Predeterminados: los
 # ajustes de la vista y del color. La pose y los intrínsecos no, porque son medidas de la
 # cámara real (los del YAML son nominales); para eso están Calibrar y Deshacer.
 PARAMETROS_REINICIABLES = (
     'white_hsv_min', 'white_hsv_max', 'roi_top_fraction', 'calib_forward_near_m',
-    'calib_forward_far_m', 'calib_half_width_m', 'lane_width_m')
+    'calib_forward_far_m', 'calib_half_width_m', 'lane_width_m') + PARAMETROS_DEL_CANAL_L
 
 # Filtro de Kalman del carril (A2-154): se rearma con cualquiera de estos cambios.
 PARAMETROS_DEL_FILTRO = (
@@ -180,6 +184,8 @@ class LaneDetectionNode(Node):
         for nombre in PARAMETROS_DECIMALES:
             self.declare_parameter(nombre, Parameter.Type.DOUBLE)
         self.declare_parameter('publish_debug', Parameter.Type.BOOL)
+        # Cuál detector corre (ADR-0004). Se puede cambiar en vivo con el auto frenado.
+        self.declare_parameter('detector', Parameter.Type.STRING)
         self.declare_parameter('white_hsv_min', Parameter.Type.INTEGER_ARRAY)
         self.declare_parameter('white_hsv_max', Parameter.Type.INTEGER_ARRAY)
         for nombre in PARAMETROS_DE_GEOMETRIA:
@@ -199,7 +205,7 @@ class LaneDetectionNode(Node):
             self.declare_parameter(nombre, Parameter.Type.DOUBLE_ARRAY)
         self._config_calibracion()   # falla al arrancar si la calibración está mal configurada
 
-        self._detector = LaneDetector(self._configuracion())
+        self._detector = detectores.crear(self._configuracion())
         # La memoria del carril vive aparte del detector: rehacer el detector por un cambio
         # de parámetros no la borra. La usan el hilo de las imágenes y el de los cambios de
         # parámetros: este candado los turna (y el cambio de detector va con él).
@@ -308,6 +314,10 @@ class LaneDetectionNode(Node):
             return SetParametersResult(
                 successful=False,
                 reason='el auto está andando: frenalo antes de cambiar %s' % ', '.join(geometria))
+        if ('detector' in cambios and cambios['detector'] != self._valor('detector')
+                and self._auto_en_marcha()):
+            return SetParametersResult(
+                successful=False, reason='el auto está andando: frenalo antes de cambiar detector')
         if 'lost_timeout_s' in cambios:
             try:
                 self._tracker.lost_timeout_s = cambios['lost_timeout_s']
@@ -342,7 +352,7 @@ class LaneDetectionNode(Node):
         if de_la_vision:
             try:
                 configuracion = self._configuracion(cambios)
-                detector = LaneDetector(configuracion)
+                detector = detectores.crear(configuracion)
             except ValueError as error:
                 return SetParametersResult(successful=False, reason=str(error))
             self._detector = detector

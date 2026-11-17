@@ -2,9 +2,11 @@
 
 No importa ROS. Cada imagen se procesa sola, sin memoria de las anteriores.
 
-Pipeline:
+Pipeline (común a todos los detectores de detectores/, ADR-0004; cada uno cambia solo el
+paso 1, la segmentación):
 
-1. Umbral de color: se aíslan las marcas blancas del carril (HSV).
+1. Umbral de color: se aíslan las marcas blancas del carril. Este LaneDetector usa un
+   umbral HSV fijo (el detector `hsv_ventanas`); `l_adaptativo` lo reemplaza.
 2. Región de interés: se descarta la parte alta de la imagen (cielo, fondo).
 3. Vista cenital: una transformación de perspectiva "aplana" el piso, así las
    líneas paralelas del carril quedan paralelas y las distancias son uniformes.
@@ -92,6 +94,13 @@ class LaneConfig:
     intersection_band_top_fraction: float
     intersection_row_fraction: float
     intersection_min_rows: int
+    # Detector (ADR-0004): qué segmentación usa. Lo valida detectores.crear.
+    detector: str = 'hsv_ventanas'
+    # Segmentación de l_adaptativo (canal L de HLS, umbral adaptativo + piso fijo).
+    l_block_size_px: int = 25      # lado de la zona con la que se compara cada píxel (impar)
+    l_offset: int = 15             # cuánto más claro que su zona tiene que ser el píxel
+    l_min: int = 120               # piso fijo: más oscuro que esto nunca es línea
+    clahe_clip: float = 0.0        # ecualización local del contraste antes del umbral; 0 = sin
 
     def __post_init__(self):
         if len(self.white_hsv_min) != 3 or len(self.white_hsv_max) != 3:
@@ -138,6 +147,12 @@ class LaneConfig:
             raise ValueError('full_confidence_pixels debe ser al menos 1')
         if not 0.0 <= self.intersection_band_top_fraction < 1.0:
             raise ValueError('intersection_band_top_fraction debe estar en [0, 1)')
+        if self.l_block_size_px < 3 or self.l_block_size_px % 2 == 0:
+            raise ValueError('l_block_size_px debe ser impar y al menos 3')
+        if not 0 <= self.l_offset <= 255 or not 0 <= self.l_min <= 255:
+            raise ValueError('l_offset y l_min deben estar entre 0 y 255')
+        if self.clahe_clip < 0.0:
+            raise ValueError('clahe_clip no puede ser negativo')
         if not 0.0 < self.intersection_row_fraction <= 1.0 or self.intersection_min_rows < 1:
             raise ValueError('intersection_row_fraction debe estar en (0, 1] y '
                              'intersection_min_rows ser al menos 1')
@@ -212,7 +227,12 @@ def _como_tupla(linea: Optional[Linea]) -> Optional[tuple]:
 
 
 class LaneDetector:
-    """Estima el estado del carril a partir de una imagen BGR."""
+    """Estima el estado del carril a partir de una imagen BGR.
+
+    Es el pipeline común. Su segmentación (`_mascara_blanca`) es la del detector
+    `hsv_ventanas`; los demás detectores de detectores/ heredan de esta clase y solo
+    reemplazan `_segmentar`.
+    """
 
     def __init__(self, config: LaneConfig):
         self._config = config
@@ -326,11 +346,17 @@ class LaneDetector:
         return Analisis(resultado, mascara, cenital, izquierda, derecha,
                         trazas if trazas is not None else {}, centro)
 
-    def _mascara_blanca(self, bgr):
+    def _segmentar(self, bgr):
+        """Máscara (0 o 255) de lo que parece marca blanca. Umbral HSV fijo."""
         cfg = self._config
         hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
-        mascara = cv2.inRange(hsv, np.array(cfg.white_hsv_min, dtype=np.uint8),
-                              np.array(cfg.white_hsv_max, dtype=np.uint8))
+        return cv2.inRange(hsv, np.array(cfg.white_hsv_min, dtype=np.uint8),
+                           np.array(cfg.white_hsv_max, dtype=np.uint8))
+
+    def _mascara_blanca(self, bgr):
+        """Segmentación del detector + región de interés + apertura (esto último es común)."""
+        cfg = self._config
+        mascara = self._segmentar(bgr)
         mascara[:int(bgr.shape[0] * cfg.roi_top_fraction)] = 0
         if cfg.morph_kernel_px > 1:
             nucleo = np.ones((cfg.morph_kernel_px, cfg.morph_kernel_px), dtype=np.uint8)
