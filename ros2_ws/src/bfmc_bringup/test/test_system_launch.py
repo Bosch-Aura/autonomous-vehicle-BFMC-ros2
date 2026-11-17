@@ -61,7 +61,7 @@ def test_las_opciones_tienen_los_valores_por_defecto_documentados(descripcion):
     assert set(opciones) == {
         'camera', 'signs', 'serial_port', 'lane_detector', 'control_algorithm'}
     assert opciones['camera'].default_value[0].text == 'true'
-    assert opciones['signs'].default_value[0].text == 'false'
+    assert opciones['signs'].default_value[0].text == 'true'
 
 
 def test_el_puerto_serial_por_defecto_es_el_del_yaml_del_puente(descripcion):

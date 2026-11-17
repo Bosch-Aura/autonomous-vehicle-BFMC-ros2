@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
+from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image
 
@@ -40,7 +41,10 @@ class DetectorFalso:
 def ros():
     # Cada paquete usa su propio dominio de ROS: colcon corre los tests de varios paquetes a la
     # vez y, en el mismo dominio, se cruzarían los mensajes de topics con el mismo nombre.
-    rclpy.init(args=['--ros-args', '--params-file', str(PARAMS)], domain_id=17)
+    # El YAML trae `enabled: false` (arranca apagado): acá se prende, salvo que un test pida
+    # lo contrario.
+    rclpy.init(args=['--ros-args', '--params-file', str(PARAMS), '-p', 'enabled:=true'],
+               domain_id=17)
     yield
     # Se liberan los objetos de rclpy antes de cerrarlo, para evitar un fallo de segmentación.
     gc.collect()
@@ -49,14 +53,18 @@ def ros():
 
 class Entorno:
 
-    def __init__(self, detecciones):
+    def __init__(self, detecciones, activo=True, falla=None):
         self.fabrica_llamadas = []
 
         def fabrica(ruta, dispositivo, confianza):
             self.fabrica_llamadas.append((ruta, dispositivo, confianza))
+            if falla is not None:
+                raise falla
             return DetectorFalso(detecciones)
 
-        self.nodo = SignDetectionNode(detector_factory=fabrica)
+        self.nodo = SignDetectionNode(
+            detector_factory=fabrica,
+            parameter_overrides=[Parameter('enabled', Parameter.Type.BOOL, activo)])
         self.auxiliar = rclpy.create_node('auxiliar_de_test_signs')
         self.executor = SingleThreadedExecutor()
         self.executor.add_node(self.nodo)
@@ -75,7 +83,11 @@ class Entorno:
         self.nodo.destroy_node()
         self.auxiliar.destroy_node()
 
-    def publicar_y_esperar(self, con_profundidad, milimetros=2000):
+    def poner_enabled(self, valor):
+        """Cambia `enabled` como lo haría `ros2 param set`. Devuelve el resultado."""
+        return self.nodo.set_parameters([Parameter('enabled', Parameter.Type.BOOL, valor)])[0]
+
+    def publicar_y_esperar(self, con_profundidad, milimetros=2000, espera_s=TIMEOUT_S):
         color = Image()
         color.header.frame_id = 'camara'
         color.height, color.width, color.encoding = ALTO, ANCHO, 'bgr8'
@@ -92,7 +104,7 @@ class Entorno:
             # imagen se procesa sin ella y su distancia sale desconocida, como debe ser.
             self._esperar_profundidad(profundidad)
 
-        limite = time.monotonic() + TIMEOUT_S
+        limite = time.monotonic() + espera_s
         while not self.salidas and time.monotonic() < limite:
             if con_profundidad:
                 self.pub_profundidad.publish(profundidad)
@@ -175,3 +187,65 @@ def test_una_clase_que_no_esta_en_el_mapa_no_se_publica(clase_desconocida):
 
 def test_el_encabezado_del_resultado_es_el_de_la_imagen_de_color(stop_cercano):
     assert stop_cercano.publicar_y_esperar(con_profundidad=True).header.frame_id == 'camara'
+
+
+# --- apagado y encendido (enabled) ---------------------------------------------------
+
+STOP = RawDetection('stop', 0.9, 80, 30, 120, 70)
+ESPERA_SIN_RESULTADO_S = 0.6
+
+
+def test_apagado_no_carga_el_modelo_ni_publica(ros):
+    entorno = Entorno([STOP], activo=False)
+    try:
+        assert entorno.fabrica_llamadas == []
+        assert entorno.publicar_y_esperar(
+            con_profundidad=True, espera_s=ESPERA_SIN_RESULTADO_S) is None
+    finally:
+        entorno.cerrar()
+
+
+def test_al_prenderlo_carga_el_modelo_una_vez_y_empieza_a_publicar(ros):
+    entorno = Entorno([STOP], activo=False)
+    try:
+        resultado = entorno.poner_enabled(True)
+        assert resultado.successful
+        assert len(entorno.fabrica_llamadas) == 1
+        assert entorno.publicar_y_esperar(con_profundidad=True) is not None
+    finally:
+        entorno.cerrar()
+
+
+def test_si_el_modelo_no_se_puede_cargar_el_cambio_se_rechaza_con_el_motivo(ros):
+    entorno = Entorno([STOP], activo=False, falla=FileNotFoundError('no existe el modelo'))
+    try:
+        resultado = entorno.poner_enabled(True)
+        assert not resultado.successful
+        assert 'no existe el modelo' in resultado.reason
+        assert entorno.nodo.get_parameter('enabled').value is False
+        assert entorno.publicar_y_esperar(
+            con_profundidad=True, espera_s=ESPERA_SIN_RESULTADO_S) is None
+    finally:
+        entorno.cerrar()
+
+
+def test_al_apagarlo_deja_de_publicar(ros):
+    entorno = Entorno([STOP], activo=True)
+    try:
+        assert entorno.publicar_y_esperar(con_profundidad=True) is not None
+        assert entorno.poner_enabled(False).successful
+        entorno.salidas.clear()
+        assert entorno.publicar_y_esperar(
+            con_profundidad=True, espera_s=ESPERA_SIN_RESULTADO_S) is None
+    finally:
+        entorno.cerrar()
+
+
+def test_prenderlo_de_nuevo_no_vuelve_a_cargar_el_modelo(ros):
+    entorno = Entorno([STOP], activo=True)
+    try:
+        assert entorno.poner_enabled(False).successful
+        assert entorno.poner_enabled(True).successful
+        assert len(entorno.fabrica_llamadas) == 1
+    finally:
+        entorno.cerrar()

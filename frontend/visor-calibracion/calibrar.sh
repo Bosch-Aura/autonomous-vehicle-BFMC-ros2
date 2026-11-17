@@ -120,6 +120,8 @@ if $auto; then
   lanzar sistema ros2 launch bfmc_bringup system.launch.py "${opciones[@]}"
 else
   lanzar camara ros2 launch bfmc_camera camera.launch.py
+  # Arranca apagado (no carga el modelo ni gasta CPU): se prende desde el visor.
+  lanzar senales ros2 launch bfmc_sign_detection sign_detection.launch.py
   if [ -n "$lane" ]; then
     lanzar carril ros2 launch bfmc_lane_detection lane_detection.launch.py detector:="$lane"
   else

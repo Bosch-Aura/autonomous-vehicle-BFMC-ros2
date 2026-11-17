@@ -273,6 +273,21 @@
         <tr><td>Último dato</td><td id="d-edad">--</td></tr>
       </table>
     </div>
+
+    <div class="tarjeta">
+      <h2>Señales <small id="estado-senales">sin conexión</small></h2>
+      <div class="fila compacta">
+        <button id="senales-toggle" class="sec" disabled>Activar detección</button>
+      </div>
+      <p class="aviso-mando" id="aviso-senales" hidden></p>
+      <table>
+        <tr><td>Vistas ahora</td><td id="s-lista">--</td></tr>
+        <tr><td>Último dato</td><td id="s-edad">--</td></tr>
+      </table>
+      <details><summary>Cómo funciona</summary>
+        <p>Arranca apagada: no carga el modelo ni gasta CPU. "Activar" carga el modelo YOLO (unos segundos) y empieza a mirar la cámara. Si falta Ultralytics o el modelo, lo dice acá: se baja con <code>ros2 run bfmc_sign_detection descargar_modelo</code>. Hoy el auto solo reacciona a stop, priority y roundabout; las demás se muestran pero no hacen nada. Comparte la Jetson con el carril: la primera vez, con el auto frenado. Al reiniciar vuelve a quedar apagada.</p>
+      </details>
+    </div>
   </aside>
 </main>
 
@@ -304,6 +319,8 @@ const ESPERA_SERVICIO_MS = 3000;
 const ESPERA_CALIBRACION_MS = 20000;  // juntar la profundidad y estimar el piso
 const ENVIO_CADA_MS = 100;
 const NODO_CONTROL = '/control';
+const NODO_SENALES = '/sign_detection';
+const TOPIC_SENALES = '/perception/signs';
 const SERVICIO_STOP = '/hardware/stop';
 const SERVICIO_ARMAR = '/hardware/arm';
 const SERVICIO_DESTRABAR = '/hardware/obstacle_reset';
@@ -333,6 +350,8 @@ let poseAnterior = null;            // la pose de antes de calibrar, para "Desha
 let medidasAuto = Object.assign({}, INICIAL_AUTO);
 let delDetector = null;             // lo que el detector tenía al conectar
 let autoEnMarcha = false;           // según /hardware/status
+let senalesActivas = null;          // null: no se sabe o el nodo no está lanzado
+let ultimaSenalMs = 0;
 let controlLanzado = null;          // null: no se sabe todavía; false: el nodo /control no existe
 let socket = null;
 let quiereConexion = false;
@@ -494,7 +513,15 @@ function mostrarDato(msg) {
   $('d-interseccion').textContent = si(msg.intersection_detected);
 }
 
+function actualizarEdadSenales() {
+  if (senalesActivas !== true || ultimaSenalMs === 0) { $('s-edad').textContent = '--'; return; }
+  const edad = Date.now() - ultimaSenalMs;
+  $('s-edad').textContent = edad + ' ms';
+  $('s-edad').className = edad > VENCIMIENTO_DATO_MS ? 'mal' : 'ok';
+}
+
 function actualizarEdad() {
+  actualizarEdadSenales();
   if (ultimoDatoMs === 0) { $('d-edad').textContent = '--'; return; }
   const edad = Date.now() - ultimoDatoMs;
   $('d-edad').textContent = edad + ' ms';
@@ -531,6 +558,7 @@ function valorDeParametro(tipo, valor) {
   switch (tipo) {
     case 'entero': return { type: 2, integer_value: valor };
     case 'decimal': return { type: 3, double_value: valor };
+    case 'booleano': return { type: 1, bool_value: valor };
     case 'texto': return { type: 4, string_value: valor };
     case 'enteros': return { type: 7, integer_array_value: valor };
     case 'decimales': return { type: 8, double_array_value: valor };
@@ -540,6 +568,7 @@ function valorDeParametro(tipo, valor) {
 
 function leerValor(v) {
   switch (v.type) {
+    case 1: return v.bool_value;
     case 2: return v.integer_value;
     case 3: return v.double_value;
     case 4: return v.string_value;
@@ -766,6 +795,73 @@ async function predeterminados() {
   }
 }
 
+// ---------------------------------------------------------------- señales
+
+function mostrarEstadoSenales() {
+  const boton = $('senales-toggle');
+  if (senalesActivas === null) {
+    boton.disabled = true;
+    boton.textContent = 'Activar detección';
+    return;
+  }
+  boton.disabled = false;
+  boton.textContent = senalesActivas ? 'Apagar detección' : 'Activar detección';
+  fijarEstado('estado-senales', senalesActivas ? 'activa' : 'apagada', senalesActivas ? 'ok' : 'suave');
+  if (!senalesActivas) { $('s-lista').textContent = '--'; ultimaSenalMs = 0; }
+}
+
+function avisoDeSenales(texto) {
+  $('aviso-senales').textContent = texto || '';
+  $('aviso-senales').hidden = !texto;
+}
+
+// Lee si el nodo de señales está prendido. Sin el nodo (calibrar.sh viejo, o signs:=false) no hay nada que prender.
+async function leerEstadoSenales(conservarAviso = false) {
+  try {
+    const v = await leerParametros(NODO_SENALES, ['enabled']);
+    senalesActivas = Boolean(v.enabled);
+    if (!conservarAviso) avisoDeSenales('');
+  } catch (error) {
+    senalesActivas = null;
+    fijarEstado('estado-senales', 'nodo sin lanzar', 'suave');
+    avisoDeSenales(servicioInexistente(error) || /no respondió/.test(error.message)
+      ? 'El nodo de señales no está corriendo. Lanzá calibrar.sh (o el sistema con signs:=true) y volvé a conectar.'
+      : 'No se pudo leer el estado: ' + error.message);
+  }
+  mostrarEstadoSenales();
+}
+
+async function cambiarSenales() {
+  if (senalesActivas === null) return;
+  const quiere = !senalesActivas;
+  $('senales-toggle').disabled = true;
+  fijarEstado('estado-senales', quiere ? 'cargando el modelo… (puede tardar)' : 'apagando…', 'suave');
+  try {
+    const r = await llamarServicio(
+      NODO_SENALES + '/set_parameters', 'rcl_interfaces/srv/SetParameters',
+      { parameters: [{ name: 'enabled', value: valorDeParametro('booleano', quiere) }] },
+      ESPERA_CALIBRACION_MS);
+    const resultado = r.results[0];
+    if (resultado.successful) avisoDeSenales('');
+    else avisoDeSenales(resultado.reason);
+  } catch (error) {
+    avisoDeSenales('No se pudo cambiar: ' + error.message);
+  }
+  await leerEstadoSenales(true);
+}
+
+function mostrarSenales(msg) {
+  ultimaSenalMs = Date.now();
+  const lista = (msg.detections || []).map((d) => {
+    const dist = (d.distance_m !== null && Number.isFinite(Number(d.distance_m)))
+      ? ' a ' + fijo(d.distance_m, 2) + ' m' : '';
+    return d.label + ' (' + Math.round((Number(d.confidence) || 0) * 100) + ' %' + dist + ')';
+  });
+  $('s-lista').textContent = lista.length ? lista.join(', ') : 'ninguna';
+}
+
+$('senales-toggle').addEventListener('click', cambiarSenales);
+
 // ---------------------------------------------------------------- módulos (ADR-0004)
 
 // Pide a un nodo que use el módulo elegido. Devuelve un texto para el estado.
@@ -878,6 +974,11 @@ function conectar() {
     aplicarModulos().then(leerDelDetector);
     leerVelocidadDelControl();
     leerMedidasDelControl();
+    leerEstadoSenales();
+    socket.send(JSON.stringify({
+      op: 'subscribe', topic: TOPIC_SENALES, type: 'bfmc_interfaces/msg/SignDetectionArray',
+      throttle_rate: 200, queue_length: 1,
+    }));
     fijarEstado('estado-auto', 'conectado', 'ok');
     socket.send(JSON.stringify({
       op: 'subscribe', topic: TOPIC_HARDWARE, type: 'bfmc_interfaces/msg/HardwareStatus',
@@ -897,6 +998,7 @@ function conectar() {
       try { msg = JSON.parse(evento.data.replace(/\bNaN\b|-?\bInfinity\b/g, 'null')); } catch (e2) { return; }
     }
     if (msg.op === 'publish' && msg.topic === cfg.topicCarril && msg.msg) mostrarDato(msg.msg);
+    if (msg.op === 'publish' && msg.topic === TOPIC_SENALES && msg.msg) mostrarSenales(msg.msg);
     if (msg.op === 'publish' && msg.topic === TOPIC_HARDWARE && msg.msg) mostrarHardware(msg.msg);
     if (msg.op === 'publish' && msg.topic === TOPIC_ESTADO && msg.msg) mostrarDecision(msg.msg);
     if (msg.op === 'service_response' && pendientes[msg.id]) {
@@ -925,6 +1027,10 @@ function desconectar() {
   bloquearModulos(false);
   controlLanzado = null;
   avisoDelMando('');
+  senalesActivas = null;
+  avisoDeSenales('');
+  fijarEstado('estado-senales', 'sin conexión', 'suave');
+  mostrarEstadoSenales();
   clearTimeout(temporizadorReintento);
   if (socket) { socket.close(); socket = null; }
   soltarVideo('video', 'estado-video');

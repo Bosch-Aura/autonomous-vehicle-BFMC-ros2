@@ -8,6 +8,11 @@ sign_detection:
     depth_topic: /camera/aligned_depth_to_color/image_raw   # profundidad ALINEADA al color
     signs_topic: /perception/signs
 
+    # Arranca apagado: no carga el modelo ni lee imágenes (no gasta CPU ni GPU). Se prende con el
+    # nodo andando, desde el visor o con `ros2 param set /sign_detection enabled true`. Si falta
+    # Ultralytics o el modelo, el cambio se rechaza con el motivo. Con `true` arranca prendido.
+    enabled: false
+
     # Modelo. Se baja con el comando `descargar_modelo`.
     model_path: ~/.cache/bfmc/senales/best.pt
     device: ""                     # "cuda", "cpu" o vacío para que Ultralytics elija

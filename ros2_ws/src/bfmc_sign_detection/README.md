@@ -18,6 +18,20 @@ Publica **un mensaje por cada imagen de color, también vacío** cuando no hay s
 
 **La profundidad tiene que estar alineada al color**: la distancia se mide en el píxel de la imagen de color donde se detectó la señal. `bfmc_camera` publica esa profundidad. Se usa la última profundidad recibida si no es más vieja que `max_depth_age_s`; si no, la distancia sale como `NaN`.
 
+## Prenderlo y apagarlo
+
+El nodo **arranca apagado** (`enabled: false`): no carga el modelo, no lee imágenes y no publica, así que no gasta CPU ni GPU, y `bfmc_decision` ignora las señales. Se prende con el nodo andando:
+
+- Desde el visor de calibración: tarjeta **Señales**, botón **Activar**.
+- Con la terminal: `ros2 param set /sign_detection enabled true` (y `false` para apagarlo).
+- Con `enabled: true` en el YAML, arranca prendido.
+
+Al prenderlo por primera vez carga el modelo (unos segundos en la Jetson). Si falta Ultralytics o el modelo, el cambio **se rechaza con el motivo** y el nodo sigue apagado; ver "El modelo" más abajo. Una vez cargado, el modelo queda en memoria, así que volver a prender es instantáneo. El visor no guarda el estado: al reiniciar vuelve a arrancar apagado.
+
+`system.launch.py` lanza este nodo siempre (`signs:=false` para no lanzarlo) y `calibrar.sh` también, los dos apagado.
+
+**Con el auto andando**, YOLO comparte la Jetson con la detección de carril: prendelo con el auto frenado la primera vez y mirá la latencia (`ros2 run bfmc_bringup medir_latencia`).
+
 ## Cómo funciona
 
 Para cada detección del modelo:
@@ -71,6 +85,7 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 
 | Parámetro | Unidad | Descripción |
 |---|---|---|
+| `enabled` | — | `false`: apagado (arranca así). Se cambia en vivo |
 | `color_topic`, `depth_topic`, `signs_topic` | — | Topics |
 | `model_path` | — | Dónde está el modelo |
 | `device` | — | `cuda`, `cpu` o vacío para que Ultralytics elija |
@@ -94,7 +109,7 @@ Los tests no necesitan el modelo, YOLO ni la cámara:
 - El adaptador de YOLO se prueba con un **módulo `ultralytics` falso**.
 - La descarga se prueba con un **abridor que imita a GitHub**: checksum correcto, checksum distinto, red caída a mitad de camino, archivo existente.
 - La configuración: el mapa cubre las 13 clases del modelo y las etiquetas que usa `bfmc_decision`.
-- El nodo, con un detector falso inyectado.
+- El nodo, con un detector falso inyectado: apagado de arranque, prender y apagar en vivo, y un modelo que falta.
 
 **Que el modelo detecte bien las señales de la pista solo se comprueba con imágenes reales.** Que corra a una velocidad útil, solo en la Jetson.
 

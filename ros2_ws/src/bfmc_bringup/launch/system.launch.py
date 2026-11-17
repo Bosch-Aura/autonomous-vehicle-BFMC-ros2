@@ -8,7 +8,7 @@ algoritmo de giro. Sin elegirlos, corre lo que diga el params.yaml de cada paque
 
     ros2 launch bfmc_bringup system.launch.py
     ros2 launch bfmc_bringup system.launch.py camera:=false
-    ros2 launch bfmc_bringup system.launch.py signs:=true serial_port:=/dev/ttyACM0
+    ros2 launch bfmc_bringup system.launch.py signs:=false serial_port:=/dev/ttyACM0
     ros2 launch bfmc_bringup system.launch.py lane_detector:=l_adaptativo \
         control_algorithm:=pure_pursuit
 """
@@ -64,9 +64,11 @@ def generate_launch_description():
             'camera', default_value='true',
             description='Arranca el driver de la cámara RealSense.'),
         DeclareLaunchArgument(
-            'signs', default_value='false',
-            description='Arranca la detección de señales. Necesita Ultralytics y el modelo '
-                        '(ver el README de bfmc_sign_detection).'),
+            'signs', default_value='true',
+            description='Lanza el nodo de detección de señales. Arranca APAGADO: no carga el '
+                        'modelo ni gasta CPU hasta que se lo prende (visor, o ros2 param set '
+                        '/sign_detection enabled true). Para prenderlo hacen falta Ultralytics y '
+                        'el modelo (ver el README de bfmc_sign_detection).'),
         DeclareLaunchArgument(
             'serial_port', default_value=_del_yaml(
                 'bfmc_hardware_bridge', 'hardware_bridge', 'serial_port'),

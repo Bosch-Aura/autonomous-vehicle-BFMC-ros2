@@ -17,6 +17,7 @@ Una página de un solo archivo (`index.html`) para **calibrar `bfmc_lane_detecti
 | **Vista desde arriba** | El piso "aplanado": la máscara de blancos, las ventanas que siguen cada línea, las curvas, el eje del auto (amarillo) y la fila donde mide (naranja). El borde de abajo de esta vista **no** es el auto: está `calib_forward_near_m` delante de la cámara. |
 | **Calibración** | **Calibrar**, **Deshacer** y **Guardar**; el resultado de la calibración; tres deslizadores en metros con la parte del piso que se ve (desde, hasta y medio ancho); las medidas con cinta (ancho del carril, distancia entre ejes y de la cámara al eje trasero), cada una con cómo medirla; el color y la región; y, plegado, el texto para copiar a los `params.yaml` del repo. |
 | **Mando del auto** | Estado del auto, del enlace con el ESP32, del ultrasónico y de la decisión. **Velocidad en cm/s** (0 a 50), **Iniciar**, **Frenar**, **Rearmar tras una falla** y **Destrabar obstáculo**. La explicación larga está plegada en "Cómo funciona". |
+| **Señales** | Botón **Activar detección** / **Apagar detección** del nodo `sign_detection` (arranca apagado: no carga el modelo ni gasta CPU) y las señales que ve ahora, con su confianza y distancia, de `/perception/signs`. Si falta el modelo o Ultralytics, el motivo aparece ahí mismo. Sin el nodo lanzado, dice "nodo sin lanzar". No guarda el estado: al reiniciar vuelve a quedar apagada. Ver [`bfmc_sign_detection`](../../ros2_ws/src/bfmc_sign_detection/README.md). |
 | **Carril** | De `/perception/lane`: el **modo** (dos líneas, una línea, predicho o PERDIDO), si cada línea es válida, desvío, rumbo, curvatura, confianza, intersección y cuánto hace que llegó el último dato. Con el carril perdido, desvío y rumbo se muestran como `--`. |
 
 ## Cómo usarlo
@@ -33,7 +34,7 @@ El script:
 
 1. Carga ROS 2 Humble y compila el workspace si todavía no está compilado (`--compilar` fuerza una compilación limpia, por ejemplo tras cambiar de rama).
 2. Comprueba que estén instalados `realsense2_camera`, `web_video_server` y `rosbridge_server`. Si falta alguno, dice qué `apt install` correr y termina.
-3. Lanza la cámara, `lane_detection`, `web_video_server` y `rosbridge`, cada uno con su log en `/tmp/visor-calibracion/`.
+3. Lanza la cámara, `lane_detection`, `sign_detection` (apagado), `web_video_server` y `rosbridge`, cada uno con su log en `/tmp/visor-calibracion/`.
 4. Espera a que aparezcan los topics, muestra la política de calidad de servicio de la imagen y la IP de la Jetson.
 5. **Ctrl+C detiene todo.** Si un proceso se cae, avisa cuál y muestra las últimas líneas de su log.
 
