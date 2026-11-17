@@ -31,13 +31,16 @@ hardware_bridge:
     link_timeout_s: 1.0                # [s] sin eventos del ESP32 más tiempo que esto, el enlace se da por caído; > heartbeat_period_s [asumido]
     cmd_timeout_s: 0.25                # [s] un comando más viejo que esto se descarta y se frena [asumido]
 
-    # Obstáculos (ADR-0003). El ESP32 frena solo; sin nada al alcance del ultrasónico no suelta.
-    auto_obstacle_reset: true          # con el auto frenado y el sensor en silencio (2 s sin lecturas), mandar M:OBSTACLE_RESET una vez
+    # Obstáculos (ADR-0003). El ESP32 frena solo y, desde el firmware del 07/11, también suelta
+    # solo en espacio abierto (2 s sin eco). Con el sensor muerto NO suelta, a propósito.
+    # Apagado: prendido, el puente mandaría M:OBSTACLE_RESET con el sensor desconectado y el auto
+    # seguiría a ciegas. Solo para el firmware viejo (anterior al 07/11).
+    auto_obstacle_reset: false         # con el auto frenado y el sensor en silencio (2 s sin lecturas), mandar M:OBSTACLE_RESET una vez
     obstacle_reblock_window_s: 3.0     # [s] si vuelve a frenar antes de esto tras un destrabe automático, no se insiste [asumido]
 
     # Escalas de los comandos.
     max_speed_mps: 0.5                 # [m/s] velocidad que corresponde a duty_max [asumido: no hay calibración m/s -> duty]
-    max_steer_rad: 0.523599            # [rad] 30 grados: ángulo de las ruedas con el servo en un tope (servo_left o servo_right) [por-verificar: medir en el auto]
+    max_steer_rad: 0.436332            # [rad] 25 grados: ángulo de las ruedas con el servo en un tope (servo_left o servo_right). Valor del informe; el mismo que max_steer_rad de bfmc_control [por-verificar: medir en el auto]
     duty_start: 140                    # duty mínimo con el que el motor arranca desde parado [hardware.env: BRAIN_DUTY_ARRANQUE]
     duty_max: 255                      # [hardware.env: BRAIN_DUTY_MAX]
     # En este auto el servo está montado al revés de lo que dice hardware.env: con 50 las ruedas

@@ -1,7 +1,7 @@
 """Tests del protocolo serial Jetson <-> ESP32 (ADR-0002), sin ROS ni puerto."""
 from bfmc_hardware_bridge.protocol import (
     encode_arm, encode_brake_now, encode_direction, encode_disarm, encode_obstacle_reset,
-    encode_resume, encode_speed, encode_steer, encode_stop, Event, parse_line,
+    encode_resume, encode_speed, encode_status, encode_steer, encode_stop, Event, parse_line,
 )
 import pytest
 
@@ -59,3 +59,13 @@ def test_un_rechazo_conserva_el_motivo():
 ])
 def test_lo_que_no_es_un_evento_se_descarta(linea):
     assert parse_line(linea) is None
+
+
+def test_pedido_de_estado():
+    assert encode_status() == b'M:STATUS:0\n'
+
+
+def test_la_respuesta_de_estado_se_interpreta_con_sus_campos():
+    evento = parse_line('EVENT:STATUS:RUNNING:SYS_STOP=0:OBSTACLE=1:SPEED=180:HELD=0')
+    assert evento.name == 'STATUS'
+    assert evento.args == ('RUNNING', 'SYS_STOP=0', 'OBSTACLE=1', 'SPEED=180', 'HELD=0')

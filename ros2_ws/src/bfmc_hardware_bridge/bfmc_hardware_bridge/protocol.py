@@ -11,6 +11,7 @@ una línea de texto ASCII por mensaje, terminada en '\n'.
                       M:SYS_ARM:0 / M:SYS_DISARM:0
                       M:SYS_STOP:0 / M:SYS_RESUME:0  STOPPED enganchado / soltarlo
                       M:OBSTACLE_RESET:0    suelta el bloqueo por obstáculo
+                      M:STATUS:0            pide el estado (EVENT:STATUS:...)
 
     ESP32 -> Jetson   EVENT:<NOMBRE>[:<arg>...]
                       EVENT:STATE_CHANGED:RUNNING, EVENT:CMD_EXECUTED:SYS_STOP, ...
@@ -83,6 +84,15 @@ def encode_resume() -> bytes:
 def encode_obstacle_reset() -> bytes:
     """Suelta el bloqueo por obstáculo. Si sigue ahí, el ESP32 vuelve a bloquear en ~150 ms."""
     return _comando('M', 'OBSTACLE_RESET', 0)
+
+
+def encode_status() -> bytes:
+    """Pide el estado: EVENT:STATUS:<estado>:SYS_STOP=<0|1>:OBSTACLE=<0|1>:SPEED=<pwm>:HELD=<pwm>.
+
+    Sirve al abrir el puerto sin que la placa se reinicie: el ESP32 confirma el armado sin
+    STATE_CHANGED y, sin esto, no se sabría en qué estado está.
+    """
+    return _comando('M', 'STATUS', 0)
 
 
 def parse_line(linea: str) -> Optional[Event]:

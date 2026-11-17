@@ -196,6 +196,53 @@ def test_si_el_esp32_ya_estaba_armado_basta_la_confirmacion():
         assert 'M:SYS_ARM:0' not in lineas(logic, now=0.5 + paso * 0.05)
 
 
+def test_si_el_esp32_ya_estaba_armado_se_le_pide_el_estado():
+    # Puerto abierto sin reiniciar la placa: confirma el armado sin STATE_CHANGED.
+    logic = logica()
+    logic.on_port_opened()
+    lineas(logic, now=0.0)
+    recibir(logic, 0.05, 'EVENT:CMD_EXECUTED:SYS_ARM')
+    assert gestion(logic, now=0.1) == ['M:STATUS:0']
+    recibir(logic, 0.15, 'EVENT:STATUS:RUNNING:SYS_STOP=0:OBSTACLE=0:SPEED=0:HELD=0')
+    assert logic.state(0.2).esp32_state == 'RUNNING'
+    for paso in range(20):
+        assert 'M:STATUS:0' not in lineas(logic, now=0.7 + paso * 0.05)
+
+
+def test_el_pedido_de_estado_se_reintenta_hasta_la_respuesta():
+    logic = logica()
+    logic.on_port_opened()
+    lineas(logic, now=0.0)
+    recibir(logic, 0.05, 'EVENT:CMD_EXECUTED:SYS_ARM')
+    assert gestion(logic, now=0.1) == ['M:STATUS:0']
+    assert 'M:STATUS:0' not in gestion(logic, now=0.3)
+    assert gestion(logic, now=0.6) == ['M:STATUS:0']
+
+
+def test_el_estado_informa_el_obstaculo():
+    logic = logica()
+    logic.on_port_opened()
+    recibir(logic, 0.0, 'EVENT:STATUS:STOPPED:SYS_STOP=0:OBSTACLE=1:SPEED=0:HELD=180')
+    estado = logic.state(0.1)
+    assert estado.esp32_state == 'STOPPED'
+    assert estado.obstacle
+
+
+def test_si_el_estado_llega_por_un_cambio_no_se_lo_pide():
+    logic = lista_para_andar()
+    for paso in range(20):
+        assert 'M:STATUS:0' not in lineas(logic, now=0.1 + paso * 0.05)
+
+
+def test_tras_recuperarse_del_watchdog_el_puente_refleja_running():
+    # Firmware del 08/11: el FAULT por watchdog se levanta solo con el enlace estable.
+    logic = lista_para_andar()
+    recibir(logic, 1.0, 'EVENT:WATCHDOG_TIMEOUT', 'EVENT:STATE_CHANGED:FAULT')
+    assert logic.state(1.1).fault
+    recibir(logic, 1.6, 'EVENT:WATCHDOG_RECOVERED', 'EVENT:STATE_CHANGED:RUNNING')
+    assert logic.state(1.7).esp32_state == 'RUNNING'
+
+
 def test_nunca_se_envian_dos_comandos_de_gestion_en_el_mismo_ciclo():
     logic = logica()
     logic.on_port_opened()

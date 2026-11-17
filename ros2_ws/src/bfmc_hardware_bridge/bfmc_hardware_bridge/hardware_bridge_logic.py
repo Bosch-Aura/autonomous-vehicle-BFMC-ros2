@@ -14,29 +14,34 @@ Reglas (ADR-0002 y ADR-0003), para el firmware actual de Bosch-Aura/embedded:
   `heartbeat_period_s` el pedido de stop vigente (M:SYS_STOP o M:SYS_RESUME).
   Como el ESP32 ya está así, no cambia nada, pero siempre lo confirma con
   EVENT:CMD_EXECUTED, y esa respuesta mantiene `link_up`.
-- Al abrir el puerto, o si el ESP32 se reinicia, se lo arma. Un FAULT posterior
-  (watchdog o E-STOP) **no** se rearma solo: hace falta `request_arm()`.
+- Al abrir el puerto, o si el ESP32 se reinicia, se lo arma. Si el ESP32 ya estaba
+  armado (el puerto se abrió sin reiniciar la placa), confirma sin STATE_CHANGED: el
+  puente le pide entonces el estado con M:STATUS hasta saberlo.
+- Un FAULT por E-STOP no se rearma solo: hace falta `request_arm()`. Un FAULT por
+  watchdog lo levanta el propio firmware cuando el enlace vuelve estable 500 ms
+  (EVENT:WATCHDOG_RECOVERED + STATE_CHANGED), con la velocidad en 0; el puente solo
+  refleja el estado nuevo y el auto se mueve con el próximo comando de /cmd/drive.
 - Otro nodo puede pedir detener el auto (`request_stop(True)`) o que vuelva a
   arrancar (`request_stop(False)`). Se reintenta hasta que el ESP32 lo confirme.
   El ESP32 olvida el stop al reiniciarse, así que se le vuelve a enviar.
 - Ante un obstáculo frena el firmware (bloquea el avance) y avisa con
   OBSTACLE_DETECTED:<cm> y OBSTACLE_CLEARED. El puente lo informa y no manda
   ningún freno por su cuenta.
-- Si el obstáculo se va y adelante no queda nada al alcance del ultrasónico, el
-  firmware no recibe lecturas lejanas válidas y no suelta el bloqueo. Avisa con
-  ULTRASONIC_SILENT a los 2 s sin lecturas. Con `auto_obstacle_reset`, el
-  puente manda entonces M:OBSTACLE_RESET una sola vez por frenada: si el ESP32
-  vuelve a bloquear enseguida, ya no insiste y hace falta
-  `request_obstacle_reset()` (ADR-0003).
+- Desde el firmware del 07/11, si el obstáculo se va y adelante no queda nada al
+  alcance, el ESP32 suelta solo el bloqueo (2 s sin eco). Con el sensor muerto
+  (cable suelto) NO lo suelta, a propósito. `auto_obstacle_reset` (mandar
+  M:OBSTACLE_RESET una vez cuando el sensor está en silencio) queda por
+  compatibilidad con el firmware viejo y va apagado: prendido, destrabaría el auto
+  con el sensor desconectado. `request_obstacle_reset()` sigue sirviendo a mano.
 - Se envía como mucho un comando de gestión (M:) por ciclo, con esta prioridad:
-  stop sin confirmar, armado, reset de obstáculo y latido.
+  stop sin confirmar, armado, reset de obstáculo, pedido de estado y latido.
 """
 from dataclasses import dataclass
 from typing import List, Optional
 
 from bfmc_hardware_bridge.protocol import (
     encode_arm, encode_direction, encode_disarm, encode_obstacle_reset, encode_resume,
-    encode_speed, encode_steer, encode_stop, Event, parse_line,
+    encode_speed, encode_status, encode_steer, encode_stop, Event, parse_line,
 )
 from bfmc_hardware_bridge.units import Esp32Limits, to_duty, to_servo
 
@@ -121,6 +126,8 @@ class BridgeLogic:
         # porque el ESP32 volvió a bloquear enseguida.
         self._auto_reset_time = None
         self._auto_reset_exhausted = False
+        # Pedido de estado (M:STATUS): último envío.
+        self._last_status = None
 
     # --- entradas -------------------------------------------------------------
     def on_drive_command(self, speed_mps: float, steering_rad: float, now: float) -> None:
@@ -241,6 +248,7 @@ class BridgeLogic:
         self._auto_reset_exhausted = False
         self._want_arm = self._state not in ARMADOS
         self._last_arm = None
+        self._last_status = None
 
     def _encode_stop_vigente(self):
         # Sin pedido todavía, el ESP32 no tiene ningún stop: el latido lo confirma con RESUME.
@@ -272,7 +280,15 @@ class BridgeLogic:
             self._last_reset = now
             return encode_obstacle_reset()
 
-        # 4. Latido: el mismo pedido de stop, que el ESP32 siempre confirma.
+        # 4. Estado desconocido con el ESP32 ya armado (se abrió el puerto sin reiniciar la
+        #    placa): pedirlo. La respuesta también es señal de vida.
+        if (self._state == '' and not self._want_arm and self._last_rx is not None
+                and (self._last_status is None
+                     or (now - self._last_status) >= cfg.arm_retry_s)):
+            self._last_status = now
+            return encode_status()
+
+        # 5. Latido: el mismo pedido de stop, que el ESP32 siempre confirma.
         if self._stop_confirmed and (
                 self._last_stop is None or (now - self._last_stop) >= cfg.heartbeat_period_s):
             self._last_stop = now
@@ -308,6 +324,17 @@ class BridgeLogic:
             self._silent = False
         elif nombre == 'CMD_EXECUTED' and args:
             self._confirmado(args[0])
+        elif nombre == 'STATUS' and args and args[0] in ESTADOS:
+            self._al_recibir_estado(args)
+
+    def _al_recibir_estado(self, args):
+        """EVENT:STATUS:<estado>:SYS_STOP=<0|1>:OBSTACLE=<0|1>:SPEED=<pwm>:HELD=<pwm>."""
+        self._cambiar_estado(args[0])
+        campos = dict(arg.split('=', 1) for arg in args[1:] if '=' in arg)
+        if campos.get('OBSTACLE') in ('0', '1'):
+            self._obstacle = campos['OBSTACLE'] == '1'
+            if not self._obstacle:
+                self._obstacle_cm = None
 
     def _al_detectar_obstaculo(self, args, now):
         self._obstacle = True
