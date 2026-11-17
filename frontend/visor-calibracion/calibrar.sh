@@ -78,6 +78,12 @@ if $compilar || [ ! -f "$WS/install/setup.bash" ]; then
 fi
 source "$WS/install/setup.bash"
 
+# Librerías de CUDA que se instalan con pip en el usuario (cuDSS, cuSPARSELt, cuBLAS…): el PyTorch
+# de la Jetson las necesita y no están en una ruta que el sistema busque. Sin esto, `import torch`
+# falla con "libcudss.so.0: cannot open shared object file". Si no hay ninguna, no cambia nada.
+libs_pip=$(python3 -c "import site,glob;print(':'.join(glob.glob(site.getusersitepackages()+'/nvidia/*/lib')))" 2>/dev/null || true)
+if [ -n "$libs_pip" ]; then export LD_LIBRARY_PATH="$libs_pip${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"; fi
+
 # Modelo de la detección de señales (opcional: sin él solo no se puede activar esa detección).
 # El comando no descarga nada si el modelo ya está y su checksum es correcto, y funciona sin
 # internet en ese caso. No se baja al compilar: compilar tiene que andar sin red y sin 52 MB.
@@ -87,8 +93,9 @@ if ! timeout 180 ros2 run bfmc_sign_detection descargar_modelo; then
   echo "       se va a poder activar. Reintentá con:  ros2 run bfmc_sign_detection descargar_modelo" >&2
 fi
 if ! python3 -c "import ultralytics" > /dev/null 2>&1; then
-  echo "Aviso: falta Ultralytics (la detección de señales no se va a poder activar). Instalalo con:" >&2
-  echo "       pip install ultralytics   (en la Jetson, sin reemplazar el PyTorch de JetPack)" >&2
+  echo "Aviso: Ultralytics no se puede cargar (la detección de señales no se va a poder activar)." >&2
+  echo "       Mirá el motivo con:  python3 -c 'import ultralytics'" >&2
+  echo "       Si falta, instalalo sin reemplazar el PyTorch de la Jetson:  pip install --no-deps ultralytics ultralytics-thop" >&2
 fi
 
 faltan=()
