@@ -105,6 +105,10 @@
     main { flex: 1; min-height: 0; }
     /* Si en alguna pantalla igual no entrara, el panel scrollea en vez de cortar. */
     aside { overflow-y: auto; }
+    /* Las tarjetas del panel no se achican (se cortaban filas): el panel scrollea. */
+    aside .tarjeta { flex: none; }
+    /* El mando queda fijo arriba: Iniciar y Frenar se ven siempre, aunque se scrollee el panel. */
+    aside .tarjeta:first-child { position: sticky; top: 0; z-index: 2; }
   }
   /* Pantallas chicas (celular): una columna y scroll normal. */
   @media (max-width: 999px), (max-height: 599px) {
