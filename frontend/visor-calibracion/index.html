@@ -333,6 +333,7 @@ let poseAnterior = null;            // la pose de antes de calibrar, para "Desha
 let medidasAuto = Object.assign({}, INICIAL_AUTO);
 let delDetector = null;             // lo que el detector tenía al conectar
 let autoEnMarcha = false;           // según /hardware/status
+let controlLanzado = null;          // null: no se sabe todavía; false: el nodo /control no existe
 let socket = null;
 let quiereConexion = false;
 let temporizadorReintento = null;
@@ -788,6 +789,8 @@ async function aplicarModulos() {
   const control = await elegirModulo(NODO_CONTROL, 'algorithm', $('sel-control').value, 'control');
   // Sin el control lanzado (calibrar.sh sin --auto) no es un error: no hay nada que mover.
   const sinControl = !control.ok && /no respondió|does not exist|not exist/i.test(control.texto);
+  controlLanzado = !sinControl;
+  if (sinControl) avisoDelMando(AVISO_SIN_CONTROL);
   const textoControl = sinControl ? 'control sin lanzar' : control.texto;
   fijarEstado('estado-datos', 'conectado · ' + carril.texto + ' · ' + textoControl,
               carril.ok && (control.ok || sinControl) ? 'ok' : 'mal');
@@ -920,6 +923,8 @@ function conectar() {
 function desconectar() {
   quiereConexion = false;
   bloquearModulos(false);
+  controlLanzado = null;
+  avisoDelMando('');
   clearTimeout(temporizadorReintento);
   if (socket) { socket.close(); socket = null; }
   soltarVideo('video', 'estado-video');
@@ -957,7 +962,16 @@ function avisoDelMando(texto) {
 }
 
 // Cambia la velocidad de crucero del nodo de control. Devuelve true si el nodo la aceptó.
+// Sin `--auto`, calibrar.sh no lanza el control ni el puente: no hay nada que mover y los
+// servicios no existen. Se avisa eso en lugar del error de rosbridge.
+const AVISO_SIN_CONTROL = 'El control no está corriendo (calibrar.sh sin --auto): desde acá solo ' +
+  'se calibra. Para mover el auto, lanzá calibrar.sh --auto y volvé a conectar.';
+
 async function aplicarVelocidad(cmPorSegundo) {
+  if (controlLanzado === false) {
+    avisoDelMando(AVISO_SIN_CONTROL);
+    return false;
+  }
   try {
     const r = await llamarServicio(
       NODO_CONTROL + '/set_parameters', 'rcl_interfaces/srv/SetParameters',
@@ -969,7 +983,12 @@ async function aplicarVelocidad(cmPorSegundo) {
     avisoDelMando('');
     return true;
   } catch (error) {
-    avisoDelMando('no se pudo cambiar la velocidad: ' + error.message);
+    if (servicioInexistente(error)) {
+      controlLanzado = false;
+      avisoDelMando(AVISO_SIN_CONTROL);
+    } else {
+      avisoDelMando('no se pudo cambiar la velocidad: ' + error.message);
+    }
     return false;
   }
 }
