@@ -58,7 +58,8 @@ def test_la_camara_se_incluye_como_opcional(descripcion):
 
 def test_las_opciones_tienen_los_valores_por_defecto_documentados(descripcion):
     opciones = {e.name: e for e in descripcion.entities if isinstance(e, DeclareLaunchArgument)}
-    assert set(opciones) == {'camera', 'signs', 'serial_port'}
+    assert set(opciones) == {
+        'camera', 'signs', 'serial_port', 'lane_detector', 'control_algorithm'}
     assert opciones['camera'].default_value[0].text == 'true'
     assert opciones['signs'].default_value[0].text == 'false'
 
@@ -69,6 +70,19 @@ def test_el_puerto_serial_por_defecto_es_el_del_yaml_del_puente(descripcion):
         'hardware_bridge']['ros__parameters']['serial_port']
     opciones = {e.name: e for e in descripcion.entities if isinstance(e, DeclareLaunchArgument)}
     assert opciones['serial_port'].default_value[0].text == esperado
+
+
+@pytest.mark.parametrize('opcion, paquete, nodo, clave', [
+    ('lane_detector', 'bfmc_lane_detection', 'lane_detection', 'detector'),
+    ('control_algorithm', 'bfmc_control', 'control', 'algorithm'),
+])
+def test_los_modulos_por_defecto_son_los_del_yaml_de_cada_paquete(
+        descripcion, opcion, paquete, nodo, clave):
+    # ADR-0004: sin elegir nada al lanzar corre lo que diga el params.yaml del paquete.
+    ruta = Path(get_package_share_directory(paquete)) / 'config' / 'params.yaml'
+    esperado = yaml.safe_load(ruta.read_text(encoding='utf-8'))[nodo]['ros__parameters'][clave]
+    opciones = {e.name: e for e in descripcion.entities if isinstance(e, DeclareLaunchArgument)}
+    assert opciones[opcion].default_value[0].text == esperado
 
 
 def test_cada_paquete_lanzado_esta_declarado_como_dependencia():

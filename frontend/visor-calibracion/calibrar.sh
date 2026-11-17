@@ -8,6 +8,11 @@
 #   frontend/visor-calibracion/calibrar.sh --auto       # además del visor, arranca TODO el sistema
 #                                                       # (control, decisión, puente con el ESP32): el auto SE MUEVE
 #   frontend/visor-calibracion/calibrar.sh --auto --puerto /dev/ttyACM0   # otro puerto serial
+#   frontend/visor-calibracion/calibrar.sh --lane l_adaptativo              # otro detector de carril
+#   frontend/visor-calibracion/calibrar.sh --auto --control pure_pursuit    # otro algoritmo de giro
+#
+# --lane y --control eligen los módulos al arrancar (ADR-0004); sin ellos corre lo que diga el
+# params.yaml de cada paquete. También se eligen desde el visor, antes de Conectar.
 #
 # Ctrl+C detiene todo. Los logs de cada proceso quedan en /tmp/visor-calibracion/.
 # Sin `-u`: el setup.bash de ROS usa variables sin definir.
@@ -25,6 +30,8 @@ ESPERA_TOPICS_S=20
 compilar=false
 auto=false
 puerto=""
+lane=""
+control=""
 while [ "$#" -gt 0 ]; do
   arg=$1
   shift
@@ -35,10 +42,23 @@ while [ "$#" -gt 0 ]; do
       [ "$#" -gt 0 ] || { echo "--puerto necesita un valor" >&2; exit 2; }
       puerto=$1
       shift ;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+    --lane)
+      [ "$#" -gt 0 ] || { echo "--lane necesita un valor (hsv_ventanas o l_adaptativo)" >&2; exit 2; }
+      lane=$1
+      shift ;;
+    --control)
+      [ "$#" -gt 0 ] || { echo "--control necesita un valor (pid o pure_pursuit)" >&2; exit 2; }
+      control=$1
+      shift ;;
+    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
     *) echo "Opción desconocida: $arg" >&2; exit 2 ;;
   esac
 done
+
+if [ -n "$control" ] && ! $auto; then
+  echo "--control solo tiene sentido con --auto (sin --auto no se lanza el control)" >&2
+  exit 2
+fi
 
 if [ ! -f "$ROS_SETUP" ]; then
   echo "No encuentro ROS 2 Humble en $ROS_SETUP. Instalalo antes de seguir." >&2
@@ -93,14 +113,18 @@ trap 'exit 130' INT TERM
 
 echo "== Lanzando"
 if $auto; then
-  if [ -n "$puerto" ]; then
-    lanzar sistema ros2 launch bfmc_bringup system.launch.py serial_port:="$puerto"
-  else
-    lanzar sistema ros2 launch bfmc_bringup system.launch.py
-  fi
+  opciones=()
+  [ -n "$puerto" ] && opciones+=("serial_port:=$puerto")
+  [ -n "$lane" ] && opciones+=("lane_detector:=$lane")
+  [ -n "$control" ] && opciones+=("control_algorithm:=$control")
+  lanzar sistema ros2 launch bfmc_bringup system.launch.py "${opciones[@]}"
 else
   lanzar camara ros2 launch bfmc_camera camera.launch.py
-  lanzar carril ros2 launch bfmc_lane_detection lane_detection.launch.py
+  if [ -n "$lane" ]; then
+    lanzar carril ros2 launch bfmc_lane_detection lane_detection.launch.py detector:="$lane"
+  else
+    lanzar carril ros2 launch bfmc_lane_detection lane_detection.launch.py
+  fi
 fi
 lanzar video ros2 run web_video_server web_video_server
 # Cada llamada a un servicio en su propio hilo y con tope: si un nodo no contesta, esa llamada

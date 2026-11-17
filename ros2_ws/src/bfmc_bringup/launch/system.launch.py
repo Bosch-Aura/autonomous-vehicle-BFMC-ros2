@@ -2,12 +2,15 @@
 
 Cada nodo se lanza con el config/params.yaml de su propio paquete (más lo que haya
 guardado con su botón Guardar, si tiene `persist_file`): acá no hay parámetros
-duplicados. Las opciones solo activan o desactivan partes del sistema y eligen el
-puerto serial.
+duplicados. Las opciones solo activan o desactivan partes del sistema, eligen el
+puerto serial y eligen los módulos intercambiables (ADR-0004): el detector de carril y el
+algoritmo de giro. Sin elegirlos, corre lo que diga el params.yaml de cada paquete.
 
     ros2 launch bfmc_bringup system.launch.py
     ros2 launch bfmc_bringup system.launch.py camera:=false
     ros2 launch bfmc_bringup system.launch.py signs:=true serial_port:=/dev/ttyACM0
+    ros2 launch bfmc_bringup system.launch.py lane_detector:=l_adaptativo \
+        control_algorithm:=pure_pursuit
 """
 import os
 
@@ -45,11 +48,11 @@ def _nodo(paquete, ejecutable, parametros_extra=None, condicion=None):
                 parameters=parametros, output='screen', condition=condicion)
 
 
-def _puerto_por_defecto():
-    """El puerto serial que trae el YAML del puente, para no repetirlo acá."""
-    ruta = os.path.join(_compartida('bfmc_hardware_bridge'), 'config', 'params.yaml')
+def _del_yaml(paquete, nodo, clave):
+    """Un valor del params.yaml de un paquete, para usarlo de predeterminado sin repetirlo acá."""
+    ruta = os.path.join(_compartida(paquete), 'config', 'params.yaml')
     with open(ruta, encoding='utf-8') as archivo:
-        return yaml.safe_load(archivo)['hardware_bridge']['ros__parameters']['serial_port']
+        return str(yaml.safe_load(archivo)[nodo]['ros__parameters'][clave])
 
 
 def generate_launch_description():
@@ -65,17 +68,27 @@ def generate_launch_description():
             description='Arranca la detección de señales. Necesita Ultralytics y el modelo '
                         '(ver el README de bfmc_sign_detection).'),
         DeclareLaunchArgument(
-            'serial_port', default_value=_puerto_por_defecto(),
+            'serial_port', default_value=_del_yaml(
+                'bfmc_hardware_bridge', 'hardware_bridge', 'serial_port'),
             description='Puerto serial del ESP32.'),
+        DeclareLaunchArgument(
+            'lane_detector', default_value=_del_yaml(
+                'bfmc_lane_detection', 'lane_detection', 'detector'),
+            description='Detector de carril: hsv_ventanas o l_adaptativo (ADR-0004).'),
+        DeclareLaunchArgument(
+            'control_algorithm', default_value=_del_yaml('bfmc_control', 'control', 'algorithm'),
+            description='Algoritmo de giro: pid o pure_pursuit (ADR-0004).'),
 
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(_compartida('bfmc_camera'), 'launch', 'camera.launch.py')),
             condition=IfCondition(camara)),
 
-        _nodo('bfmc_lane_detection', 'lane_detection'),
+        _nodo('bfmc_lane_detection', 'lane_detection',
+              [{'detector': LaunchConfiguration('lane_detector')}]),
         _nodo('bfmc_sign_detection', 'sign_detection', condicion=IfCondition(senales)),
-        _nodo('bfmc_control', 'control'),
+        _nodo('bfmc_control', 'control',
+              [{'algorithm': LaunchConfiguration('control_algorithm')}]),
         _nodo('bfmc_hardware_bridge', 'hardware_bridge',
               [{'serial_port': LaunchConfiguration('serial_port')}]),
         _nodo('bfmc_maneuvers', 'maneuvers'),
