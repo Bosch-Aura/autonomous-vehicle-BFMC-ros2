@@ -25,6 +25,9 @@
            padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--borde); }
   header h1 { margin: 0 8px 0 0; font-size: 16px; }
   header label { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--suave); }
+  header select { padding: 5px 8px; border: 1px solid var(--borde); border-radius: 6px;
+                  background: var(--fondo); color: var(--texto); font: inherit; }
+  header select:disabled { opacity: 0.6; }
   .avanzada > summary { cursor: pointer; color: var(--suave); font-size: 13px; }
   .avanzada[open] > div { position: absolute; z-index: 10; top: 100%; right: 16px; display: grid;
            grid-template-columns: auto auto; gap: 6px 10px; padding: 12px; background: var(--panel);
@@ -117,6 +120,15 @@
 <header>
   <h1>Visor de calibración</h1>
   <label>IP de la Jetson <input id="host" type="text" class="largo" placeholder="192.168.x.x" autocomplete="off"></label>
+  <!-- Módulos intercambiables (ADR-0004): se eligen antes de conectar y corre uno de cada uno. -->
+  <label>Carril <select id="sel-lane">
+    <option value="hsv_ventanas">HSV + ventanas</option>
+    <option value="l_adaptativo">Canal L adaptativo</option>
+  </select></label>
+  <label>Control <select id="sel-control">
+    <option value="pid">PID</option>
+    <option value="pure_pursuit">Pure Pursuit</option>
+  </select></label>
   <button id="conectar">Conectar</button>
   <button id="desconectar" class="sec">Desconectar</button>
   <small id="estado-datos">sin conexión</small>
@@ -175,8 +187,8 @@
         <input type="range" id="cerca" min="0.20" max="1.00" step="0.01" value="0.35"></label>
       <label class="deslizador"><span>Hasta <b><output id="valor-lejos">0.95</output> m</b></span>
         <input type="range" id="lejos" min="0.40" max="1.60" step="0.01" value="0.95"></label>
-      <label class="deslizador"><span>Medio ancho <b><output id="valor-medio">0.25</output> m</b></span>
-        <input type="range" id="medio" min="0.10" max="0.50" step="0.01" value="0.25"></label>
+      <label class="deslizador"><span>Medio ancho <b><output id="valor-medio">0.40</output> m</b></span>
+        <input type="range" id="medio" min="0.10" max="0.60" step="0.01" value="0.40"></label>
 
       <h3>Medidas con cinta</h3>
       <div class="medida-fila"><label for="ancho-carril">Ancho del carril [m]</label>
@@ -191,10 +203,23 @@
 
       <h3>Color y región</h3>
       <label class="interruptor"><input type="checkbox" id="en-vivo" checked> Aplicar en vivo</label>
+      <div id="grupo-hsv">
       <label class="deslizador"><span>Brillo mínimo del blanco <b id="valor-brillo">200</b></span>
         <input type="range" id="brillo" min="0" max="255" step="1" value="200"></label>
       <label class="deslizador"><span>Saturación máxima del blanco <b id="valor-saturacion">60</b></span>
         <input type="range" id="saturacion" min="0" max="255" step="1" value="60"></label>
+      </div>
+      <div id="grupo-l" hidden>
+      <label class="deslizador"><span>Más claro que la zona <b id="valor-l-offset">15</b></span>
+        <input type="range" id="l-offset" min="0" max="60" step="1" value="15"></label>
+      <label class="deslizador"><span>Brillo mínimo (L) <b id="valor-l-min">120</b></span>
+        <input type="range" id="l-min" min="0" max="255" step="1" value="120"></label>
+      <label class="deslizador"><span>Tamaño de la zona <b><output id="valor-l-bloque">25</output> px</b></span>
+        <input type="range" id="l-bloque" min="3" max="99" step="2" value="25"></label>
+      <label class="deslizador"><span>Ecualizar contraste (CLAHE) <b id="valor-clahe">0.0</b></span>
+        <input type="range" id="clahe" min="0" max="4" step="0.1" value="0"></label>
+      <small>Canal L adaptativo: un píxel es línea si es más claro que el promedio de su zona Y supera el brillo mínimo. Sigue a la línea en la sombra. CLAHE en 0 = apagado.</small>
+      </div>
       <label class="deslizador"><span>Región: descartar de arriba <b id="valor-roi">0.30</b></span>
         <input type="range" id="roi" min="0" max="0.9" step="0.01" value="0.3"></label>
 
@@ -231,7 +256,7 @@
       </div>
       <p class="aviso-mando" id="aviso-mando" hidden></p>
       <details><summary>Cómo funciona</summary>
-        <p>La velocidad es la que el auto pide, no la medida: no tiene encoder. El auto arranca detenido. "Iniciar" lo suelta y "Frenar" lo detiene hasta el próximo "Iniciar". Un obstáculo lo frena solo y, si deja de verlo, sigue. Si el ultrasónico se queda sin lecturas, el puente lo destraba solo una vez; "Destrabar obstáculo" lo hace a mano. Si el carril se pierde (modo PERDIDO), el auto frena y sigue solo cuando lo vuelve a ver.</p>
+        <p>La velocidad es la que el auto pide, no la medida: no tiene encoder. El auto arranca detenido. "Iniciar" lo suelta y "Frenar" lo detiene hasta el próximo "Iniciar". Un obstáculo lo frena solo y, si deja de verlo, sigue. El ESP32 suelta el obstáculo solo cuando ve espacio libre, nunca con el sensor desconectado: en ese caso, revisá el sensor y "Destrabar obstáculo" lo hace a mano. Si el carril se pierde (modo PERDIDO), el auto frena y sigue solo cuando lo vuelve a ver.</p>
       </details>
     </div>
 
@@ -268,7 +293,8 @@
 // nodos tienen en ese momento.
 const INICIAL = {
   hsvMin: [0, 0, 200], hsvMax: [179, 60, 255], roi: 0.3,
-  cerca: 0.35, lejos: 0.95, medio: 0.25, anchoCarril: 0.38,
+  cerca: 0.35, lejos: 0.95, medio: 0.40, anchoCarril: 0.38,
+  lOffset: 15, lMin: 120, lBloque: 25, clahe: 0.0,
 };
 const INICIAL_AUTO = { entreEjes: 0.26, camaraEje: 0.20 };
 
@@ -295,6 +321,8 @@ const PARAMETROS_DETECTOR = [
 ];
 // La pose que fija la calibración: es lo que "Deshacer" restaura.
 const POSE = ['calib_height_m', 'calib_pitch_deg', 'calib_roll_deg', 'camera_intrinsics'];
+// Del detector l_adaptativo. Se leen aparte: un nodo anterior a ADR-0004 no los tiene.
+const PARAMETROS_CANAL_L = ['l_offset', 'l_min', 'l_block_size_px', 'clahe_clip'];
 const PARAMETROS_AUTO = ['wheelbase_m', 'camera_to_rear_axle_m'];
 
 const $ = (id) => document.getElementById(id);
@@ -315,9 +343,7 @@ const pendientes = {};              // llamadas a servicios esperando respuesta
 const envios = {};                  // un envío en espera por parámetro
 
 function copiaInicial() {
-  return { hsvMin: INICIAL.hsvMin.slice(), hsvMax: INICIAL.hsvMax.slice(), roi: INICIAL.roi,
-           cerca: INICIAL.cerca, lejos: INICIAL.lejos, medio: INICIAL.medio,
-           anchoCarril: INICIAL.anchoCarril };
+  return Object.assign({}, INICIAL, { hsvMin: INICIAL.hsvMin.slice(), hsvMax: INICIAL.hsvMax.slice() });
 }
 
 // ---------------------------------------------------------------- ajustes
@@ -334,6 +360,11 @@ function textoYaml() {
     '    calib_forward_far_m: ' + fijo(ajustes.lejos, 2),
     '    calib_half_width_m: ' + fijo(ajustes.medio, 2),
     '    lane_width_m: ' + fijo(ajustes.anchoCarril, 3),
+    '    detector: ' + $('sel-lane').value,
+    '    l_offset: ' + ajustes.lOffset,
+    '    l_min: ' + ajustes.lMin,
+    '    l_block_size_px: ' + ajustes.lBloque,
+    '    clahe_clip: ' + fijo(ajustes.clahe, 1),
   ];
   if (pose) {
     lineas.push(
@@ -344,6 +375,7 @@ function textoYaml() {
   }
   lineas.push(
     '# bfmc_control/config/params.yaml',
+    '    algorithm: ' + $('sel-control').value,
     '    wheelbase_m: ' + fijo(medidasAuto.entreEjes, 3),
     '    camera_to_rear_axle_m: ' + fijo(medidasAuto.camaraEje, 3));
   return lineas.join('\n');
@@ -360,6 +392,14 @@ function mostrarControles() {
     $(id).value = v;
     $('valor-' + id).textContent = fijo(v, 2);
   });
+  [['l-offset', 'lOffset', 0], ['l-min', 'lMin', 0], ['l-bloque', 'lBloque', 0],
+   ['clahe', 'clahe', 1]].forEach(([id, campo, decimales]) => {
+    $(id).value = ajustes[campo];
+    $('valor-' + id).textContent = fijo(ajustes[campo], decimales);
+  });
+  const conCanalL = $('sel-lane').value === 'l_adaptativo';
+  $('grupo-hsv').hidden = conCanalL;
+  $('grupo-l').hidden = !conCanalL;
   $('ancho-carril').value = fijo(ajustes.anchoCarril, 3);
   $('entre-ejes').value = fijo(medidasAuto.entreEjes, 3);
   $('camara-eje').value = fijo(medidasAuto.camaraEje, 3);
@@ -392,6 +432,15 @@ $('roi').addEventListener('input', (e) => {
     enviarEnVivo(parametro, 'decimal', ajustes[id]);
   });
 });
+[['l-offset', 'lOffset', 'l_offset', 'entero'], ['l-min', 'lMin', 'l_min', 'entero'],
+ ['l-bloque', 'lBloque', 'l_block_size_px', 'entero'], ['clahe', 'clahe', 'clahe_clip', 'decimal']]
+  .forEach(([id, campo, parametro, tipo]) => {
+    $(id).addEventListener('input', (e) => {
+      ajustes[campo] = tipo === 'entero' ? parseInt(e.target.value, 10) : parseFloat(e.target.value);
+      mostrarControles();
+      enviarEnVivo(parametro, tipo, ajustes[campo]);
+    });
+  });
 $('ancho-carril').addEventListener('change', (e) => {
   const v = parseFloat(e.target.value);
   if (!(v > 0)) { mostrarControles(); return; }
@@ -481,6 +530,7 @@ function valorDeParametro(tipo, valor) {
   switch (tipo) {
     case 'entero': return { type: 2, integer_value: valor };
     case 'decimal': return { type: 3, double_value: valor };
+    case 'texto': return { type: 4, string_value: valor };
     case 'enteros': return { type: 7, integer_array_value: valor };
     case 'decimales': return { type: 8, double_array_value: valor };
     default: throw new Error('tipo de parámetro desconocido: ' + tipo);
@@ -491,6 +541,7 @@ function leerValor(v) {
   switch (v.type) {
     case 2: return v.integer_value;
     case 3: return v.double_value;
+    case 4: return v.string_value;
     case 7: return v.integer_array_value;
     case 8: return v.double_array_value;
     default: return null;
@@ -549,6 +600,10 @@ function enviarTodo() {
   enviarEnVivo('calib_forward_far_m', 'decimal', ajustes.lejos);
   enviarEnVivo('calib_half_width_m', 'decimal', ajustes.medio);
   enviarEnVivo('lane_width_m', 'decimal', ajustes.anchoCarril);
+  enviarEnVivo('l_offset', 'entero', ajustes.lOffset);
+  enviarEnVivo('l_min', 'entero', ajustes.lMin);
+  enviarEnVivo('l_block_size_px', 'entero', ajustes.lBloque);
+  enviarEnVivo('clahe_clip', 'decimal', ajustes.clahe);
 }
 
 // Lee parámetros de un nodo. Devuelve { nombre: valor }; falla si alguno no existe.
@@ -577,6 +632,14 @@ async function leerDelDetector() {
       cerca: v.calib_forward_near_m, lejos: v.calib_forward_far_m, medio: v.calib_half_width_m,
       anchoCarril: v.lane_width_m,
     };
+    try {
+      const l = await leerParametros(nodoDetector(), PARAMETROS_CANAL_L);
+      Object.assign(delDetector, { lOffset: l.l_offset, lMin: l.l_min, lBloque: l.l_block_size_px,
+                                   clahe: l.clahe_clip });
+    } catch (error) {
+      Object.assign(delDetector, { lOffset: INICIAL.lOffset, lMin: INICIAL.lMin,
+                                   lBloque: INICIAL.lBloque, clahe: INICIAL.clahe });
+    }
     pose = {};
     POSE.forEach((nombre) => { pose[nombre] = v[nombre]; });
     restablecerDesdeElDetector();
@@ -597,9 +660,7 @@ async function leerMedidasDelControl() {
 
 function restablecerDesdeElDetector() {
   const base = delDetector || INICIAL;
-  ajustes = { hsvMin: base.hsvMin.slice(), hsvMax: base.hsvMax.slice(), roi: base.roi,
-              cerca: base.cerca, lejos: base.lejos, medio: base.medio,
-              anchoCarril: base.anchoCarril };
+  ajustes = Object.assign({}, base, { hsvMin: base.hsvMin.slice(), hsvMax: base.hsvMax.slice() });
   mostrarControles();
 }
 
@@ -704,6 +765,47 @@ async function predeterminados() {
   }
 }
 
+// ---------------------------------------------------------------- módulos (ADR-0004)
+
+// Pide a un nodo que use el módulo elegido. Devuelve un texto para el estado.
+async function elegirModulo(nodo, parametro, valor, quien) {
+  try {
+    const r = await llamarServicio(
+      nodo + '/set_parameters', 'rcl_interfaces/srv/SetParameters',
+      { parameters: [{ name: parametro, value: valorDeParametro('texto', valor) }] });
+    const resultado = r.results[0];
+    return resultado.successful ? { ok: true, texto: quien + ' ' + valor }
+      : { ok: false, texto: quien + ' rechazó ' + valor + ': ' + resultado.reason };
+  } catch (error) {
+    return { ok: false, texto: quien + ': ' + error.message };
+  }
+}
+
+// Al conectar, los dos nodos pasan a los módulos elegidos. Corre uno de cada uno: cambiar la
+// elección pide desconectar y volver a conectar. Con el auto en marcha el detector la rechaza.
+async function aplicarModulos() {
+  const carril = await elegirModulo(nodoDetector(), 'detector', $('sel-lane').value, 'carril');
+  const control = await elegirModulo(NODO_CONTROL, 'algorithm', $('sel-control').value, 'control');
+  // Sin el control lanzado (calibrar.sh sin --auto) no es un error: no hay nada que mover.
+  const sinControl = !control.ok && /no respondió|does not exist|not exist/i.test(control.texto);
+  const textoControl = sinControl ? 'control sin lanzar' : control.texto;
+  fijarEstado('estado-datos', 'conectado · ' + carril.texto + ' · ' + textoControl,
+              carril.ok && (control.ok || sinControl) ? 'ok' : 'mal');
+  mostrarControles();
+}
+
+function bloquearModulos(bloquear) {
+  $('sel-lane').disabled = bloquear;
+  $('sel-control').disabled = bloquear;
+}
+
+['sel-lane', 'sel-control'].forEach((id) => {
+  $(id).addEventListener('change', () => {
+    try { localStorage.setItem('visor-' + id, $(id).value); } catch (e) { /* sin almacenamiento */ }
+    mostrarControles();
+  });
+});
+
 // ---------------------------------------------------------------- conexión
 
 function leerConfiguracion() {
@@ -751,6 +853,7 @@ function conectar() {
   if (!cfg) return;
   try { localStorage.setItem('visor-host', cfg.host); } catch (e) { /* sin almacenamiento: no pasa nada */ }
   quiereConexion = true;
+  bloquearModulos(true);
   clearTimeout(temporizadorReintento);
   if (socket) { socket.onclose = null; socket.close(); }
 
@@ -768,7 +871,8 @@ function conectar() {
       op: 'subscribe', topic: cfg.topicCarril, type: 'bfmc_interfaces/msg/LaneState',
       throttle_rate: 100, queue_length: 1,
     }));
-    leerDelDetector();
+    // Primero los módulos, después leer: así los deslizadores muestran los del detector elegido.
+    aplicarModulos().then(leerDelDetector);
     leerVelocidadDelControl();
     leerMedidasDelControl();
     fijarEstado('estado-auto', 'conectado', 'ok');
@@ -815,6 +919,7 @@ function conectar() {
 
 function desconectar() {
   quiereConexion = false;
+  bloquearModulos(false);
   clearTimeout(temporizadorReintento);
   if (socket) { socket.close(); socket = null; }
   soltarVideo('video', 'estado-video');
@@ -975,6 +1080,12 @@ $('restablecer').addEventListener('click', () => {
 });
 
 try { $('host').value = localStorage.getItem('visor-host') || ''; } catch (e) { /* sin almacenamiento */ }
+['sel-lane', 'sel-control'].forEach((id) => {
+  try {
+    const guardado = localStorage.getItem('visor-' + id);
+    if (guardado && [...$(id).options].some((o) => o.value === guardado)) $(id).value = guardado;
+  } catch (e) { /* sin almacenamiento */ }
+});
 restablecerDesdeElDetector();
 </script>
 </body>
