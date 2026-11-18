@@ -106,6 +106,15 @@ def test_control_y_puente_usan_el_mismo_tope_de_direccion(p):
     assert p['control']['max_steer_rad'] == pytest.approx(p['bridge']['max_steer_rad'], abs=1e-4)
 
 
+def test_el_filtro_del_carril_usa_las_mismas_medidas_del_auto_que_el_control(p):
+    # El filtro de Kalman de lane_detection descuenta el giro del auto con la distancia entre
+    # ejes y la posición de la cámara; son las mismas medidas que usa control.
+    assert p['lane']['kalman_wheelbase_m'] == pytest.approx(
+        p['control']['wheelbase_m'], abs=1e-4)
+    assert p['lane']['kalman_camera_to_rear_axle_m'] == pytest.approx(
+        p['control']['camera_to_rear_axle_m'], abs=1e-4)
+
+
 def test_las_velocidades_de_las_maniobras_no_superan_el_limite_del_puente(p):
     velocidades = [p['maneuvers']['stop']['exit_speed_mps'],
                    p['maneuvers']['intersection']['speed_mps']]

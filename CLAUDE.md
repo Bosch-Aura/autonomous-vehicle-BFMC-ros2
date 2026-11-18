@@ -12,6 +12,7 @@ autonomous-vehicle-BFMC-ros2/
 │   └── src/                  # Paquetes ROS2 (uno por funcionalidad)
 │       └── bfmc_example/     # Plantilla de paquete
 ├── frontend/                 # Dashboard (stack por definir)
+├── herramientas/             # Herramientas fuera de ROS (simulador de carril)
 ├── docs/                     # Documentación del proyecto
 ├── .github/
 │   ├── workflows/            # GitHub Actions (CI, checks de convenciones)

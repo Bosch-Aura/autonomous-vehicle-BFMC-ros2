@@ -18,7 +18,9 @@ control:
     # Forma de la salida.
     max_steer_rad: 0.436332            # [rad] 25 grados, el tope del servo según el informe (igual que en bfmc_hardware_bridge) [por-verificar: medir]
     max_steer_rate_rad_s: 3.0          # [rad/s] límite de velocidad de giro [asumido]
-    filter_alpha: 0.6                  # (0, 1] 1 = sin filtro; menor = más suave [asumido]
+    # 1.0 desde 2026-11-17: el filtro de Kalman de bfmc_lane_detection ya suaviza el carril; filtrar
+    # dos veces atrasa el giro. Si se apaga kalman_enabled allá, volver a 0.6.
+    filter_alpha: 1.0                  # (0, 1] 1 = sin filtro; menor = más suave
 
     # Velocidad.
     cruise_speed_mps: 0.3              # [m/s] velocidad de crucero [asumido]
@@ -54,9 +56,12 @@ control:
     # empieza más tarde y el giro de régimen queda igual. 0 = como antes.
     # Se cambian en vivo: ros2 param set /control turn_delay_m 0.10
     turn_delay_m: 0.05                 # [m] [asumido: probar 0, 0,05, 0,10, 0,15 en pista]
-    # Evalúa el desvío y el rumbo esta distancia más cerca del auto. Además de adelantar menos,
-    # baja el giro de régimen en la curva (~17 % con 5 cm), así que se prueba aparte. 0 = apagado.
-    error_shift_m: 0.0                 # [m] [asumido]
+    # Evalúa el desvío y el rumbo esta distancia más cerca del auto. 0 = apagado (lo de antes).
+    # 0.38 desde 2026-11-17 (docs/ANALISIS-CARRIL-Y-CONTROL.md): el carril se mide ~0,58 m delante
+    # del eje trasero y, sin correrlo, el PID dobla antes de la curva y se queda corrido hacia
+    # adentro (en el simulador se salía en 21 de 22 curvas). 0.38 lo evalúa en el pie de la cámara
+    # (camera_to_rear_axle_m = 0,20 m). Si en pista dobla tarde, bajar; si dobla antes, subir.
+    error_shift_m: 0.38                # [m] [simulador; validar en pista]
 
     # Límite físico (informe 4.12.1): con el tope de 25° y wheelbase_m, R_min = L / tan(25°)
     # ~ 0,56 m. Si el carril pide una curva más cerrada (curvatura confiable > 1 / R_min), la

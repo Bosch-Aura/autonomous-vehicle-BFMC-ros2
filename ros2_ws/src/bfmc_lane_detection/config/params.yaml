@@ -70,10 +70,18 @@ lane_detection:
 
     # 4e. Filtro de Kalman del carril (A2-154): estado [desvío, rumbo, curvatura] en la fila
     # de medición. Predice con el avance del auto y corrige con cada medición.
-    # Apagado hasta medir R y Q en la pista y coordinar con bfmc_control (con el filtro
-    # activo conviene filter_alpha: 1.0 allá, para no filtrar dos veces).
-    kalman_enabled: false
-    cmd_drive_topic: /cmd/drive      # velocidad del auto para predecir: la comandada (no hay odometría)
+    # Prendido desde 2026-11-17 (docs/ANALISIS-CARRIL-Y-CONTROL.md): con el giro propio del auto
+    # en la predicción, descarta los saltos al carril de al lado en las curvas. En el simulador:
+    # 22 de 22 curvas sin salirse (18 sin el filtro). En bfmc_control va filter_alpha: 1.0 para
+    # no filtrar dos veces. Si en la pista empeora, false vuelve a lo de antes, en vivo.
+    kalman_enabled: true
+    cmd_drive_topic: /cmd/drive      # velocidad y giro del auto para predecir: los comandados (no hay odometría)
+    # Giro propio en la predicción (modelo de bicicleta). Son medidas del auto: tienen que ser
+    # iguales a wheelbase_m y camera_to_rear_axle_m de bfmc_control (lo controla test_contracts).
+    # 0 en kalman_wheelbase_m apaga el término (filtro como antes). En el simulador el filtro
+    # sigue andando con L entre 0,22 y 0,34 m.
+    kalman_wheelbase_m: 0.26               # [m] [asumido: medir]
+    kalman_camera_to_rear_axle_m: 0.20     # [m] [asumido: medir]
     # Varianzas [desvío m², rumbo rad², curvatura (1/m)²]. Todas [asumido]. Cómo medirlas:
     # R: con el auto quieto en una recta, varianza de lo medido durante unos segundos (repetir
     #    en una curva). Q: arrancar chico y subir hasta que en el visor el filtrado siga las

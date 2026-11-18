@@ -159,3 +159,66 @@ def test_con_filtro_olvidar_previas_tambien_reinicia_el_filtro():
     tracker.update(medicion(0.0), 10.0, 0.3)
     tracker.olvidar_previas()
     assert tracker.update(medicion(0.12), 10.03, 0.3).lateral_error_m == pytest.approx(0.12)
+
+
+# --- giro propio del auto (2026-11-17, docs/ANALISIS-CARRIL-Y-CONTROL.md) ------------------
+
+L = 0.26          # distancia entre ejes [m]
+X_REF = 0.58      # del eje trasero a la fila de medición [m]
+
+
+def filtro_con_giro():
+    return LaneKalman(Q, R_DOS, R_UNA, GATE, wheelbase_m=L, x_ref_m=X_REF)
+
+
+def test_al_girar_a_la_izquierda_el_carril_se_ve_mas_a_la_derecha():
+    kf = filtro_con_giro()
+    kf.reiniciar((0.0, 0.0, 0.0), dos_lineas=True)
+    kf.predecir(DT, 0.3, 0.2)
+    giro_auto = 0.3 * DT * np.tan(0.2) / L
+    assert kf.estado[1] == pytest.approx(-giro_auto)
+    assert kf.estado[0] == pytest.approx(-X_REF * giro_auto)
+
+
+def test_sin_distancia_entre_ejes_el_giro_no_cambia_la_prediccion():
+    sin_giro, con_cero = filtro(), LaneKalman(Q, R_DOS, R_UNA, GATE, wheelbase_m=0.0)
+    for kf, giro in ((sin_giro, 0.0), (con_cero, 0.3)):
+        kf.reiniciar((0.02, 0.1, 0.5), dos_lineas=True)
+        kf.predecir(DT, 0.3, giro)
+    assert con_cero.estado == pytest.approx(sin_giro.estado)
+
+
+def test_siguiendo_una_curva_las_mediciones_buenas_no_se_descartan():
+    # El auto recorre una curva de 0,5 m de radio centrado: el carril se ve siempre igual.
+    kappa = 2.0
+    giro = np.arctan(L * kappa)
+    z = (0.5 * kappa * X_REF ** 2, kappa * X_REF, kappa)
+    kf = filtro_con_giro()
+    kf.reiniciar(z, dos_lineas=True)
+    aceptadas = []
+    for _ in range(90):
+        kf.predecir(DT, 0.3, giro)
+        aceptadas.append(kf.corregir(z, dos_lineas=True))
+    assert all(aceptadas)
+    assert kf.estado == pytest.approx(z, abs=0.01)
+
+
+@pytest.mark.parametrize('ancho, x_ref', [(-0.1, 0.5), (0.26, -0.1)])
+def test_distancias_negativas_se_rechazan(ancho, x_ref):
+    with pytest.raises(ValueError):
+        LaneKalman(Q, R_DOS, R_UNA, GATE, wheelbase_m=ancho, x_ref_m=x_ref)
+
+
+def test_una_medicion_descartada_no_se_guarda_para_buscar_cerca():
+    # Saltar al carril de al lado (0,38 m) es imposible en un cuadro: el filtro lo descarta y
+    # la búsqueda del cuadro siguiente sigue arrancando de las líneas buenas.
+    tracker = tracker_con_filtro(timeout_s=1.0)
+    buenas = ((0.0, 0.0, 170.0), (0.0, 0.0, 474.0))
+    vecino = ((0.0, 0.0, 474.0), (0.0, 0.0, 778.0))
+    for i in range(30):
+        tracker.update(LaneResult(True, 0.0, 0.0, 1.0, False, left_valid=True, right_valid=True,
+                                  left_fit=buenas[0], right_fit=buenas[1]), 10.0 + i * DT, 0.3)
+    instante = 10.0 + 30 * DT
+    tracker.update(LaneResult(True, -0.38, 0.0, 1.0, False, left_valid=True, right_valid=True,
+                              left_fit=vecino[0], right_fit=vecino[1]), instante, 0.3)
+    assert tracker.previas(instante) == buenas

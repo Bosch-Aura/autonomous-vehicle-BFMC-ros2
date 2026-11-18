@@ -80,6 +80,7 @@ class LaneTracker:
         # decide de qué lado es una línea sola. Vale `memoria_lado_s`.
         self._centro_previo: Optional[tuple] = None
         self._memoria_lado_s = 1.0
+        self._descartada = False
 
     @property
     def memoria_lado_s(self) -> float:
@@ -141,17 +142,23 @@ class LaneTracker:
         self._lost_timeout_s = valor
 
     def update(self, medicion: LaneResult, now: float,
-               velocidad_mps: float = 0.0) -> TrackedLane:
+               velocidad_mps: float = 0.0, giro_rad: float = 0.0) -> TrackedLane:
         """Devuelve el estado a publicar para la medición `medicion` tomada en `now` [s].
 
-        `velocidad_mps` es la del auto (la usa solo el filtro para predecir).
+        `velocidad_mps` y `giro_rad` son los comandados al auto (los usa solo el filtro para
+        predecir).
         """
-        self._recordar_lineas(medicion, now)
         modo = self._modo(medicion, now)
+        self._descartada = False
         if self._kalman is None:
             salida = self._sin_filtro(modo, medicion, now)
         else:
-            salida = self._con_filtro(modo, medicion, now, velocidad_mps)
+            salida = self._con_filtro(modo, medicion, now, velocidad_mps, giro_rad)
+        # Una medición que el filtro descartó (un salto imposible, por ejemplo al carril de
+        # al lado) no se guarda para buscar cerca en el cuadro siguiente: si se guardara, la
+        # búsqueda seguiría a la línea equivocada y el error se volvería a medir cada cuadro.
+        if not self._descartada:
+            self._recordar_lineas(medicion, now)
         self._modo_previo = modo
         if (modo in (MODE_TWO_LINES, MODE_ONE_LINE) and salida.detected
                 and math.isfinite(salida.lateral_error_m)):
@@ -182,10 +189,11 @@ class LaneTracker:
         return self._estado(modo, (valores.lateral_error_m, valores.heading_error_rad,
                                    valores.curvature), confianza, medicion)
 
-    def _con_filtro(self, modo, medicion: LaneResult, now: float, velocidad_mps: float):
+    def _con_filtro(self, modo, medicion: LaneResult, now: float, velocidad_mps: float,
+                    giro_rad: float = 0.0):
         filtro = self._kalman
         if self._instante_previo is not None:
-            filtro.predecir(now - self._instante_previo, velocidad_mps)
+            filtro.predecir(now - self._instante_previo, velocidad_mps, giro_rad)
         self._instante_previo = now
 
         if modo in (MODE_TWO_LINES, MODE_ONE_LINE):
@@ -198,8 +206,11 @@ class LaneTracker:
                 self._rechazando_desde = None
             elif self._rechazando_desde is None:
                 self._rechazando_desde = now
+                self._descartada = True
             elif now - self._rechazando_desde > self._lost_timeout_s:
                 self._reiniciar(z, dos_lineas)
+            else:
+                self._descartada = True
 
         if modo == MODE_LOST or not filtro.inicializado:
             return self._perdido(medicion)

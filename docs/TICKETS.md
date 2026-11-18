@@ -8,6 +8,16 @@ Rama: `prueba-jetson`.
 
 ---
 
+## A2-158 (rama `fix/A2-158-prueba-casos-posibles`): curvas, carril vecino y simulador
+
+Análisis completo, decisiones, cambios y cómo volver atrás en
+[`ANALISIS-CARRIL-Y-CONTROL.md`](ANALISIS-CARRIL-Y-CONTROL.md) (secciones 4 y 7). En corto:
+`error_shift_m: 0.38` y `filter_alpha: 1.0` en el control, y el filtro de Kalman del carril
+prendido y con el giro propio del auto. En el simulador: 22 de 22 curvas sin salirse (antes, 1).
+Falta validar en pista.
+
+---
+
 ## Sin ticket: giro en las curvas (control)
 
 **No tiene ticket de Jira**: el proyecto `A2` no estaba accesible desde la cuenta de Jira

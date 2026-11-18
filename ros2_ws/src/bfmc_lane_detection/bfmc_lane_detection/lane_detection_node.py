@@ -47,7 +47,7 @@ PARAMETROS_DECIMALES = (
     'reference_row_fraction', 'intersection_band_top_fraction', 'intersection_row_fraction',
     'debug_max_fps', 'max_residual_m', 'min_curve_radius_m', 'lane_width_tolerance_m',
     'lost_timeout_s', 'search_margin_m', 'kalman_max_std_m', 'kalman_gate_chi2',
-    'side_memory_s', 'clahe_clip',
+    'side_memory_s', 'clahe_clip', 'kalman_wheelbase_m', 'kalman_camera_to_rear_axle_m',
 )
 PARAMETROS_ARREGLOS = ('white_hsv_min', 'white_hsv_max')
 # Ajustes del detector l_adaptativo (sección 1b del params.yaml).
@@ -95,9 +95,13 @@ PARAMETROS_REINICIABLES = (
     'calib_forward_far_m', 'calib_half_width_m', 'lane_width_m') + PARAMETROS_DEL_CANAL_L
 
 # Filtro de Kalman del carril (A2-154): se rearma con cualquiera de estos cambios.
+# La geometría (calib_forward_*, reference_row_fraction) entra porque de ella sale la distancia
+# del eje trasero a la fila de medición, con la que el filtro descuenta el giro del auto.
 PARAMETROS_DEL_FILTRO = (
     'kalman_enabled', 'kalman_q', 'kalman_r_two_lines', 'kalman_r_one_line',
-    'kalman_max_std_m', 'kalman_gate_chi2')
+    'kalman_max_std_m', 'kalman_gate_chi2', 'kalman_wheelbase_m',
+    'kalman_camera_to_rear_axle_m', 'calib_forward_near_m', 'calib_forward_far_m',
+    'reference_row_fraction')
 
 # Estado del ESP32 en el que el auto se mueve (bfmc_interfaces/HardwareStatus).
 ESTADO_EN_MARCHA = 'RUNNING'
@@ -213,9 +217,10 @@ class LaneDetectionNode(Node):
         self._tracker = LaneTracker(self._valor('lost_timeout_s'))
         self._tracker.memoria_lado_s = self._valor('side_memory_s')
         self._configurar_filtro()   # falla al arrancar si los parámetros del filtro son inválidos
-        # Velocidad del auto para predecir: la comandada (/cmd/drive). No hay odometría.
-        # Sin comandos, 0: el filtro mantiene el estado y su incertidumbre crece.
+        # Velocidad y giro del auto para predecir: los comandados (/cmd/drive). No hay
+        # odometría. Sin comandos, 0: el filtro mantiene el estado y su incertidumbre crece.
         self._velocidad_mps = 0.0
+        self._giro_rad = 0.0
 
         # Las imágenes se leen con calidad "best effort" y cola de 1: si el nodo se
         # atrasa, conviene procesar la imagen más nueva y no acumular retraso.
@@ -282,12 +287,19 @@ class LaneDetectionNode(Node):
         valor = {n: cambios.get(n, self._valor(n)) for n in PARAMETROS_DEL_FILTRO}
         filtro = None
         if valor['kalman_enabled']:
+            # Del eje trasero a la fila donde se mide: eje -> pie de la cámara -> borde cercano
+            # de la vista -> fracción hacia adelante.
+            x_ref_m = (valor['kalman_camera_to_rear_axle_m'] + valor['calib_forward_near_m']
+                       + valor['reference_row_fraction']
+                       * (valor['calib_forward_far_m'] - valor['calib_forward_near_m']))
             filtro = LaneKalman(valor['kalman_q'], valor['kalman_r_two_lines'],
-                                valor['kalman_r_one_line'], valor['kalman_gate_chi2'])
+                                valor['kalman_r_one_line'], valor['kalman_gate_chi2'],
+                                wheelbase_m=valor['kalman_wheelbase_m'], x_ref_m=x_ref_m)
         self._tracker.usar_kalman(filtro, valor['kalman_max_std_m'])
 
     def _on_comando(self, msg: AckermannDriveStamped):
         self._velocidad_mps = float(msg.drive.speed)
+        self._giro_rad = float(msg.drive.steering_angle)
 
     def _on_estado(self, msg: HardwareStatus):
         self._estado_esp32 = msg.esp32_state
@@ -659,7 +671,8 @@ class LaneDetectionNode(Node):
             return
 
         with self._candado_carril:
-            carril = self._tracker.update(resultado, instante, self._velocidad_mps)
+            carril = self._tracker.update(
+                resultado, instante, self._velocidad_mps, self._giro_rad)
             if self._detector is not detector:
                 # Cambiaron los parámetros mientras se procesaba: esta imagen termina con su
                 # detector, pero las líneas que acaba de guardar están en píxeles de la

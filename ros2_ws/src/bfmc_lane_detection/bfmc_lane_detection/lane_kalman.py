@@ -7,19 +7,23 @@ cenital: medir en el auto obligaría a extrapolar el polinomio fuera de los dato
 - psi: rumbo del carril respecto del auto [rad], positivo hacia la izquierda;
 - kappa: curvatura del carril [1/m], positiva hacia la izquierda.
 
-Modelo de proceso, ángulo chico, con el avance del auto s = v·dt:
+Modelo de proceso, ángulo chico, con el avance del auto s = v·dt y su giro
+dθ = s·tan(δ)/L (modelo de bicicleta: δ el ángulo de dirección, L la distancia entre ejes):
 
-    d' = d + s·psi        psi' = psi + s·kappa        kappa' = kappa
+    d' = d + s·psi - x_ref·dθ      psi' = psi + s·kappa - dθ      kappa' = kappa
 
-No se resta el giro propio del auto (necesitaría la distancia entre ejes y el ángulo de
-dirección): lo absorbe el ruido de proceso Q. Si en la pista se ve atraso en las curvas,
-es la primera mejora a probar.
+x_ref es la distancia del eje trasero a la fila de referencia: cuando el auto gira, ese punto
+se corre de costado x_ref·dθ. Sin el término del giro (wheelbase_m = 0, como antes de
+2026-11-17), el filtro predice que el carril sigue donde estaba mientras el auto dobla: en
+el simulador rechazaba las mediciones buenas de las curvas y empeoraba el seguimiento (ver
+docs/ANALISIS-CARRIL-Y-CONTROL.md).
 
 La medición es el estado completo (H = I). Q está por segundo, así el filtro se comporta
 igual a cualquier cantidad de cuadros por segundo. Las mediciones demasiado lejos de la
 predicción (distancia de Mahalanobis al cuadrado mayor a `gate_chi2`; 11,34 es el 99 %
 de una chi-cuadrado con 3 grados de libertad) se descartan: es un reflejo o un salto.
 """
+import math
 from typing import Optional, Sequence
 
 import numpy as np
@@ -36,7 +40,14 @@ class LaneKalman:
     """Estima [desvío, rumbo, curvatura] con predicción por el avance y corrección."""
 
     def __init__(self, q: Sequence[float], r_two_lines: Sequence[float],
-                 r_one_line: Sequence[float], gate_chi2: float):
+                 r_one_line: Sequence[float], gate_chi2: float,
+                 wheelbase_m: float = 0.0, x_ref_m: float = 0.0):
+        """`wheelbase_m` > 0 activa el término del giro propio; 0 lo apaga."""
+        if wheelbase_m < 0.0 or x_ref_m < 0.0:
+            raise ValueError('kalman_wheelbase_m y la distancia a la fila de referencia no '
+                             'pueden ser negativas')
+        self._wheelbase_m = wheelbase_m
+        self._x_ref_m = x_ref_m
         self._q = _diagonal(q, 'kalman_q')
         self._r = {True: _diagonal(r_two_lines, 'kalman_r_two_lines'),
                    False: _diagonal(r_one_line, 'kalman_r_one_line')}
@@ -69,13 +80,19 @@ class LaneKalman:
         self._x = None
         self._p = None
 
-    def predecir(self, dt: float, velocidad_mps: float) -> None:
-        """Avanza el estado `dt` segundos. Sin efecto si no está inicializado o dt <= 0."""
+    def predecir(self, dt: float, velocidad_mps: float, giro_rad: float = 0.0) -> None:
+        """Avanza el estado `dt` segundos con la velocidad y el giro comandados.
+
+        Sin efecto si no está inicializado o dt <= 0.
+        """
         if not self.inicializado or dt <= 0.0:
             return
         avance = velocidad_mps * dt
         f = np.array([[1.0, avance, 0.0], [0.0, 1.0, avance], [0.0, 0.0, 1.0]])
         self._x = f @ self._x
+        if self._wheelbase_m > 0.0:
+            giro_auto = avance * math.tan(giro_rad) / self._wheelbase_m
+            self._x = self._x - np.array([self._x_ref_m * giro_auto, giro_auto, 0.0])
         self._p = f @ self._p @ f.T + self._q * dt
 
     def corregir(self, medicion: Sequence[float], dos_lineas: bool) -> bool:

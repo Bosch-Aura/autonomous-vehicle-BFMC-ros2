@@ -6,6 +6,7 @@ Documentación del proyecto AURA — Bosch Future Mobility Challenge.
 
 - [`ARQUITECTURA.md`](ARQUITECTURA.md): arquitectura del sistema, paquetes, topics y reglas de diseño.
 - [`TICKETS.md`](TICKETS.md): cómo quedó implementado cada ticket A2 (desde A2-151) y qué falta.
+- [`ANALISIS-CARRIL-Y-CONTROL.md`](ANALISIS-CARRIL-Y-CONTROL.md): por qué el auto se sale en las curvas, gira al revés o frena (simulador, hallazgos y pasos a seguir, 2026-11-17).
 - [`adr/`](adr/): decisiones de arquitectura numeradas.
   - [ADR-0001](adr/0001-hardware-de-control-y-protocolo-serial.md): hardware de control y protocolo serial Jetson ↔ ESP32 (el protocolo quedó reemplazado por el ADR-0002).
   - [ADR-0002](adr/0002-protocolo-serial-del-firmware-embedded.md): el bridge usa el protocolo del firmware de `Bosch-Aura/embedded`.
