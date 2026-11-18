@@ -60,7 +60,7 @@ lane_detection:
     max_residual_m: 0.02             # [m] error medio del polinomio respecto de los píxeles
     min_curve_radius_m: 0.25         # [m] radio mínimo de UNA línea: la interna de la curva más cerrada (centro ~0,46 m medido por la cámara, menos medio carril) [medir con cinta]
     # Las dos líneas tienen que estar a lane_width_m ± esto, medido perpendicular a ellas.
-    lane_width_tolerance_m: 0.05     # [m]
+    lane_width_tolerance_m: 0.08     # [m] antes 0,05: en la curva el ancho medido cambia por la perspectiva; con 0,05 el detector descartaba pares buenos (vuelta grabada 2026-11-17: dos líneas 33% -> 39%, con la vista de 0,36 m 64%)
     width_check_fractions: [0.1, 0.5, 0.9]   # alturas donde se mide el ancho (0 = cerca, 1 = lejos)
 
     # 4d. Búsqueda alrededor del polinomio del cuadro anterior (A2-153): solo se toman los
@@ -111,8 +111,8 @@ lane_detection:
     camera_intrinsics: [615.0, 615.0, 320.0, 240.0, 640.0, 480.0]
     # Rectángulo del piso que muestra la vista cenital, medido desde el pie de la cámara.
     calib_forward_near_m: 0.35       # [m] borde de abajo de la vista cenital (más cerca, la cámara no ve las líneas)
-    calib_forward_far_m: 0.95        # [m] borde de arriba
-    calib_half_width_m: 0.40         # [m] mitad del ancho (antes 0,25: en las curvas cerradas la línea de afuera salía de la vista)
+    calib_forward_far_m: 0.75        # [m] borde de arriba; antes 0,95: con más de 0,75 empeora (vuelta grabada: dos líneas 18-28%, saltos de rumbo x3)
+    calib_half_width_m: 0.36         # [m] mitad del ancho (0,25 dejaba la línea de adentro fuera de la vista en la curva: dos líneas 33% -> 64% con 0,36)
 
     # Calibración con la profundidad de la D435 (ver README, "Cómo calibrarlo"). Con el auto
     # quieto y la zona despejada: ros2 service call /lane_detection/calibrate_ground std_srvs/srv/Trigger
