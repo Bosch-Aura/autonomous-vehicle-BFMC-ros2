@@ -19,6 +19,7 @@ PARAMETROS_DE_LA_LOGICA = (
     'turn_delay_m', 'error_shift_m', 'infeasible_curve_speed_factor',
     'curve_enter_heading_rad', 'curve_enter_s', 'curve_exit_heading_rad', 'curve_exit_s',
     'curve_reverse_s', 'curve_max_s', 'curve_hold_s', 'curve_lost_hold_s',
+    'curve_reject_heading_rad',
 )
 # Pure Pursuit (A2-155): nombre del parámetro = campo de PurePursuitConfig.
 PARAMETROS_DE_PURE_PURSUIT = (

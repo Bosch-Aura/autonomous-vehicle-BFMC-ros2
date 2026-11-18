@@ -40,15 +40,16 @@ PARAMETROS_TEXTO = (
 PARAMETROS_ENTEROS = (
     'morph_kernel_px', 'warp_width', 'warp_height', 'n_windows', 'window_margin_px',
     'min_pixels', 'full_confidence_pixels', 'intersection_min_rows', 'min_windows',
-    'l_block_size_px', 'l_offset', 'l_min',
+    'l_block_size_px', 'l_offset', 'l_min', 'heading_jump_confirm',
 )
 PARAMETROS_DECIMALES = (
     'roi_top_fraction', 'lane_width_m',
     'reference_row_fraction', 'intersection_band_top_fraction', 'intersection_row_fraction',
     'debug_max_fps', 'max_residual_m', 'min_curve_radius_m', 'lane_width_tolerance_m',
     'lost_timeout_s', 'search_margin_m', 'kalman_max_std_m', 'kalman_gate_chi2',
-    'side_memory_s', 'clahe_clip',
+    'side_memory_s', 'clahe_clip', 'heading_jump_rad_s', 'heading_jump_min_rad',
 )
+PARAMETROS_SALTO_DE_RUMBO = ('heading_jump_rad_s', 'heading_jump_min_rad', 'heading_jump_confirm')
 PARAMETROS_ARREGLOS = ('white_hsv_min', 'white_hsv_max')
 # Ajustes del detector l_adaptativo (sección 1b del params.yaml).
 PARAMETROS_DEL_CANAL_L = ('l_block_size_px', 'l_offset', 'l_min', 'clahe_clip')
@@ -212,6 +213,8 @@ class LaneDetectionNode(Node):
         self._candado_carril = threading.Lock()
         self._tracker = LaneTracker(self._valor('lost_timeout_s'))
         self._tracker.memoria_lado_s = self._valor('side_memory_s')
+        self._tracker.configurar_salto_de_rumbo(
+            *(self._valor(n) for n in PARAMETROS_SALTO_DE_RUMBO))
         self._configurar_filtro()   # falla al arrancar si los parámetros del filtro son inválidos
         # Velocidad del auto para predecir: la comandada (/cmd/drive). No hay odometría.
         # Sin comandos, 0: el filtro mantiene el estado y su incertidumbre crece.
@@ -326,6 +329,12 @@ class LaneDetectionNode(Node):
         if 'side_memory_s' in cambios:
             try:
                 self._tracker.memoria_lado_s = cambios['side_memory_s']
+            except ValueError as error:
+                return SetParametersResult(successful=False, reason=str(error))
+        if any(nombre in PARAMETROS_SALTO_DE_RUMBO for nombre in cambios):
+            try:
+                self._tracker.configurar_salto_de_rumbo(
+                    *(cambios.get(n, self._valor(n)) for n in PARAMETROS_SALTO_DE_RUMBO))
             except ValueError as error:
                 return SetParametersResult(successful=False, reason=str(error))
         if any(nombre in PARAMETROS_DEL_FILTRO for nombre in cambios):

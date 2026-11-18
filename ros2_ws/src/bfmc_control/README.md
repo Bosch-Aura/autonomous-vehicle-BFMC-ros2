@@ -85,6 +85,7 @@ Viven en [`config/params.yaml`](config/params.yaml). El nodo no tiene valores po
 | `curve_max_s` | s | Tope de duración del estado de giro |
 | `curve_hold_s` | s | Cuánto se usa el último buen giro cuando la medición pide girar al lado contrario; después, 0 |
 | `curve_lost_hold_s` | s | Cuánto se sostiene el giro al perder el carril dentro de una curva |
+| `curve_reject_heading_rad` | rad | Con una sola línea y dentro de una curva, un rumbo contrario menor a esto no se le da al PID (se usa el último bueno); 0 = apagado |
 | `algorithm` | — | `pid` o `pure_pursuit` |
 | `wheelbase_m`, `camera_to_rear_axle_m` | m | Medidas del auto para Pure Pursuit |
 | `lookahead_min_m`, `lookahead_max_m`, `lookahead_gain_s` | m, m, s | Distancia de mirada |

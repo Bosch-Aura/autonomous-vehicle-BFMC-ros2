@@ -84,6 +84,7 @@ class ControlConfig:
     curve_max_s: float = 0.0               # [s] tope de duración de la curva
     curve_hold_s: float = 0.0              # [s] cuánto se usa el último buen giro
     curve_lost_hold_s: float = 0.0         # [s] sostén del giro al perder el carril en una curva
+    curve_reject_heading_rad: float = 0.0  # [rad] rumbo contrario menor a esto se ignora
     algorithm: str = PID
     pure_pursuit: Optional[PurePursuitConfig] = None
 
@@ -127,6 +128,8 @@ class ControlConfig:
         if self.curve_enter_heading_rad < 0.0 or self.curve_exit_heading_rad < 0.0 \
                 or min(tiempos) < 0.0:
             raise ValueError('los parámetros curve_* no pueden ser negativos')
+        if self.curve_reject_heading_rad < 0.0:
+            raise ValueError('curve_reject_heading_rad no puede ser negativo')
         if self.curve_enter_heading_rad > 0.0:
             if self.curve_exit_heading_rad >= self.curve_enter_heading_rad:
                 raise ValueError('curve_exit_heading_rad debe ser menor que '

@@ -86,11 +86,18 @@ lane_detection:
 
     # 4c. Fallback: sin líneas válidas se repite el último estado (MODE_PREDICTED) con la
     # confianza bajando hasta 0; pasado este tiempo, MODE_LOST y bfmc_decision frena.
-    lost_timeout_s: 1.0              # [s] a 0,3 m/s son unos 30 cm con la última estimación antes de frenar (pedido en pista: 0,3 s frenaba enseguida en las curvas)
+    lost_timeout_s: 1.5              # [s] antes 1,0. A 0,41 m/s son unos 60 cm con la última estimación antes de frenar (curvas cerradas: el carril sale de la vista un instante; con 1,0 s frenaba por EMERGENCIA en el video del 2026-11-17); pedido en pista: 0,3 s frenaba enseguida en las curvas
     # Con una sola línea, su lado sale de dónde estaba el carril hace a lo sumo esto (si no,
     # de la mitad de la vista donde arranca): así una línea que cruza el centro de la vista
     # (auto corrido o cruzado en una curva) no se toma por la del otro lado.
     side_memory_s: 1.0               # [s] [asumido]
+    # Con una sola línea, el rumbo no puede saltar más de max(heading_jump_min_rad,
+    # heading_jump_rad_s * dt) entre cuadros (video del 2026-11-17: 0,85 -> 0,28 -> -0,05 -> 0,95 rad
+    # en 4 s). Si salta, se repite el último estado; tras heading_jump_confirm rechazos seguidos se
+    # acepta (cambio real). Con dos líneas no rige. 0 en heading_jump_rad_s = apagado.
+    heading_jump_rad_s: 2.0          # [rad/s] [asumido]
+    heading_jump_min_rad: 0.3        # [rad] salto siempre permitido [asumido]
+    heading_jump_confirm: 2          # [cuadros] rechazos seguidos antes de aceptar [asumido]
 
     # 5. Medición.
     reference_row_fraction: 0.05     # fila donde se mide, como fracción hacia adelante (0 = pegado al auto); con Desde 0,35: a 0,38 m de la cámara

@@ -9,6 +9,9 @@ mantiene por encima de `curve_enter_heading_rad` durante `curve_enter_s`. Mientr
 
 - un giro objetivo de signo contrario al de la curva se reemplaza por el último buen giro,
   hasta `curve_hold_s`, y después por 0 (nunca se gira al revés por una medición suelta);
+- con una sola línea, un rumbo chico de signo contrario (menos de `curve_reject_heading_rad`)
+  se reemplaza por el último buen rumbo, hasta `curve_hold_s`, y después por 0; uno grande
+  del lado contrario es un pasarse de giro de verdad y se deja pasar (0 = apagado);
 - si se pierde el carril se sostiene el giro `curve_lost_hold_s`.
 
 Sale cuando el rumbo queda por debajo de `curve_exit_heading_rad` durante `curve_exit_s`, o a
@@ -39,6 +42,8 @@ class EstadoDeGiro:
         self._recto_desde = None         # desde cuándo el rumbo está bajo el umbral de salida
         self._buen_giro = 0.0            # último giro objetivo del lado de la curva
         self._buen_giro_instante = None
+        self._buen_rumbo = 0.0           # último rumbo del lado de la curva
+        self._buen_rumbo_instante = None
 
     @property
     def direccion(self) -> int:
@@ -81,6 +86,23 @@ class EstadoDeGiro:
         if (self._buen_giro_instante is not None
                 and now - self._buen_giro_instante <= cfg.curve_hold_s):
             return self._buen_giro
+        return 0.0
+
+    def filtrar_rumbo(self, cfg, rumbo: float, confianza: float, now: float) -> float:
+        """El rumbo que se le da al PID: con una sola línea no deja que uno chico al revés
+        (parpadeo de lado) tire del volante en medio de la curva."""
+        if cfg.curve_reject_heading_rad <= 0.0 or not self.activo(cfg, now):
+            return rumbo
+        if rumbo * self._direccion > 0.0:
+            self._buen_rumbo = rumbo
+            self._buen_rumbo_instante = now
+            return rumbo
+        if (confianza >= cfg.curvature_ff_min_confidence
+                or abs(rumbo) >= cfg.curve_reject_heading_rad):
+            return rumbo
+        if (self._buen_rumbo_instante is not None
+                and now - self._buen_rumbo_instante <= cfg.curve_hold_s):
+            return self._buen_rumbo
         return 0.0
 
     def sostener_s(self, cfg, now: float) -> float:

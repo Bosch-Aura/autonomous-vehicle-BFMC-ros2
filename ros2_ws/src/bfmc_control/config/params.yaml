@@ -10,15 +10,15 @@ control:
     # PID sobre el error = desvío lateral + heading_weight * error de rumbo.
     kp: 1.5                            # [rad/m] [asumido]
     ki: 0.1                            # [rad/(m*s)] [asumido]
-    kd: 0.2                            # [rad*s/m] [asumido]
+    kd: 0.05                           # [rad*s/m] baja de 0,2: derivaba el ruido de cada cuadro y el volante vibraba en recta [asumido: afinar en pista]
     heading_weight_m_per_rad: 0.5      # [m/rad] cuánto pesa el rumbo frente al desvío [asumido]
-    deadband_m: 0.01                   # [m] errores menores se ignoran [asumido]
+    deadband_m: 0.03                   # [m] errores menores se ignoran; sube de 0,01 para no corregir constantemente en recta [asumido: afinar en pista]
     integral_limit_rad: 0.15           # [rad] tope del término integral (anti-windup) [asumido]
 
     # Forma de la salida.
     max_steer_rad: 0.436332            # [rad] 25 grados, el tope del servo según el informe (igual que en bfmc_hardware_bridge) [por-verificar: medir]
     max_steer_rate_rad_s: 3.0          # [rad/s] límite de velocidad de giro [asumido]
-    filter_alpha: 0.6                  # (0, 1] 1 = sin filtro; menor = más suave [asumido]
+    filter_alpha: 0.35                 # (0, 1] 1 = sin filtro; menor = más suave; baja de 0,6 [asumido: afinar en pista]
 
     # Velocidad.
     cruise_speed_mps: 0.3              # [m/s] velocidad de crucero [asumido]
@@ -31,7 +31,7 @@ control:
     # Carril no detectado o poco confiable.
     min_confidence: 0.15               # [0, 1] debajo de esto se trata como carril perdido y se endereza. Bajo para que,
                                        # mientras lane_detection predice (lost_timeout_s, 1 s), se siga girando con la última estimación
-    lost_speed_factor: 1.0             # [0, 1] fracción de la velocidad de crucero sin carril: 1 = no baja, el carril solo orienta
+    lost_speed_factor: 0.7             # [0, 1] fracción de la velocidad de crucero sin carril (con 0,41 m/s son 0,29: por encima del piso donde el motor no movía el auto con las ruedas al tope)
     max_dt_s: 0.5                      # [s] una pausa mayor entre mediciones reinicia el PID [asumido]
     # Al perder el carril se sostiene el último giro con carril durante este tiempo y después
     # se endereza. En la grabación del 2026-11-08 el auto enderezaba en plena curva (la línea
@@ -79,6 +79,9 @@ control:
     curve_max_s: 5.0                   # [s] [asumido]
     curve_hold_s: 0.5                  # [s] [asumido]
     curve_lost_hold_s: 1.0             # [s] [asumido]
+    # Con una sola línea, un rumbo del lado contrario menor a esto no tira del volante dentro de
+    # una curva (parpadeo de lado, video del 2026-11-17); uno mayor es un pasarse de giro real y se obedece.
+    curve_reject_heading_rad: 0.5      # [rad] [asumido]. 0 = apagado
 
     # Algoritmo de dirección (ADR-0004), cada uno en bfmc_control/algoritmos/: pid (A2-138, el
     # de siempre) o pure_pursuit (A2-155). El PID queda por defecto hasta validar Pure Pursuit

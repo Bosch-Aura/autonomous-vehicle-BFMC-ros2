@@ -32,7 +32,7 @@ para que bfmc_decision lleve el auto a una parada controlada.
 
 Los modos tienen los mismos números que las constantes de bfmc_interfaces/LaneState.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 from typing import Optional
 
@@ -80,6 +80,24 @@ class LaneTracker:
         # decide de qué lado es una línea sola. Vale `memoria_lado_s`.
         self._centro_previo: Optional[tuple] = None
         self._memoria_lado_s = 1.0
+        # Con una sola línea el rumbo no puede saltar más de max(salto_min, salto_rad_s * dt)
+        # respecto del último aceptado: si salta, se trata como una medición suelta (se repite
+        # el último estado). Con `salto_confirmar` rechazos seguidos se acepta (la realidad
+        # cambió). salto_rad_s = 0: apagado.
+        self._salto_rad_s = 0.0
+        self._salto_min_rad = 0.3
+        self._salto_confirmar = 2
+        self._rumbo_ok: Optional[tuple] = None
+        self._rechazos = 0
+
+    def configurar_salto_de_rumbo(self, rad_s: float, minimo_rad: float,
+                                  confirmar: int) -> None:
+        """Límite del salto del rumbo con una línea (ver __init__). rad_s = 0 lo apaga."""
+        if rad_s < 0.0 or minimo_rad < 0.0 or confirmar < 0:
+            raise ValueError('heading_jump_* no pueden ser negativos')
+        self._salto_rad_s, self._salto_min_rad = rad_s, minimo_rad
+        self._salto_confirmar = confirmar
+        self._rumbo_ok, self._rechazos = None, 0
 
     @property
     def memoria_lado_s(self) -> float:
@@ -146,6 +164,7 @@ class LaneTracker:
 
         `velocidad_mps` es la del auto (la usa solo el filtro para predecir).
         """
+        medicion = self._filtrar_salto_de_rumbo(medicion, now)
         self._recordar_lineas(medicion, now)
         modo = self._modo(medicion, now)
         if self._kalman is None:
@@ -157,6 +176,25 @@ class LaneTracker:
                 and math.isfinite(salida.lateral_error_m)):
             self._centro_previo = (salida.lateral_error_m, now)
         return salida
+
+    def _filtrar_salto_de_rumbo(self, medicion: LaneResult, now: float) -> LaneResult:
+        """La medición, o una sin líneas si el rumbo de una sola línea saltó de golpe."""
+        rumbo = medicion.heading_error_rad
+        if self._salto_rad_s <= 0.0 or not medicion.detected or not math.isfinite(rumbo):
+            return medicion
+        previo = self._rumbo_ok
+        vigente = previo is not None and 0.0 <= now - previo[1] <= self._lost_timeout_s
+        if (medicion.left_valid and medicion.right_valid) or not vigente:
+            self._rumbo_ok, self._rechazos = (rumbo, now), 0
+            return medicion
+        limite = max(self._salto_min_rad, self._salto_rad_s * (now - previo[1]))
+        if abs(rumbo - previo[0]) <= limite or self._rechazos >= self._salto_confirmar:
+            self._rumbo_ok, self._rechazos = (rumbo, now), 0
+            return medicion
+        self._rechazos += 1
+        return replace(medicion, detected=False, left_valid=False, right_valid=False,
+                       left_fit=None, right_fit=None, width_discarded='',
+                       failed_checks='salto de rumbo')
 
     def _modo(self, medicion: LaneResult, now: float) -> int:
         if medicion.detected:

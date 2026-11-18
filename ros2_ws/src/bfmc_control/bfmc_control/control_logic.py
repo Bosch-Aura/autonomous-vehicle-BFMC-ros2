@@ -20,6 +20,7 @@ comportamiento en el tiempo se verifica sin esperar.
 Convenciones (las mismas que bfmc_interfaces): unidades SI, y un error o un
 ángulo positivo es hacia la izquierda.
 """
+import dataclasses
 import math
 
 from bfmc_control import algoritmos
@@ -77,7 +78,11 @@ class ControlLogic:
             steer = self._dar_forma(self._giro_sin_carril(now), now)
             return ControlOutput(steer, cfg.cruise_speed_mps * cfg.lost_speed_factor)
 
-        objetivo, velocidad = self._algoritmo.calcular(cfg, lane, now)
+        rumbo = self._giro_de_curva.filtrar_rumbo(
+            cfg, lane.heading_error_rad, lane.confidence, now)
+        entrada = lane if rumbo == lane.heading_error_rad else dataclasses.replace(
+            lane, heading_error_rad=rumbo)
+        objetivo, velocidad = self._algoritmo.calcular(cfg, entrada, now)
         objetivo = limitar(objetivo, cfg.max_steer_rad)
         self._giro_de_curva.actualizar(cfg, lane.heading_error_rad, now)
         steer = self._dar_forma(self._giro_de_curva.corregir(cfg, objetivo, now), now)
