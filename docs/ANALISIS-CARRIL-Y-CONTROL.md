@@ -401,3 +401,28 @@ curva cerrada y las intermedias.
 **Pendiente:** que la intersección se pida solo con una franja **dentro del carril** (hoy cuenta
 cualquier fila blanca de la vista), para que una intersección falsa no pueda lanzar una maniobra a
 ciegas.
+
+---
+
+## 11. Paso de cebra (2026-11-18)
+
+**Qué pasaba** (video `prueba2-dashboard`, 14,25 a 15 s, vista desde arriba): la cebra son varias
+franjas verticales juntas, unidas por una banda blanca horizontal que llega hasta la línea del
+carril. Las ventanas toman las franjas por líneas, falla el chequeo de ancho y la banda llena la
+fila como una línea de pare. En el simulador, la cebra daba «intersección» 57 cuadros seguidos.
+
+**Decisión:** una fila de la vista cenital que corta **4 o más tiras blancas** separadas
+(`crosswalk_min_stripes: 4`; una fila del carril corta 1 a 3) es cebra. Esas filas, y
+`crosswalk_margin_m` (8 cm) arriba y abajo para llevarse la banda, se borran antes de buscar líneas e
+intersecciones. Al cruzar, cada línea se ajusta con lo que se ve antes y después de la cebra, y si
+no queda nada el tracker predice. Las tiras de menos de 1 cm no cuentan (ruido).
+`crosswalk_min_stripes: 0` lo apaga, en vivo.
+
+**Simulador:** sin intersección falsa en la cebra (0 cuadros, antes 57); la línea de pare se sigue
+detectando; el auto cruza la cebra centrado, corrido 6 cm, cruzado 10°, con piso blanco y en una
+bifurcación. Rectas, bifurcaciones y piso blanco: sin cambios.
+
+**Riesgos:** las medidas de la cebra del simulador son supuestas (franjas de 5 cm cada 10 cm). Si
+en la pista una fila del carril llegara a cortar 4 líneas (por ejemplo, una bifurcación con el
+carril vecino a la vista), esa fila se borraría: se pierde información, pero no aparece una línea
+falsa. Si la cebra real tiene franjas más anchas o más juntas, puede hacer falta bajar el umbral.

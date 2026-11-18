@@ -105,6 +105,11 @@ class LaneConfig:
     # esto en las dos direcciones (el piso fuera de la pista). Una línea, una línea de pare o una
     # franja de la cebra son finas en alguna dirección y quedan. 0 = no se borra nada.
     floor_max_line_m: float = 0.0
+    # Paso de cebra (2026-11-18): una fila de la vista cenital que corta al menos esta cantidad de
+    # tiras blancas separadas es cebra; se borra, con crosswalk_margin_m arriba y abajo, antes de
+    # buscar líneas e intersecciones. 0 = no se borra nada.
+    crosswalk_min_stripes: int = 0
+    crosswalk_margin_m: float = 0.08
 
     def __post_init__(self):
         if len(self.white_hsv_min) != 3 or len(self.white_hsv_max) != 3:
@@ -155,6 +160,8 @@ class LaneConfig:
             raise ValueError('l_block_size_px debe ser impar y al menos 3')
         if not 0 <= self.l_offset <= 255 or not 0 <= self.l_min <= 255:
             raise ValueError('l_offset y l_min deben estar entre 0 y 255')
+        if self.crosswalk_min_stripes < 0 or self.crosswalk_margin_m < 0.0:
+            raise ValueError('crosswalk_min_stripes y crosswalk_margin_m no pueden ser negativos')
         if self.floor_max_line_m < 0.0:
             raise ValueError('floor_max_line_m no puede ser negativo')
         if self.clahe_clip < 0.0:
@@ -374,7 +381,36 @@ class LaneDetector:
         cenital = cv2.warpPerspective(
             mascara, self.warp_matrix(ancho, alto), (cfg.warp_width, cfg.warp_height),
             flags=cv2.INTER_NEAREST)
-        return self._sin_piso(cenital)
+        return self._sin_cebra(self._sin_piso(cenital))
+
+    def _sin_cebra(self, cenital):
+        """Borra las filas del paso de cebra (y crosswalk_margin_m alrededor).
+
+        Una fila del carril corta 1 a 3 líneas (las dos del carril y, a veces, una del vecino);
+        una fila de la cebra corta muchas franjas. Esas franjas, verticales en la vista, son
+        iguales a una línea para las ventanas, y la banda que las une llena la fila como una línea
+        de pare (prueba del 2026-11-18). Sin esas filas, cada línea se ajusta con lo que se ve
+        antes y después de la cebra; si no queda nada, el tracker predice.
+        """
+        cfg = self._config
+        if cfg.crosswalk_min_stripes <= 0:
+            return cenital
+        blanco = cenital > 0
+        # Tiras de menos de 1 cm son ruido: no cuentan como franja.
+        minimo = max(1, int(round(0.01 / self._mpp_x)))
+        if minimo > 1:
+            blanco = cv2.morphologyEx(blanco.astype(np.uint8), cv2.MORPH_OPEN,
+                                      np.ones((1, minimo), np.uint8)) > 0
+        tiras = (np.diff(blanco.astype(np.int8), axis=1, prepend=0) == 1).sum(axis=1)
+        cebra = tiras >= cfg.crosswalk_min_stripes
+        if not cebra.any():
+            return cenital
+        margen = int(round(cfg.crosswalk_margin_m / self._mpp_y))
+        if margen > 0:
+            cebra = np.convolve(cebra.astype(np.int32), np.ones(2 * margen + 1), 'same') > 0
+        limpia = cenital.copy()
+        limpia[cebra] = 0
+        return limpia
 
     def _sin_piso(self, cenital):
         """Borra las zonas blancas más gruesas que floor_max_line_m en x y en y (el piso).

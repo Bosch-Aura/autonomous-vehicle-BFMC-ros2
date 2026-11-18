@@ -28,6 +28,11 @@ lane_detection:
     # cenital se borra todo lo blanco más grueso que esto en las dos direcciones. Las líneas (~2 cm),
     # la línea de pare y las franjas de la cebra quedan. 0.0 = apagado (como antes).
     floor_max_line_m: 0.08           # [m] [simulador; validar en pista]
+    # Paso de cebra (prueba del 2026-11-18): una fila de la vista cenital que corta al menos esta
+    # cantidad de tiras blancas es cebra; esas filas (más crosswalk_margin_m arriba y abajo) se
+    # borran antes de buscar líneas e intersecciones. Una fila del carril corta 1 a 3. 0 = apagado.
+    crosswalk_min_stripes: 4
+    crosswalk_margin_m: 0.08         # [m] [asumido]
 
     # 1b. Detector l_adaptativo: un píxel es blanco si su L supera en l_offset al promedio de
     # su vecindad (l_block_size_px) Y además L >= l_min (así el asfalto claro no pasa).

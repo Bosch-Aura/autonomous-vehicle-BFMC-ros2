@@ -57,6 +57,15 @@ CASOS += [
      Marcas(**BIF, fork_R=0.4, erase=[(0.9, 3.0, 'right')]), {}),
     ('B06 salida a la der', recta(), Marcas(center_line='solid', fork_s=1.3, fork_side='right'), {}),
 ]
+# Paso de cebra (prueba del 2026-11-18).
+CASOS += [
+    ('Z01 cebra, auto corrido 6cm izq', recta(), Marcas(crosswalk_s=1.6), dict(d0=0.06)),
+    ('Z02 cebra, auto cruzado 10° der', recta(), Marcas(crosswalk_s=1.6), dict(yaw0=-0.17)),
+    ('Z03 cebra en la salida de una curva izq', [Seg('S', 1.2), Seg('L', P / 2, 0.66), Seg('S', 2.0)],
+     Marcas(crosswalk_s=2.5), {}),
+    ('Z04 cebra + piso blanco', recta(), Marcas(crosswalk_s=1.6, piso_der=0.05), {}),
+]
+
 # Piso blanco fuera de la pista (prueba del 2026-11-18).
 CASOS += [
     ('P01 recta, piso blanco a 5cm de la der', recta(), Marcas(piso_der=0.05), {}),

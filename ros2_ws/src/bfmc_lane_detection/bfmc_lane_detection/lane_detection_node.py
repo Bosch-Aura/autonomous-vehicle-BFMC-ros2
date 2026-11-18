@@ -40,7 +40,7 @@ PARAMETROS_TEXTO = (
 PARAMETROS_ENTEROS = (
     'morph_kernel_px', 'warp_width', 'warp_height', 'n_windows', 'window_margin_px',
     'min_pixels', 'full_confidence_pixels', 'intersection_min_rows', 'min_windows',
-    'l_block_size_px', 'l_offset', 'l_min',
+    'l_block_size_px', 'l_offset', 'l_min', 'crosswalk_min_stripes',
 )
 PARAMETROS_DECIMALES = (
     'roi_top_fraction', 'lane_width_m',
@@ -48,7 +48,7 @@ PARAMETROS_DECIMALES = (
     'debug_max_fps', 'max_residual_m', 'min_curve_radius_m', 'lane_width_tolerance_m',
     'lost_timeout_s', 'search_margin_m', 'kalman_max_std_m', 'kalman_gate_chi2',
     'side_memory_s', 'clahe_clip', 'kalman_wheelbase_m', 'kalman_camera_to_rear_axle_m',
-    'floor_max_line_m',
+    'floor_max_line_m', 'crosswalk_margin_m',
 )
 PARAMETROS_ARREGLOS = ('white_hsv_min', 'white_hsv_max')
 # Ajustes del detector l_adaptativo (sección 1b del params.yaml).
