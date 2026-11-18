@@ -95,4 +95,5 @@ def generate_launch_description():
               [{'serial_port': LaunchConfiguration('serial_port')}]),
         _nodo('bfmc_maneuvers', 'maneuvers'),
         _nodo('bfmc_decision', 'decision'),
+        _nodo('bfmc_recorder', 'recorder'),
     ])

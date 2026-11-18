@@ -1,0 +1,26 @@
+# Parámetros de bfmc_recorder. Toda constante del nodo vive acá, no en el código.
+# La clave de primer nivel es el nombre del nodo.
+recorder:
+  ros__parameters:
+    # Qué se graba. La imagen es la que ve el detector de carril (sin procesar).
+    image_topic: /camera/color/image_raw
+    lane_topic: /perception/lane
+    lane_cmd_topic: /control/lane_cmd
+    drive_topic: /cmd/drive
+    hardware_status_topic: /hardware/status
+
+    # Dónde y cuánto. Cada grabación es una carpeta con la fecha y la hora.
+    output_dir: ~/bfmc_grabaciones     # carpeta en la Jetson; se baja a la PC y se borra
+    max_fps: 10.0                      # [Hz] cuadros por segundo que se guardan (0 = todos) [asumido]
+    jpeg_quality: 92                   # [1, 100] [asumido]
+    max_minutes: 10.0                  # [min] corta sola a los 10 minutos [asumido]
+    min_free_mb: 500.0                 # [MB] corta si queda menos espacio libre [asumido]
+
+    # Servicios (std_srvs/Trigger) y estado, que usa el visor.
+    start_service: /recorder/start
+    stop_service: /recorder/stop
+    status_topic: /recorder/status     # std_msgs/String con un JSON, 1 Hz
+
+    # Se copian a la grabación: con qué parámetros se grabó.
+    meta_files: ['~/.config/bfmc/lane_detection.yaml']
+    dump_nodes: ['lane_detection', 'control']   # `ros2 param dump` de estos nodos

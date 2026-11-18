@@ -96,6 +96,8 @@
   .fila.compacta button { flex: 1; padding: 5px 6px; font-size: 13px; white-space: nowrap; }
   button.frenar { background: var(--mal); }
   button.iniciar { background: var(--ok); }
+  .comandos { margin: 4px 0 0; padding: 6px 8px; border-radius: 6px; background: rgba(127,127,127,.15);
+    font-size: 12px; white-space: pre-wrap; word-break: break-all; user-select: all; }
   .aviso-mando { margin: 8px 0 0; padding: 6px 10px; border-radius: 6px; font-size: 13px;
                  border: 1px solid var(--mal); color: var(--mal); }
 
@@ -283,6 +285,21 @@
     </div>
 
     <div class="tarjeta">
+      <h2>Grabación <small id="estado-grabacion">sin conexión</small></h2>
+      <div class="fila compacta">
+        <button id="grabar" class="sec" disabled>Grabar</button>
+      </div>
+      <p class="aviso-mando" id="aviso-grabacion" hidden></p>
+      <div id="bajar-grabacion" hidden>
+        <p>Para bajarla a tu PC y borrarla de la Jetson (reemplazá <b>usuario</b> por el de la Jetson):</p>
+        <pre class="comandos" id="comandos-grabacion"></pre>
+      </div>
+      <details><summary>Cómo funciona</summary>
+        <p>Graba los cuadros de la cámara (sin procesar, unos 10 por segundo) y el estado del carril, del control y del hardware. Para cuando apretás de nuevo, a los 10 minutos o si queda poco espacio. No maneja el auto. La grabación queda en la Jetson, en <code>~/bfmc_grabaciones</code>: bajala a tu PC con los comandos que aparecen al parar y borrala para no llenar la Jetson.</p>
+      </details>
+    </div>
+
+    <div class="tarjeta">
       <h2>Señales <small id="estado-senales">sin conexión</small></h2>
       <div class="fila compacta">
         <button id="senales-toggle" class="sec" disabled>Activar detección</button>
@@ -336,6 +353,9 @@ const SERVICIO_ARMAR = '/hardware/arm';
 const SERVICIO_DESTRABAR = '/hardware/obstacle_reset';
 const TOPIC_HARDWARE = '/hardware/status';
 const TOPIC_ESTADO = '/vehicle/state';
+const TOPIC_GRABACION = '/recorder/status';
+const SERVICIO_GRABAR = '/recorder/start';
+const SERVICIO_PARAR_GRABACION = '/recorder/stop';
 const NOMBRES_DECISION = ['arrancando', 'siguiendo el carril', 'en maniobra', 'EMERGENCIA'];
 const NOMBRES_MODO = ['dos líneas', 'una línea', 'predicho', 'PERDIDO'];   // LaneState.MODE_*
 const HOST_VALIDO = /^[A-Za-z0-9.\-]+$/;
@@ -1021,6 +1041,11 @@ function conectar() {
       op: 'subscribe', topic: TOPIC_ESTADO, type: 'bfmc_interfaces/msg/VehicleState',
       throttle_rate: 200, queue_length: 1,
     }));
+    socket.send(JSON.stringify({
+      op: 'subscribe', topic: TOPIC_GRABACION, type: 'std_msgs/msg/String',
+      throttle_rate: 500, queue_length: 1,
+    }));
+    fijarEstado('estado-grabacion', 'nodo sin lanzar', 'suave');
   };
   socket.onmessage = (evento) => {
     let msg;
@@ -1034,6 +1059,7 @@ function conectar() {
     if (msg.op === 'publish' && msg.topic === TOPIC_SENALES && msg.msg) mostrarSenales(msg.msg);
     if (msg.op === 'publish' && msg.topic === TOPIC_HARDWARE && msg.msg) mostrarHardware(msg.msg);
     if (msg.op === 'publish' && msg.topic === TOPIC_ESTADO && msg.msg) mostrarDecision(msg.msg);
+    if (msg.op === 'publish' && msg.topic === TOPIC_GRABACION && msg.msg) mostrarGrabacion(msg.msg);
     if (msg.op === 'service_response' && pendientes[msg.id]) {
       const pendiente = pendientes[msg.id];
       delete pendientes[msg.id];
@@ -1045,6 +1071,7 @@ function conectar() {
   };
   socket.onclose = () => {
     fijarEstado('estado-datos', quiereConexion ? 'desconectado, reintentando…' : 'desconectado', 'mal');
+    restablecerGrabacion();
     Object.keys(pendientes).forEach((id) => {
       clearTimeout(pendientes[id].temporizador);
       pendientes[id].rechazar(new Error('se cortó la conexión'));
@@ -1064,6 +1091,7 @@ function desconectar() {
   configuracionVideo = null;
   avisoDeSenales('');
   fijarEstado('estado-senales', 'sin conexión', 'suave');
+  restablecerGrabacion();
   mostrarEstadoSenales();
   clearTimeout(temporizadorReintento);
   if (socket) { socket.close(); socket = null; }
@@ -1159,6 +1187,67 @@ $('iniciar').addEventListener('click', async () => {
   clearTimeout(envioVelocidad);
   // Primero la velocidad que muestra el deslizador, así el auto no arranca con otra.
   if (await aplicarVelocidad(parseInt($('velocidad').value, 10))) pedirStop(false);
+});
+
+// --- Grabación (bfmc_recorder) ---
+let grabando = false;
+let ultimaGrabacion = '';
+
+function avisoDeGrabacion(texto) {
+  $('aviso-grabacion').textContent = texto || '';
+  $('aviso-grabacion').hidden = !texto;
+}
+
+function restablecerGrabacion() {
+  grabando = false;
+  $('grabar').disabled = true;
+  $('grabar').textContent = 'Grabar';
+  avisoDeGrabacion('');
+  fijarEstado('estado-grabacion', 'sin conexión', 'suave');
+}
+
+// Comandos para bajar la grabación a la PC y borrarla de la Jetson.
+function mostrarComandosDeGrabacion(nombre, carpeta) {
+  if (!/^[A-Za-z0-9_-]+$/.test(nombre)) return;
+  const host = $('host').value.trim();
+  const origen = (carpeta || '~/bfmc_grabaciones') + '/' + nombre;
+  $('comandos-grabacion').textContent = 'scp -r usuario@' + host + ':' + origen + ' .\n'
+    + 'ssh usuario@' + host + ' "rm -rf ' + origen + '"';
+  $('bajar-grabacion').hidden = false;
+}
+
+function mostrarGrabacion(msg) {
+  let datos;
+  try { datos = JSON.parse(msg.data); } catch (e) { return; }
+  const estabaGrabando = grabando;
+  grabando = Boolean(datos.grabando);
+  const boton = $('grabar');
+  boton.disabled = false;
+  boton.textContent = grabando ? 'Parar grabación' : 'Grabar';
+  if (grabando) {
+    ultimaGrabacion = datos.nombre || '';
+    $('bajar-grabacion').hidden = true;
+    fijarEstado('estado-grabacion', 'grabando · ' + Math.round(datos.segundos) + ' s · '
+      + (datos.cuadros || 0) + ' cuadros · ' + (datos.mb || 0) + ' MB', 'mal');
+  } else {
+    fijarEstado('estado-grabacion', datos.motivo_fin ? 'parada (' + datos.motivo_fin + ')' : 'lista', 'suave');
+    if (estabaGrabando || (datos.motivo_fin && ultimaGrabacion)) mostrarComandosDeGrabacion(ultimaGrabacion, datos.carpeta);
+  }
+}
+
+$('grabar').addEventListener('click', async () => {
+  const boton = $('grabar');
+  boton.disabled = true;
+  avisoDeGrabacion('');
+  try {
+    const r = await llamarServicio(grabando ? SERVICIO_PARAR_GRABACION : SERVICIO_GRABAR,
+      'std_srvs/srv/Trigger', {});
+    if (!r.success) avisoDeGrabacion(r.message);
+    else if (!grabando) ultimaGrabacion = r.message;
+  } catch (error) {
+    avisoDeGrabacion('no se pudo: ' + error.message + ' (¿está lanzado el recorder?)');
+  }
+  boton.disabled = false;
 });
 
 $('rearmar').addEventListener('click', async () => {
