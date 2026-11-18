@@ -162,6 +162,10 @@ class Marcas:
     # 'left': el carril de al lado se separa a la izquierda (su línea derecha sale de nuestra
     # línea izquierda, que sigue derecho). 'right': una salida a la derecha (una rama sale de
     # nuestra línea derecha, que sigue derecho). Nuestro carril siempre sigue derecho.
+    # Piso blanco fuera de la pista (prueba del 2026-11-18): desde esta distancia más allá de la
+    # línea derecha (piso_der) o del borde izquierdo del carril vecino (piso_izq), todo es blanco.
+    piso_der: float = None
+    piso_izq: float = None
     fork_s: float = None
     fork_R: float = 0.6
     fork_side: str = 'left'
@@ -212,6 +216,10 @@ def render(track, marcas, pose, t):
                 m |= en & (np.abs(D - (1.5 * w + abre)) < h)
         else:
             m |= en & (np.abs(D - (-w / 2 - abre)) < h)
+    if marcas.piso_der is not None:
+        m |= D < -w / 2 - marcas.piso_der
+    if marcas.piso_izq is not None:
+        m |= D > 1.5 * w + marcas.piso_izq
     if marcas.blob is not None:
         bs, bd, br = marcas.blob
         m |= (S - bs) ** 2 + (D - bd) ** 2 < br ** 2

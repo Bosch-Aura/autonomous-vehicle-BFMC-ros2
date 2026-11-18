@@ -57,6 +57,14 @@ CASOS += [
      Marcas(**BIF, fork_R=0.4, erase=[(0.9, 3.0, 'right')]), {}),
     ('B06 salida a la der', recta(), Marcas(center_line='solid', fork_s=1.3, fork_side='right'), {}),
 ]
+# Piso blanco fuera de la pista (prueba del 2026-11-18).
+CASOS += [
+    ('P01 recta, piso blanco a 5cm de la der', recta(), Marcas(piso_der=0.05), {}),
+    ('P02 recta, piso blanco a los dos lados', recta(), Marcas(piso_der=0.05, piso_izq=0.05), {}),
+    ('P03 recta, piso blanco + línea de pare', recta(), Marcas(piso_der=0.05, stop_line_s=1.6), {}),
+    ('P04 curva izq R=0.46, piso blanco afuera', curva('L', 0.46), Marcas(piso_der=0.05), {}),
+    ('P05 curva der R=0.66, piso blanco adentro', curva('R', 0.66), Marcas(piso_der=0.05), {}),
+]
 for k, nom in (('L', 'izq'), ('R', 'der')):
     for R in (1.2, 0.9, 0.66, 0.55, 0.46):
         CASOS.append((f'C {nom} R={R} (con vecino)', curva(k, R), Marcas(), {}))

@@ -101,6 +101,10 @@ class LaneConfig:
     l_offset: int = 15             # cuánto más claro que su zona tiene que ser el píxel
     l_min: int = 120               # piso fijo: más oscuro que esto nunca es línea
     clahe_clip: float = 0.0        # ecualización local del contraste antes del umbral; 0 = sin
+    # Piso blanco (2026-11-18): en la vista cenital se borran las zonas blancas más gruesas que
+    # esto en las dos direcciones (el piso fuera de la pista). Una línea, una línea de pare o una
+    # franja de la cebra son finas en alguna dirección y quedan. 0 = no se borra nada.
+    floor_max_line_m: float = 0.0
 
     def __post_init__(self):
         if len(self.white_hsv_min) != 3 or len(self.white_hsv_max) != 3:
@@ -151,6 +155,8 @@ class LaneConfig:
             raise ValueError('l_block_size_px debe ser impar y al menos 3')
         if not 0 <= self.l_offset <= 255 or not 0 <= self.l_min <= 255:
             raise ValueError('l_offset y l_min deben estar entre 0 y 255')
+        if self.floor_max_line_m < 0.0:
+            raise ValueError('floor_max_line_m no puede ser negativo')
         if self.clahe_clip < 0.0:
             raise ValueError('clahe_clip no puede ser negativo')
         if not 0.0 < self.intersection_row_fraction <= 1.0 or self.intersection_min_rows < 1:
@@ -365,9 +371,30 @@ class LaneDetector:
 
     def _vista_cenital(self, mascara, ancho, alto):
         cfg = self._config
-        return cv2.warpPerspective(
+        cenital = cv2.warpPerspective(
             mascara, self.warp_matrix(ancho, alto), (cfg.warp_width, cfg.warp_height),
             flags=cv2.INTER_NEAREST)
+        return self._sin_piso(cenital)
+
+    def _sin_piso(self, cenital):
+        """Borra las zonas blancas más gruesas que floor_max_line_m en x y en y (el piso).
+
+        Una apertura con un cuadrado de ese lado deja solo lo que es grueso en las dos
+        direcciones; eso (agrandado ~1 cm para llevarse su borde) se resta de la máscara.
+        Sin esto, un piso blanco fuera de la pista se toma por línea y llena filas enteras, que
+        el detector de intersección toma por una línea de pare (prueba del 2026-11-18).
+        """
+        cfg = self._config
+        if cfg.floor_max_line_m <= 0.0:
+            return cenital
+        lado_x = max(3, int(round(cfg.floor_max_line_m / self._mpp_x)))
+        lado_y = max(3, int(round(cfg.floor_max_line_m / self._mpp_y)))
+        grueso = cv2.morphologyEx(cenital, cv2.MORPH_OPEN, np.ones((lado_y, lado_x), np.uint8))
+        if not grueso.any():
+            return cenital
+        borde = 2 * max(1, int(round(0.01 / self._mpp_x))) + 1
+        grueso = cv2.dilate(grueso, np.ones((borde, borde), np.uint8))
+        return cv2.bitwise_and(cenital, cv2.bitwise_not(grueso))
 
     # --- líneas ---------------------------------------------------------------------
     def _buscar_lineas(self, cenital, trazas=None, previas=(None, None)):

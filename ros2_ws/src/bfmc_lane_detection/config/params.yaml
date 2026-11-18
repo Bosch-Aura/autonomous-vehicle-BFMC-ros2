@@ -24,6 +24,10 @@ lane_detection:
     white_hsv_min: [0, 0, 200]       # [H, S, V] mínimos
     white_hsv_max: [179, 60, 255]    # [H, S, V] máximos
     morph_kernel_px: 3               # [px] apertura morfológica que quita el ruido; 1 = sin apertura
+    # Piso blanco fuera de la pista (prueba del 2026-11-18, demo sobre piso blanco): en la vista
+    # cenital se borra todo lo blanco más grueso que esto en las dos direcciones. Las líneas (~2 cm),
+    # la línea de pare y las franjas de la cebra quedan. 0.0 = apagado (como antes).
+    floor_max_line_m: 0.08           # [m] [simulador; validar en pista]
 
     # 1b. Detector l_adaptativo: un píxel es blanco si su L supera en l_offset al promedio de
     # su vecindad (l_block_size_px) Y además L >= l_min (así el asfalto claro no pasa).

@@ -353,3 +353,51 @@ reales tienen algo que el sintético no (la curva previa, la luz, el ancho real 
 **De fondo:** en una «Y», con lo que se ve en ese momento no se puede saber cuál rama es la
 correcta. La solución robusta es que el auto sepa la ruta (ir derecho o doblar en cada
 bifurcación).
+
+---
+
+## 10. Piso blanco (prueba del 2026-11-18; la demo final es sobre piso blanco)
+
+**Qué pasó** (video `prueba3-tomaelpiso`, 19,5 a 23 s), con «Medio ancho» en 0,40 m:
+
+1. 20,5 s: el umbral de color marca todo el piso blanco fuera de la pista como «línea blanca»;
+   se pierde la línea derecha.
+2. 21,0 s: el piso llena filas enteras de la vista y el detector de intersección (que busca filas
+   blancas: una línea de pare) da **«Intersección: sí»**.
+3. 21,5 s: la decisión lanza la maniobra `intersection`, que avanza derecho **por tiempo, sin
+   mirar el carril**: el auto sale de la pista.
+
+En el piso oscuro del día anterior no pasaba: el piso no pasaba el umbral de color.
+
+**Simulador** (piso blanco a 5 cm de la línea derecha; 15 cuadros/s, 0,45 m/s, vista hasta 0,75 m):
+
+| Detector | Intersección falsa | Curva cerrada (R 0,46) con piso al lado |
+|---|---|---|
+| `hsv_ventanas` como estaba | Sí (en curvas) | Se sale; carril perdido 3,2 s |
+| `l_adaptativo` | No | Al límite (0,20 m) |
+| `hsv_ventanas` + **borrar lo grueso** | No | Bien (0,15 m) |
+
+La línea de pare se sigue detectando en los tres.
+
+**Decisión:** en la vista cenital se borra todo lo blanco más grueso que `floor_max_line_m` (0,08 m)
+**en las dos direcciones** (apertura morfológica con un cuadrado de ese lado, agrandada 1 cm, y
+restada). Una línea (~2 cm), una línea de pare o una franja de la cebra son finas en alguna
+dirección y quedan; el piso no. Está en el pipeline común: sirve para los dos detectores.
+`floor_max_line_m: 0.0` lo apaga, en vivo.
+
+**Alternativas:** `l_adaptativo` también evita la intersección falsa en el simulador y no necesita
+código, pero sus valores están sin afinar en pista y en la curva cerrada queda al límite. Se puede
+probar además, eligiéndolo en el visor.
+
+**Riesgos:** el piso sintético es blanco parejo; el real tiene juntas entre baldosas (las baldosas
+siguen siendo más grandes que 8 cm, así que se borran igual, pero falta verlo). Si la línea toca el
+piso, se borra junto con él: se pierde esa línea, pero no aparece una falsa.
+
+**Detectado de paso:** sin piso blanco, con el ajuste de `error_shift_m` para la curva cerrada
+(sección 8), las curvas de radio 0,66 m quedan al límite en el simulador (0,21 m contra 0,06 m sin el
+ajuste). El simulador y la pista no coinciden en esto: hace falta ver en la pista cómo hace la
+curva cerrada y las intermedias.
+
+**Pendiente:** que la intersección se pida solo con una franja **dentro del carril** (hoy cuenta
+cualquier fila blanca de la vista), para que una intersección falsa no pueda lanzar una maniobra a
+ciegas.
