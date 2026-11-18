@@ -42,6 +42,21 @@ CASOS = [
     ('R14 recta linea de pare', recta(), Marcas(stop_line_s=1.6), {}),
     ('R15 recta paso de cebra', recta(), Marcas(crosswalk_s=1.6), {}),
 ]
+# Bifurcaciones (prueba en pista del 2026-11-18): nuestro carril sigue derecho.
+BIF = dict(center_line='solid', fork_s=1.3)
+CASOS += [
+    ('B01 bifurcación a la izq', recta(), Marcas(**BIF), {}),
+    ('B02 bifurcación a la izq, abre rápido (R 0.4)', recta(), Marcas(**BIF, fork_R=0.4), {}),
+    ('B03 bifurcación a la izq, auto corrido 6cm izq', recta(), Marcas(**BIF), dict(d0=0.06)),
+    ('B04 bifurcación a la izq + paso de cebra', recta(), Marcas(**BIF, crosswalk_s=1.5), {}),
+    ('B05 bifurcación a la izq sin la línea derecha', recta(),
+     Marcas(**BIF, erase=[(0.9, 3.0, 'right')]), {}),
+    ('B07 bifurcación a la izq sin la derecha, corrido 5cm izq', recta(),
+     Marcas(**BIF, erase=[(0.9, 3.0, 'right')]), dict(d0=0.05)),
+    ('B08 bifurcación a la izq sin la derecha, abre rápido', recta(),
+     Marcas(**BIF, fork_R=0.4, erase=[(0.9, 3.0, 'right')]), {}),
+    ('B06 salida a la der', recta(), Marcas(center_line='solid', fork_s=1.3, fork_side='right'), {}),
+]
 for k, nom in (('L', 'izq'), ('R', 'der')):
     for R in (1.2, 0.9, 0.66, 0.55, 0.46):
         CASOS.append((f'C {nom} R={R} (con vecino)', curva(k, R), Marcas(), {}))

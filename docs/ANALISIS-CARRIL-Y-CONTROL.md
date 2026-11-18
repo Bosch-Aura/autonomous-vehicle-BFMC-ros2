@@ -317,3 +317,39 @@ cuenta para ángulos grandes (es la solución de fondo, pero lleva más tiempo).
 
 **Riesgos:** los umbrales salen de un solo bag de una sola pista; se ajustan en vivo. No se corrió
 el simulador con este cambio.
+
+---
+
+## 9. Bifurcación en «Y» (prueba del 2026-11-18)
+
+**Qué pasó** (video `prueba2-dashboard`, 13 a 16 s): el auto va por el carril derecho; la línea
+que lo separa del carril de contramano se abre en «Y» y el carril de la izquierda se va hacia la
+izquierda. El auto tomó la rama que se abre como su línea izquierda y dobló, cuando debía seguir
+derecho.
+
+**Cuadro por cuadro (vista desde arriba del dashboard):**
+
+1. 13,25 s: dos líneas; el carril venía doblando a la izquierda (rumbo +0,30 rad).
+2. 13,75 s: la línea derecha queda en el borde de la vista. «Medio ancho» estaba en **0,29 m**
+   (el repo trae 0,40) y el auto iba ~14 cm corrido hacia la izquierda.
+3. 14,0 s: pierde la derecha; queda solo nuestra línea izquierda (la que sigue derecho).
+4. 14,25 s: la búsqueda alrededor del polinomio previo de la izquierda pasa a la rama que se abre
+   (rumbo 35° a la izquierda): la rama continúa mejor la curva que venía.
+5. 14,5 s: ve la rama («izquierda») y la recta («derecha»); el ancho no da y descarta la recta.
+
+**Simulador** (casos B01 a B08 en `herramientas/simulador_carril/casos.py`): con la línea derecha
+visible, el auto sigue derecho en todas las bifurcaciones, también con 0,29 m de medio ancho,
+15 cuadros/s, 0,45 m/s y vista hasta 0,75 m. El simulador **no reproduce** la falla: los cuadros
+reales tienen algo que el sintético no (la curva previa, la luz, el ancho real de la línea).
+
+**Decisiones:**
+
+| Decisión | Por qué |
+|---|---|
+| Volver «Medio ancho» (`calib_half_width_m`) a 0,40 m | Con la línea derecha a la vista el detector no se va por la rama (simulador: 7 de 7) |
+| **No** implementar «descartar la línea que cambió» ni «ventanas que eligen una rama» | Se habían propuesto antes de ver la vista desde arriba. No arreglan esta secuencia: la rama la tomó la búsqueda alrededor del polinomio previo, que en ese momento ya era la rama |
+| Si se repite: bag con imágenes en la bifurcación | Correr el detector real sobre esos cuadros y ver el salto con datos |
+
+**De fondo:** en una «Y», con lo que se ve en ese momento no se puede saber cuál rama es la
+correcta. La solución robusta es que el auto sepa la ruta (ir derecho o doblar en cada
+bifurcación).

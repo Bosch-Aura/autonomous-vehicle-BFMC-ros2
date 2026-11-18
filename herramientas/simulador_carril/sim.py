@@ -158,6 +158,13 @@ class Marcas:
     blob: tuple = None                      # (s, d, radio) mancha de reflejo
     erase: list = field(default_factory=list)  # [(s0, s1, 'right'|'center'|'all')] tramos borrados
     blind: list = field(default_factory=list)  # [(t0, t1)] cuadros sin nada (encandilamiento)
+    # Bifurcación: desde fork_s, una línea se abre en «Y» con un arco tangente de radio fork_R.
+    # 'left': el carril de al lado se separa a la izquierda (su línea derecha sale de nuestra
+    # línea izquierda, que sigue derecho). 'right': una salida a la derecha (una rama sale de
+    # nuestra línea derecha, que sigue derecho). Nuestro carril siempre sigue derecho.
+    fork_s: float = None
+    fork_R: float = 0.6
+    fork_side: str = 'left'
 
 
 def render(track, marcas, pose, t):
@@ -193,6 +200,18 @@ def render(track, marcas, pose, t):
     if marcas.crosswalk_s is not None:
         en = (S > marcas.crosswalk_s) & (S < marcas.crosswalk_s + 0.30) & (D > -w / 2) & (D < 1.5 * w)
         m |= en & (np.mod(D + w / 2, 0.10) < 0.05)
+    if marcas.fork_s is not None:
+        u = S - marcas.fork_s
+        R = marcas.fork_R
+        en = (u > 0) & (u < 0.95 * R)
+        abre = np.where(en, R - np.sqrt(np.maximum(R * R - u * u, 0.0)), 0.0)
+        if marcas.fork_side == 'left':
+            m |= en & (np.abs(D - (w / 2 + abre)) < h)
+            if marcas.adjacent_outer:
+                m &= ~(en & (np.abs(D - 1.5 * w) < h))          # el borde vecino también se va
+                m |= en & (np.abs(D - (1.5 * w + abre)) < h)
+        else:
+            m |= en & (np.abs(D - (-w / 2 - abre)) < h)
     if marcas.blob is not None:
         bs, bd, br = marcas.blob
         m |= (S - bs) ** 2 + (D - bd) ** 2 < br ** 2
