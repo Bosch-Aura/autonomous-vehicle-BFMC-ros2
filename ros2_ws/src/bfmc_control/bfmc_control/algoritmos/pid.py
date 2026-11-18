@@ -58,13 +58,31 @@ class Pid(AlgoritmoDeGiro):
         return giro, cfg.cruise_speed_mps
 
     @staticmethod
+    def corrimiento(cfg, lane):
+        """error_shift_m según qué tan cerrada es la curva (bag del 2026-11-17).
+
+        Correr el error hacia el auto usa una cuenta de ángulo chico. En la curva cerrada de la
+        pista (curvatura 1,2 a 1,5 1/m, rumbo medido de 35 a 45°), con 0,38 el PID pedía ~11°
+        cuando hacían falta ~21°, y el auto se abría. En la curva suave (curvatura <= 0,9),
+        0,38 funcionó. Por eso: error_shift_m hasta error_shift_tight_kappa_start, y de ahí
+        baja en línea recta hasta error_shift_tight_m en error_shift_tight_kappa_full. La
+        curvatura es la publicada por lane_detection (filtrada por el Kalman).
+        """
+        base = cfg.error_shift_m
+        inicio, lleno = cfg.error_shift_tight_kappa_start, cfg.error_shift_tight_kappa_full
+        if lleno <= 0.0 or not math.isfinite(lane.curvature):
+            return base
+        fraccion = min(1.0, max(0.0, (abs(lane.curvature) - inicio) / (lleno - inicio)))
+        return base + fraccion * (cfg.error_shift_tight_m - base)
+
+    @staticmethod
     def _error_mas_cerca(cfg, lane, curvatura):
         """Desvío y rumbo evaluados error_shift_m más cerca del auto, sobre la misma línea.
 
         El carril se midió en un punto delante del auto: con s = -error_shift_m, el centro del
         carril ahí es y(s) = d + psi * s + curvatura * s^2 / 2, y su rumbo es psi + curvatura * s.
         """
-        corrimiento = cfg.error_shift_m
+        corrimiento = Pid.corrimiento(cfg, lane)
         if corrimiento <= 0.0:
             return lane.lateral_error_m, lane.heading_error_rad
         s = -corrimiento

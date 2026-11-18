@@ -62,6 +62,12 @@ control:
     # adentro (en el simulador se salía en 21 de 22 curvas). 0.38 lo evalúa en el pie de la cámara
     # (camera_to_rear_axle_m = 0,20 m). Si en pista dobla tarde, bajar; si dobla antes, subir.
     error_shift_m: 0.38                # [m] [simulador; validar en pista]
+    # En la curva cerrada se usa menos corrimiento (bag del 2026-11-17: con 0,38 el auto se abría;
+    # con 0,30 la suave empeoraba). Curvatura medida en ese bag: suave 0,35-0,89, cerrada 1,16-1,53 1/m.
+    # Entre start y full pasa de error_shift_m a error_shift_tight_m. full en 0.0 lo apaga.
+    error_shift_tight_m: 0.20          # [m] [bag; validar en pista]
+    error_shift_tight_kappa_start: 0.9 # [1/m]
+    error_shift_tight_kappa_full: 1.2  # [1/m]
 
     # Límite físico (informe 4.12.1): con el tope de 25° y wheelbase_m, R_min = L / tan(25°)
     # ~ 0,56 m. Si el carril pide una curva más cerrada (curvatura confiable > 1 / R_min), la

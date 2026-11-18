@@ -282,3 +282,38 @@ ros2 param set /lane_detection kalman_wheelbase_m 0.0  # filtro prendido pero si
   20 a 60 cm antes, porque un solo polinomio cubre toda la vista.
 - [ ] `test_flake8` ya fallaba antes de este cambio en `bfmc_lane_detection`, `bfmc_control` y
   `bfmc_bringup` (archivos no tocados acá). Los tests nuevos de `test_lane_kalman.py` pasan.
+
+---
+
+## 8. Prueba en pista del 2026-11-17 y ajuste para la curva cerrada
+
+**Resultado de la prueba** (`hsv_ventanas` + `pid`, 0,41 m/s, vista hasta 0,75 m): recta y curva
+suave, muy bien. En la curva cerrada el auto **se abre hacia afuera**.
+
+**Qué mostró el bag** (`20261117_234430_curva_cerrada`):
+
+- La detección veía la curva: rumbo de 16° a 45° y curvatura de 1,16 a 1,53 1/m, casi siempre con
+  **una sola línea** (la exterior).
+- El control pedía poco giro: mediana de **11°**, cuando hacían falta ~21°.
+- Reproducción: pasando lo medido por el control del repo, se obtiene lo grabado (mediana 1,1°
+  de diferencia). La causa es `error_shift_m 0.38`. Con un rumbo de 35° a 45°, la cuenta de ángulo
+  chico que lleva el error hacia el auto se pasa y el PID resta giro.
+- `curvature_ff_min_confidence 0.6` **no ayuda** (descartado).
+- Con `error_shift_m 0.30` en pista: la cerrada mejora (se pasa un poco de las líneas), pero la
+  suave empeora. **Un solo valor no sirve para las dos curvas.**
+
+**Decisión:** `error_shift_m` depende de la curvatura medida. Hasta 0,9 1/m usa 0,38 (la suave
+midió 0,35–0,89); desde 1,2 1/m usa 0,20 (la cerrada midió 1,16–1,53); en el medio, interpola. Son
+3 parámetros nuevos (`error_shift_tight_m`, `error_shift_tight_kappa_start`,
+`error_shift_tight_kappa_full`); `error_shift_tight_kappa_full: 0.0` lo apaga.
+
+| Reproducción del bag | Giro mediano |
+|---|---|
+| Curva suave | 8,6° (igual que con 0,38, que funcionó) |
+| Curva cerrada | 25° (antes, 11°) |
+
+**Descartado:** elegir por el rumbo (la suave llega a 29° y la cerrada arranca en 16°) y arreglar la
+cuenta para ángulos grandes (es la solución de fondo, pero lleva más tiempo).
+
+**Riesgos:** los umbrales salen de un solo bag de una sola pista; se ajustan en vivo. No se corrió
+el simulador con este cambio.

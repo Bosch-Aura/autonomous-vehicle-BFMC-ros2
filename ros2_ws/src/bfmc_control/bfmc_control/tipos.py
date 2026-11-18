@@ -69,6 +69,12 @@ class ControlConfig:
     # Además, evalúa el desvío y el rumbo esta distancia más cerca del auto sobre la misma
     # línea. Cambia también el giro de régimen en la curva (queda menor). 0 = como antes.
     error_shift_m: float = 0.0
+    # error_shift_m en curva cerrada: se pasa de error_shift_m a error_shift_tight_m a medida que
+    # |curvatura| va de error_shift_tight_kappa_start a error_shift_tight_kappa_full.
+    # error_shift_tight_kappa_full <= 0 lo apaga (siempre error_shift_m).
+    error_shift_tight_m: float = 0.0
+    error_shift_tight_kappa_start: float = 0.0
+    error_shift_tight_kappa_full: float = 0.0
     # Límite físico (informe, 4.12.1): con el tope de dirección max_steer_rad el auto no puede
     # seguir una curva más cerrada que R_min = L / tan(max_steer_rad). Si el carril pide más,
     # la velocidad baja a esta fracción: no hay controlador que la tome, así que se entra más
@@ -110,6 +116,12 @@ class ControlConfig:
             raise ValueError('curvature_ff_max debe ser positivo')
         if not 0.0 <= self.turn_delay_m <= 0.5 or not 0.0 <= self.error_shift_m <= 0.5:
             raise ValueError('turn_delay_m y error_shift_m deben estar en [0, 0,5] m')
+        if not 0.0 <= self.error_shift_tight_m <= 0.5:
+            raise ValueError('error_shift_tight_m debe estar en [0, 0,5] m')
+        if self.error_shift_tight_kappa_full > 0.0 and not (
+                0.0 <= self.error_shift_tight_kappa_start < self.error_shift_tight_kappa_full):
+            raise ValueError('error_shift_tight_kappa_start debe ser >= 0 y menor que '
+                             'error_shift_tight_kappa_full')
         if not 0.0 < self.infeasible_curve_speed_factor <= 1.0:
             raise ValueError('infeasible_curve_speed_factor debe estar en (0, 1]')
         if self.algorithm not in ALGORITMOS:

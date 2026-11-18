@@ -17,6 +17,7 @@ PARAMETROS_DE_LA_LOGICA = (
     'cruise_speed_mps', 'lost_speed_factor', 'slowdown_gain', 'max_dt_s', 'hold_steer_s',
     'curvature_ff_gain', 'curvature_ff_min_confidence', 'curvature_ff_max', 'curvature_ff_hold_s',
     'turn_delay_m', 'error_shift_m', 'infeasible_curve_speed_factor',
+    'error_shift_tight_m', 'error_shift_tight_kappa_start', 'error_shift_tight_kappa_full',
 )
 # Pure Pursuit (A2-155): nombre del parámetro = campo de PurePursuitConfig.
 PARAMETROS_DE_PURE_PURSUIT = (
