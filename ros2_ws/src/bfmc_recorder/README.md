@@ -22,6 +22,17 @@ Sin visor: `ros2 service call /recorder/start std_srvs/srv/Trigger` y `/recorder
 
 Son archivos comunes (JPEG y JSON): se leen sin ROS. A 10 cuadros por segundo son unos 30–40 MB por minuto.
 
+## Repetir una grabación por el detector (`repetir_carril.py`)
+
+Pasa los cuadros por el mismo detector y tracker que el nodo `lane_detection`, con otros parámetros, sin ROS corriendo ni el auto. Hace falta `bfmc_lane_detection` instalado o en `PYTHONPATH`.
+
+```
+python3 -m bfmc_recorder.repetir_carril GRABACION detector=l_adaptativo l_offset=20
+python3 -m bfmc_recorder.repetir_carril GRABACION --grilla calib_half_width_m=0.30,0.36 lane_width_tolerance_m=0.05,0.08 detector=l_adaptativo
+```
+
+Cada `nombre=valor` pisa un parámetro (los demás salen de `params_lane_detection.yaml` de la grabación). Con `--grilla`, los que traen varios valores separados por coma se combinan todos con todos. Imprime por combinación el porcentaje de cuadros con dos líneas, una, predicho y perdido, los cambios de lado, los saltos de rumbo mayores a 0,4 rad y el desvío medio.
+
 ## Parámetros (`config/params.yaml`)
 
 | Parámetro | Unidad | Qué hace |
